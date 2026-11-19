@@ -1,0 +1,84 @@
+# Build
+/build/
+/out/
+/dist/
+compile_commands.json
+.ninja_*
+*.o
+*.a
+*.so
+*.exe
+*.AppImage
+
+# Generated (large; regenerate with tools/build_generated.py)
+/generated/
+/out/
+
+# Runtime dumps / screenshots (local test artifacts)
+*.bmp
+/shot_*.png
+/capture.txt
+/capture_ps.hlsl
+/dump/
+/nand/
+/shadercache/
+/efb*.bmp
+/efbstep_*.bmp
+/tex_*.bmp
+
+# Pinned upstream checkouts (see docs/DEPENDENCIES.md); keep local, don't vendor in git
+/external/
+
+# Game data (copyrighted)
+/game/
+*.iso
+*.ISO
+*.wbfs
+*.WBFS
+*.rvz
+*.RVZ
+*.wia
+*.WIA
+*.gcm
+*.nkit.*
+
+# Local / personal
+.env
+.env.*
+*.log
+config.ini
+/nand/
+/textures/
+/userdata/
+# Ignore mod trees, but keep the shared music catalog + README trackable.
+# (A ignored parent directory cannot be re-included — un-ignore step by step.)
+/mods/*
+!/mods/music/
+/mods/music/*
+!/mods/music/catalog.json
+!/mods/music/README.md
+/dump/
+/shadercache/
+.cache/
+.vscode/
+.idea/
+*.user
+mem2_dump.bin
+out/ui_shots/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.venv-music/
+venv/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+
+# OS
+.DS_Store
+Thumbs.db

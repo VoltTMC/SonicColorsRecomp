@@ -1,0 +1,4738 @@
+{
+  "version": 1,
+  "game": "SNCP8P",
+  "archives": [
+    {
+      "name": "sonic2010_0.cpk",
+      "sha256": "58bbf2be97a2f08effb5752bd40eea8a1ba76a18349937a32351624d855651bf",
+      "path": "/home/volt/Decomp/SonicColorsRecomp/game/SNCP8P/files/sonic2010_0.cpk"
+    }
+  ],
+  "asset_count": 114,
+  "music_count": 114,
+  "skipped_voice_or_other": 476,
+  "assets": [
+    {
+      "id": "bgm_boss_Jellyboss_fx_wav__77cae78bb7f6",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_boss_Jellyboss_fx_wav.aax",
+      "filename": "bgm_boss_Jellyboss_fx_wav.aax",
+      "file_id": 586,
+      "toc_index": 1081,
+      "file_offset": 101727968,
+      "file_size": 4307984,
+      "extract_size": 4307984,
+      "category": "boss",
+      "variant": "fx",
+      "label": "Boss: Jellyboss (FX)",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_boss_Jellyboss",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 7658236,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 159.547,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1423400,
+            "data_size": 800734,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 6234836,
+            "data_size": 3507160,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_boss_Jellyboss_normal_wav__f55557519002",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_boss_Jellyboss_normal_wav.aax",
+      "filename": "bgm_boss_Jellyboss_normal_wav.aax",
+      "file_id": 587,
+      "toc_index": 1082,
+      "file_offset": 106035968,
+      "file_size": 8615768,
+      "extract_size": 8615768,
+      "category": "boss",
+      "variant": "main",
+      "label": "Boss: Jellyboss",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_boss_Jellyboss",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 7658236,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 159.547,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1423400,
+            "data_size": 1601410,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 6234836,
+            "data_size": 7014262,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_boss_coreboss_fx_wav__95bd66434b76",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_boss_coreboss_fx_wav.aax",
+      "filename": "bgm_boss_coreboss_fx_wav.aax",
+      "file_id": 584,
+      "toc_index": 1079,
+      "file_offset": 93627456,
+      "file_size": 2700232,
+      "extract_size": 2700232,
+      "category": "boss",
+      "variant": "fx",
+      "label": "Boss: coreboss (FX)",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_boss_coreboss",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 4800029,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 100.001,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 640031,
+            "data_size": 360076,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 4159998,
+            "data_size": 2340058,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_boss_coreboss_wav__14f95ae3a3e6",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_boss_coreboss_wav.aax",
+      "filename": "bgm_boss_coreboss_wav.aax",
+      "file_id": 585,
+      "toc_index": 1080,
+      "file_offset": 96327712,
+      "file_size": 5400248,
+      "extract_size": 5400248,
+      "category": "boss",
+      "variant": "main",
+      "label": "Boss: coreboss",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_boss_coreboss",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 4800029,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 100.001,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 640031,
+            "data_size": 720094,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 4159998,
+            "data_size": 4680058,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_boss_lastboss2_fx_wav__875892822360",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_boss_lastboss2_fx_wav.aax",
+      "filename": "bgm_boss_lastboss2_fx_wav.aax",
+      "file_id": 588,
+      "toc_index": 1083,
+      "file_offset": 114651744,
+      "file_size": 5170600,
+      "extract_size": 5170600,
+      "category": "boss",
+      "variant": "fx",
+      "label": "Boss: lastboss2 (FX)",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_boss_lastboss2",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 9191767,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 191.495,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1473939,
+            "data_size": 829156,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 7717828,
+            "data_size": 4341352,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_boss_lastboss_1_fx_wav__f2147c1840f0",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_boss_lastboss_1_fx_wav.aax",
+      "filename": "bgm_boss_lastboss_1_fx_wav.aax",
+      "file_id": 589,
+      "toc_index": 1084,
+      "file_offset": 119822368,
+      "file_size": 6515328,
+      "extract_size": 6515328,
+      "category": "boss",
+      "variant": "fx",
+      "label": "Boss: lastboss 1 (FX)",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_boss_lastboss_1",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 11582425,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 241.301,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 296992,
+            "data_size": 167116,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 11285433,
+            "data_size": 6348118,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_boss_lastboss_1_wav__c537cd903407",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_boss_lastboss_1_wav.aax",
+      "filename": "bgm_boss_lastboss_1_wav.aax",
+      "file_id": 590,
+      "toc_index": 1085,
+      "file_offset": 126337696,
+      "file_size": 13030448,
+      "extract_size": 13030448,
+      "category": "boss",
+      "variant": "main",
+      "label": "Boss: lastboss 1",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_boss_lastboss_1",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 11582425,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 241.301,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 296992,
+            "data_size": 334174,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 11285433,
+            "data_size": 12696178,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_boss_lastboss_2_fx_wav__9e1e62088a8c",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_boss_lastboss_2_fx_wav.aax",
+      "filename": "bgm_boss_lastboss_2_fx_wav.aax",
+      "file_id": 591,
+      "toc_index": 1086,
+      "file_offset": 139368160,
+      "file_size": 5366080,
+      "extract_size": 5366080,
+      "category": "boss",
+      "variant": "fx",
+      "label": "Boss: lastboss 2 (FX)",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_boss_lastboss_2",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 9539278,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 198.735,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1821121,
+            "data_size": 1024456,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 7718157,
+            "data_size": 4341532,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_boss_lastboss_2_wav__659339b730c5",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_boss_lastboss_2_wav.aax",
+      "filename": "bgm_boss_lastboss_2_wav.aax",
+      "file_id": 592,
+      "toc_index": 1087,
+      "file_offset": 144734240,
+      "file_size": 10731952,
+      "extract_size": 10731952,
+      "category": "boss",
+      "variant": "main",
+      "label": "Boss: lastboss 2",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_boss_lastboss_2",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 9539278,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 198.735,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1821121,
+            "data_size": 2048854,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 7718157,
+            "data_size": 8683006,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_boss_shipboss_fx_wav__d6042cdf53f9",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_boss_shipboss_fx_wav.aax",
+      "filename": "bgm_boss_shipboss_fx_wav.aax",
+      "file_id": 593,
+      "toc_index": 1088,
+      "file_offset": 155466208,
+      "file_size": 2655384,
+      "extract_size": 2655384,
+      "category": "boss",
+      "variant": "fx",
+      "label": "Boss: shipboss (FX)",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_boss_shipboss",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 4720270,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 98.339,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 673860,
+            "data_size": 379120,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 4046410,
+            "data_size": 2276176,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_boss_shipboss_wav__1af8b07fe27f",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_boss_shipboss_wav.aax",
+      "filename": "bgm_boss_shipboss_wav.aax",
+      "file_id": 594,
+      "toc_index": 1089,
+      "file_offset": 158121600,
+      "file_size": 5310568,
+      "extract_size": 5310568,
+      "category": "boss",
+      "variant": "main",
+      "label": "Boss: shipboss",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_boss_shipboss",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 4720270,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 98.339,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 673860,
+            "data_size": 758182,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 4046410,
+            "data_size": 4552294,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_jingle_boss_clear_wav__29b9697a18cd",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_jingle_boss_clear_wav.aax",
+      "filename": "bgm_jingle_boss_clear_wav.aax",
+      "file_id": 595,
+      "toc_index": 1090,
+      "file_offset": 163432192,
+      "file_size": 544136,
+      "extract_size": 544136,
+      "category": "jingle",
+      "variant": "main",
+      "label": "Jingle: boss clear",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_jingle_boss_clear",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 483535,
+        "segment_count": 1,
+        "has_loop_segments": false,
+        "duration_sec": 10.074,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 483535,
+            "data_size": 544054,
+            "loop": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_jingle_drown_wav__9dade20ea56f",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_jingle_drown_wav.aax",
+      "filename": "bgm_jingle_drown_wav.aax",
+      "file_id": 596,
+      "toc_index": 1091,
+      "file_offset": 163976352,
+      "file_size": 774216,
+      "extract_size": 774216,
+      "category": "jingle",
+      "variant": "main",
+      "label": "Jingle: drown",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_jingle_drown",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 688055,
+        "segment_count": 1,
+        "has_loop_segments": false,
+        "duration_sec": 14.334,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 688055,
+            "data_size": 774130,
+            "loop": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_jingle_gameover_wav__0c8a1319a47e",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_jingle_gameover_wav.aax",
+      "filename": "bgm_jingle_gameover_wav.aax",
+      "file_id": 597,
+      "toc_index": 1092,
+      "file_offset": 164750592,
+      "file_size": 1041336,
+      "extract_size": 1041336,
+      "category": "jingle",
+      "variant": "main",
+      "label": "Jingle: gameover",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_jingle_gameover",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 925420,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 19.28,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 180980,
+            "data_size": 203674,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 744440,
+            "data_size": 837562,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_jingle_mlt_clear_wav__e6621833bf2b",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_jingle_mlt_clear_wav.aax",
+      "filename": "bgm_jingle_mlt_clear_wav.aax",
+      "file_id": 598,
+      "toc_index": 1093,
+      "file_offset": 165791936,
+      "file_size": 660848,
+      "extract_size": 660848,
+      "category": "jingle",
+      "variant": "main",
+      "label": "Jingle: mlt clear",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_jingle_mlt_clear",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 587291,
+        "segment_count": 1,
+        "has_loop_segments": false,
+        "duration_sec": 12.235,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 587291,
+            "data_size": 660766,
+            "loop": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_jingle_mlt_drown_wav__565670d3e66e",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_jingle_mlt_drown_wav.aax",
+      "filename": "bgm_jingle_mlt_drown_wav.aax",
+      "file_id": 599,
+      "toc_index": 1094,
+      "file_offset": 166452800,
+      "file_size": 715280,
+      "extract_size": 715280,
+      "category": "jingle",
+      "variant": "main",
+      "label": "Jingle: mlt drown",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_jingle_mlt_drown",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 635576,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 13.241,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 317478,
+            "data_size": 357250,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 318098,
+            "data_size": 357934,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_jingle_stg_clear_wav__8244b7242e09",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_jingle_stg_clear_wav.aax",
+      "filename": "bgm_jingle_stg_clear_wav.aax",
+      "file_id": 600,
+      "toc_index": 1095,
+      "file_offset": 167168096,
+      "file_size": 532728,
+      "extract_size": 532728,
+      "category": "jingle",
+      "variant": "main",
+      "label": "Jingle: stg clear",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_jingle_stg_clear",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 473380,
+        "segment_count": 1,
+        "has_loop_segments": false,
+        "duration_sec": 9.862,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 473380,
+            "data_size": 532642,
+            "loop": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_jingle_super_sonic_wav__809d7335e713",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_jingle_super_sonic_wav.aax",
+      "filename": "bgm_jingle_super_sonic_wav.aax",
+      "file_id": 601,
+      "toc_index": 1096,
+      "file_offset": 167700832,
+      "file_size": 1020560,
+      "extract_size": 1020560,
+      "category": "jingle",
+      "variant": "main",
+      "label": "Jingle: super sonic",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_jingle_super_sonic",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 906960,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 18.895,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 3,
+            "data_size": 58,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 906957,
+            "data_size": 1020406,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_worldmap_wav__39fe5af76879",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_worldmap_wav.aax",
+      "filename": "bgm_worldmap_wav.aax",
+      "file_id": 686,
+      "toc_index": 1185,
+      "file_offset": 538649504,
+      "file_size": 2720192,
+      "extract_size": 2720192,
+      "category": "map",
+      "variant": "main",
+      "label": "World Map",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_worldmap",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 2417738,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 50.37,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 258266,
+            "data_size": 290614,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 2159472,
+            "data_size": 2429482,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_zmap_ast_wav__165a2dc0b0b4",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_zmap_ast_wav.aax",
+      "filename": "bgm_zmap_ast_wav.aax",
+      "file_id": 687,
+      "toc_index": 1186,
+      "file_offset": 541369696,
+      "file_size": 7744320,
+      "extract_size": 7744320,
+      "category": "map",
+      "variant": "main",
+      "label": "Zone Map: Asteroid Coaster",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_zmap_ast",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 6883604,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 143.408,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 899108,
+            "data_size": 1011586,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 5984496,
+            "data_size": 6732634,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_zmap_elv_wav__e2f2e95b2195",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_zmap_elv_wav.aax",
+      "filename": "bgm_zmap_elv_wav.aax",
+      "file_id": 688,
+      "toc_index": 1187,
+      "file_offset": 549114016,
+      "file_size": 4411256,
+      "extract_size": 4411256,
+      "category": "map",
+      "variant": "main",
+      "label": "Zone Map: Terminal Velocity",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_zmap_elv",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 3920921,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 81.686,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 589789,
+            "data_size": 663574,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 3331132,
+            "data_size": 3747586,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_zmap_fct_wav__3cf5a188e7ba",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_zmap_fct_wav.aax",
+      "filename": "bgm_zmap_fct_wav.aax",
+      "file_id": 689,
+      "toc_index": 1188,
+      "file_offset": 553525280,
+      "file_size": 6879416,
+      "extract_size": 6879416,
+      "category": "map",
+      "variant": "main",
+      "label": "Zone Map: Sweet Mountain",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_zmap_fct",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 6114820,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 127.392,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 20886,
+            "data_size": 23566,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 6093934,
+            "data_size": 6855754,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_zmap_pla_wav__f2be5875eeb2",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_zmap_pla_wav.aax",
+      "filename": "bgm_zmap_pla_wav.aax",
+      "file_id": 690,
+      "toc_index": 1189,
+      "file_offset": 560404704,
+      "file_size": 8124296,
+      "extract_size": 8124296,
+      "category": "map",
+      "variant": "main",
+      "label": "Zone Map: Planet Wisp",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_zmap_pla",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 7221385,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 150.446,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 343860,
+            "data_size": 386914,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 6877525,
+            "data_size": 7737286,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_zmap_qua_wav__1585708c9386",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_zmap_qua_wav.aax",
+      "filename": "bgm_zmap_qua_wav.aax",
+      "file_id": 691,
+      "toc_index": 1190,
+      "file_offset": 568529024,
+      "file_size": 7135552,
+      "extract_size": 7135552,
+      "category": "map",
+      "variant": "main",
+      "label": "Zone Map: Aquarium Park",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_zmap_qua",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 6342480,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 132.135,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 258633,
+            "data_size": 291046,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 6083847,
+            "data_size": 6844414,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_zmap_rso_wav__1ae343557306",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_zmap_rso_wav.aax",
+      "filename": "bgm_zmap_rso_wav.aax",
+      "file_id": 692,
+      "toc_index": 1191,
+      "file_offset": 575664576,
+      "file_size": 5781488,
+      "extract_size": 5781488,
+      "category": "map",
+      "variant": "main",
+      "label": "Zone Map: Tropical Resort",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_zmap_rso",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 5138882,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 107.06,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 176443,
+            "data_size": 198562,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 4962439,
+            "data_size": 5582830,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_zmap_shp_wav__02dd396bd197",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_zmap_shp_wav.aax",
+      "filename": "bgm_zmap_shp_wav.aax",
+      "file_id": 693,
+      "toc_index": 1192,
+      "file_offset": 581446080,
+      "file_size": 9127576,
+      "extract_size": 9127576,
+      "category": "map",
+      "variant": "main",
+      "label": "Zone Map: Starlight Carnival",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_zmap_shp",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 8113197,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 169.025,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1016795,
+            "data_size": 1143958,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 7096402,
+            "data_size": 7983526,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_sys_challenge_result_wav__ed023bd85a59",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_sys_challenge_result_wav.aax",
+      "filename": "bgm_sys_challenge_result_wav.aax",
+      "file_id": 451,
+      "toc_index": 1176,
+      "file_offset": 316757376,
+      "file_size": 1870920,
+      "extract_size": 1870920,
+      "category": "menu",
+      "variant": "main",
+      "label": "System: challenge result",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_sys_challenge_result",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 1662820,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 34.642,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 347570,
+            "data_size": 391090,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 1315250,
+            "data_size": 1479730,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_sys_challenge_wav__b7f561c5ec4d",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_sys_challenge_wav.aax",
+      "filename": "bgm_sys_challenge_wav.aax",
+      "file_id": 1954,
+      "toc_index": 1177,
+      "file_offset": 318628320,
+      "file_size": 2475864,
+      "extract_size": 2475864,
+      "category": "menu",
+      "variant": "main",
+      "label": "System: challenge",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_sys_challenge",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 2200522,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 45.844,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 965670,
+            "data_size": 1086466,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 1234852,
+            "data_size": 1389298,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_sys_end_wav__40c643fc9ec4",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_sys_end_wav.aax",
+      "filename": "bgm_sys_end_wav.aax",
+      "file_id": 679,
+      "toc_index": 1178,
+      "file_offset": 255638592,
+      "file_size": 15778040,
+      "extract_size": 15778040,
+      "category": "menu",
+      "variant": "main",
+      "label": "System: end",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_sys_end",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 14024789,
+        "segment_count": 1,
+        "has_loop_segments": false,
+        "duration_sec": 292.183,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 14024789,
+            "data_size": 15777958,
+            "loop": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_sys_op_wav__0089656261fe",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_sys_op_wav.aax",
+      "filename": "bgm_sys_op_wav.aax",
+      "file_id": 681,
+      "toc_index": 1180,
+      "file_offset": 275194048,
+      "file_size": 13151696,
+      "extract_size": 13151696,
+      "category": "menu",
+      "variant": "main",
+      "label": "System: op",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_sys_op",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 11690246,
+        "segment_count": 1,
+        "has_loop_segments": false,
+        "duration_sec": 243.547,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 11690246,
+            "data_size": 13151614,
+            "loop": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_sys_option_wav__dd89984ae521",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_sys_option_wav.aax",
+      "filename": "bgm_sys_option_wav.aax",
+      "file_id": 680,
+      "toc_index": 1179,
+      "file_offset": 271416640,
+      "file_size": 3777400,
+      "extract_size": 3777400,
+      "category": "menu",
+      "variant": "main",
+      "label": "System: option",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_sys_option",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 3357478,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 69.947,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1007186,
+            "data_size": 1133158,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 2350292,
+            "data_size": 2644150,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_sys_result_wav__06ad1eafc393",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_sys_result_wav.aax",
+      "filename": "bgm_sys_result_wav.aax",
+      "file_id": 682,
+      "toc_index": 1181,
+      "file_offset": 288345760,
+      "file_size": 2501528,
+      "extract_size": 2501528,
+      "category": "menu",
+      "variant": "main",
+      "label": "System: result",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_sys_result",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 2223371,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 46.32,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 411508,
+            "data_size": 463018,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 1811863,
+            "data_size": 2038414,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_sys_save_wav__3c568541ca94",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_sys_save_wav.aax",
+      "filename": "bgm_sys_save_wav.aax",
+      "file_id": 683,
+      "toc_index": 1182,
+      "file_offset": 290847296,
+      "file_size": 2715768,
+      "extract_size": 2715768,
+      "category": "menu",
+      "variant": "main",
+      "label": "System: save",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_sys_save",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 2413781,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 50.287,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 184033,
+            "data_size": 207130,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 2229748,
+            "data_size": 2508538,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_sys_theme_wav__9a83251dfefa",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_sys_theme_wav.aax",
+      "filename": "bgm_sys_theme_wav.aax",
+      "file_id": 684,
+      "toc_index": 1183,
+      "file_offset": 293563072,
+      "file_size": 15164456,
+      "extract_size": 15164456,
+      "category": "menu",
+      "variant": "main",
+      "label": "System: theme",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_sys_theme",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 13479390,
+        "segment_count": 1,
+        "has_loop_segments": false,
+        "duration_sec": 280.821,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 13479390,
+            "data_size": 15164374,
+            "loop": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_sys_title_wav__0e571b455dc7",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_sys_title_wav.aax",
+      "filename": "bgm_sys_title_wav.aax",
+      "file_id": 685,
+      "toc_index": 1184,
+      "file_offset": 308727552,
+      "file_size": 8029800,
+      "extract_size": 8029800,
+      "category": "menu",
+      "variant": "main",
+      "label": "System: title",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_sys_title",
+      "confidence": 0.9,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 7137457,
+        "segment_count": 1,
+        "has_loop_segments": true,
+        "duration_sec": 148.697,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 7137457,
+            "data_size": 8029714,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_mlt_a_fx_wav__1b78d76c3fe4",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_mlt_a_fx_wav.aax",
+      "filename": "bgm_mlt_a_fx_wav.aax",
+      "file_id": 602,
+      "toc_index": 1097,
+      "file_offset": 168721408,
+      "file_size": 3334992,
+      "extract_size": 3334992,
+      "category": "special",
+      "variant": "fx",
+      "label": "Multi: a (FX)",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_mlt_a",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 5928473,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 123.51,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 538965,
+            "data_size": 303232,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 5389508,
+            "data_size": 3031672,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_mlt_a_nomal_wav__acb670ab5c25",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_mlt_a_nomal_wav.aax",
+      "filename": "bgm_mlt_a_nomal_wav.aax",
+      "file_id": 603,
+      "toc_index": 1098,
+      "file_offset": 172056416,
+      "file_size": 6669784,
+      "extract_size": 6669784,
+      "category": "special",
+      "variant": "main",
+      "label": "Multi: a",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_mlt_a",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 5928473,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 123.51,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 538965,
+            "data_size": 606406,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 5389508,
+            "data_size": 6063286,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_mlt_b_fx_wav__62302b3c58a6",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_mlt_b_fx_wav.aax",
+      "filename": "bgm_mlt_b_fx_wav.aax",
+      "file_id": 604,
+      "toc_index": 1099,
+      "file_offset": 178726208,
+      "file_size": 2976152,
+      "extract_size": 2976152,
+      "category": "special",
+      "variant": "fx",
+      "label": "Multi: b (FX)",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_mlt_b",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 5290532,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 110.219,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 561254,
+            "data_size": 315778,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 4729278,
+            "data_size": 2660278,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_mlt_b_nomal_wav__e2fa2594f957",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_mlt_b_nomal_wav.aax",
+      "filename": "bgm_mlt_b_nomal_wav.aax",
+      "file_id": 605,
+      "toc_index": 1100,
+      "file_offset": 181702368,
+      "file_size": 5952096,
+      "extract_size": 5952096,
+      "category": "special",
+      "variant": "main",
+      "label": "Multi: b",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_mlt_b",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 5290532,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 110.219,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 561254,
+            "data_size": 631498,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 4729278,
+            "data_size": 5320498,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_mlt_c_fx_wav__f78eeb384f10",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_mlt_c_fx_wav.aax",
+      "filename": "bgm_mlt_c_fx_wav.aax",
+      "file_id": 606,
+      "toc_index": 1101,
+      "file_offset": 187654464,
+      "file_size": 3240160,
+      "extract_size": 3240160,
+      "category": "special",
+      "variant": "fx",
+      "label": "Multi: c (FX)",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_mlt_c",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 5760014,
+        "segment_count": 1,
+        "has_loop_segments": true,
+        "duration_sec": 120.0,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 5760014,
+            "data_size": 3240076,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_mlt_c_nomal_wav__9cc5c6760aec",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_mlt_c_nomal_wav.aax",
+      "filename": "bgm_mlt_c_nomal_wav.aax",
+      "file_id": 607,
+      "toc_index": 1102,
+      "file_offset": 190894624,
+      "file_size": 6480176,
+      "extract_size": 6480176,
+      "category": "special",
+      "variant": "main",
+      "label": "Multi: c",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_mlt_c",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 5760014,
+        "segment_count": 1,
+        "has_loop_segments": true,
+        "duration_sec": 120.0,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 5760014,
+            "data_size": 6480094,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_mlt_d_fx_wav__4d97d4267aa2",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_mlt_d_fx_wav.aax",
+      "filename": "bgm_mlt_d_fx_wav.aax",
+      "file_id": 608,
+      "toc_index": 1103,
+      "file_offset": 197374816,
+      "file_size": 4292640,
+      "extract_size": 4292640,
+      "category": "special",
+      "variant": "fx",
+      "label": "Multi: d (FX)",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_mlt_d",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 7630955,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 158.978,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 624377,
+            "data_size": 351274,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 7006578,
+            "data_size": 3941266,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_mlt_d_nomal_wav__fbf4dae54ae9",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_mlt_d_nomal_wav.aax",
+      "filename": "bgm_mlt_d_nomal_wav.aax",
+      "file_id": 609,
+      "toc_index": 1104,
+      "file_offset": 201667456,
+      "file_size": 8585064,
+      "extract_size": 8585064,
+      "category": "special",
+      "variant": "main",
+      "label": "Multi: d",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_mlt_d",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 7630955,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 158.978,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 624377,
+            "data_size": 702490,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 7006578,
+            "data_size": 7882474,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_mlt_e_fx_wav__9da97c324f6a",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_mlt_e_fx_wav.aax",
+      "filename": "bgm_mlt_e_fx_wav.aax",
+      "file_id": 610,
+      "toc_index": 1105,
+      "file_offset": 210252544,
+      "file_size": 3554960,
+      "extract_size": 3554960,
+      "category": "special",
+      "variant": "fx",
+      "label": "Multi: e (FX)",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_mlt_e",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 6319526,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 131.657,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 526479,
+            "data_size": 296212,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 5793047,
+            "data_size": 3258652,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_mlt_e_nomal_wav__f54ea2a9d6b8",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_mlt_e_nomal_wav.aax",
+      "filename": "bgm_mlt_e_nomal_wav.aax",
+      "file_id": 611,
+      "toc_index": 1106,
+      "file_offset": 213807520,
+      "file_size": 7109704,
+      "extract_size": 7109704,
+      "category": "special",
+      "variant": "main",
+      "label": "Multi: e",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_mlt_e",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 6319526,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 131.657,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 526479,
+            "data_size": 592366,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 5793047,
+            "data_size": 6517246,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_mlt_f_fx_wav__073863cad5fe",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_mlt_f_fx_wav.aax",
+      "filename": "bgm_mlt_f_fx_wav.aax",
+      "file_id": 612,
+      "toc_index": 1107,
+      "file_offset": 220917248,
+      "file_size": 3269440,
+      "extract_size": 3269440,
+      "category": "special",
+      "variant": "fx",
+      "label": "Multi: f (FX)",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_mlt_f",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 5811962,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 121.083,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1024412,
+            "data_size": 576292,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 4787550,
+            "data_size": 2693056,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_mlt_f_nomal_wav__d1c662463220",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_mlt_f_nomal_wav.aax",
+      "filename": "bgm_mlt_f_nomal_wav.aax",
+      "file_id": 613,
+      "toc_index": 1108,
+      "file_offset": 224186688,
+      "file_size": 6538672,
+      "extract_size": 6538672,
+      "category": "special",
+      "variant": "main",
+      "label": "Multi: f",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_mlt_f",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 5811962,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 121.083,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1024412,
+            "data_size": 1152526,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 4787550,
+            "data_size": 5386054,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_mlt_g_fx_wav__9bc319084830",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_mlt_g_fx_wav.aax",
+      "filename": "bgm_mlt_g_fx_wav.aax",
+      "file_id": 614,
+      "toc_index": 1109,
+      "file_offset": 230725376,
+      "file_size": 3703480,
+      "extract_size": 3703480,
+      "category": "special",
+      "variant": "fx",
+      "label": "Multi: g (FX)",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_mlt_g",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 6583562,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 137.158,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 790520,
+            "data_size": 444730,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 5793042,
+            "data_size": 3258652,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_mlt_g_nomal_wav__9e050546d026",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_mlt_g_nomal_wav.aax",
+      "filename": "bgm_mlt_g_nomal_wav.aax",
+      "file_id": 615,
+      "toc_index": 1110,
+      "file_offset": 234428864,
+      "file_size": 7406744,
+      "extract_size": 7406744,
+      "category": "special",
+      "variant": "main",
+      "label": "Multi: g",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_mlt_g",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 6583562,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 137.158,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 790520,
+            "data_size": 889402,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 5793042,
+            "data_size": 6517246,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_mlt_result_wav__8f9b6b4ed32e",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_mlt_result_wav.aax",
+      "filename": "bgm_mlt_result_wav.aax",
+      "file_id": 616,
+      "toc_index": 1111,
+      "file_offset": 241835616,
+      "file_size": 1958896,
+      "extract_size": 1958896,
+      "category": "special",
+      "variant": "main",
+      "label": "Multi: result",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_mlt_result",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 1741030,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 36.271,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 13006,
+            "data_size": 14710,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 1728024,
+            "data_size": 1944094,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_mlt_title_wav__bf6cd69da10d",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_mlt_title_wav.aax",
+      "filename": "bgm_mlt_title_wav.aax",
+      "file_id": 617,
+      "toc_index": 1112,
+      "file_offset": 243794528,
+      "file_size": 2135872,
+      "extract_size": 2135872,
+      "category": "special",
+      "variant": "main",
+      "label": "Multi: title",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_mlt_title",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 1898361,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 39.549,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 222748,
+            "data_size": 250654,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 1675613,
+            "data_size": 1885126,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_pha_ast_wav__90d39587463c",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_pha_ast_wav.aax",
+      "filename": "bgm_pha_ast_wav.aax",
+      "file_id": 618,
+      "toc_index": 1113,
+      "file_offset": 247589600,
+      "file_size": 762552,
+      "extract_size": 762552,
+      "category": "special",
+      "variant": "main",
+      "label": "Wisp/Ability: ast",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_pha_ast",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 677684,
+        "segment_count": 1,
+        "has_loop_segments": true,
+        "duration_sec": 14.118,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 677684,
+            "data_size": 762466,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_pha_lsr_wav__de90862c2d68",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_pha_lsr_wav.aax",
+      "filename": "bgm_pha_lsr_wav.aax",
+      "file_id": 619,
+      "toc_index": 1114,
+      "file_offset": 248352160,
+      "file_size": 432248,
+      "extract_size": 432248,
+      "category": "special",
+      "variant": "main",
+      "label": "Wisp/Ability: lsr",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_pha_lsr",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 384010,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 8.0,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 127994,
+            "data_size": 144058,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 256016,
+            "data_size": 288094,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_pha_multi_common_wav__a7942ab76dc7",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_pha_multi_common_wav.aax",
+      "filename": "bgm_pha_multi_common_wav.aax",
+      "file_id": 694,
+      "toc_index": 1115,
+      "file_offset": 245930400,
+      "file_size": 829584,
+      "extract_size": 829584,
+      "category": "special",
+      "variant": "main",
+      "label": "Wisp/Ability: multi common",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_pha_multi_common",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 737276,
+        "segment_count": 1,
+        "has_loop_segments": true,
+        "duration_sec": 15.36,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 737276,
+            "data_size": 829498,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_pha_multi_united_wav__28a92c4eae2d",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_pha_multi_united_wav.aax",
+      "filename": "bgm_pha_multi_united_wav.aax",
+      "file_id": 1955,
+      "toc_index": 1116,
+      "file_offset": 246760000,
+      "file_size": 829584,
+      "extract_size": 829584,
+      "category": "special",
+      "variant": "main",
+      "label": "Wisp/Ability: multi united",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_pha_multi_united",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 737277,
+        "segment_count": 1,
+        "has_loop_segments": true,
+        "duration_sec": 15.36,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 737277,
+            "data_size": 829498,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_pha_pzl_wav__66f44997c780",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_pha_pzl_wav.aax",
+      "filename": "bgm_pha_pzl_wav.aax",
+      "file_id": 620,
+      "toc_index": 1117,
+      "file_offset": 248784416,
+      "file_size": 953208,
+      "extract_size": 953208,
+      "category": "special",
+      "variant": "main",
+      "label": "Wisp/Ability: pzl",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_pha_pzl",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 847077,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 17.647,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 169450,
+            "data_size": 190714,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 677627,
+            "data_size": 762394,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_pha_rkt_wav__f833ed97df7e",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_pha_rkt_wav.aax",
+      "filename": "bgm_pha_rkt_wav.aax",
+      "file_id": 621,
+      "toc_index": 1118,
+      "file_offset": 249737632,
+      "file_size": 397872,
+      "extract_size": 397872,
+      "category": "special",
+      "variant": "main",
+      "label": "Wisp/Ability: rkt",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_pha_rkt",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 353534,
+        "segment_count": 1,
+        "has_loop_segments": false,
+        "duration_sec": 7.365,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 353534,
+            "data_size": 397786,
+            "loop": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_pha_rod_wav__fcbbb24ea47d",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_pha_rod_wav.aax",
+      "filename": "bgm_pha_rod_wav.aax",
+      "file_id": 622,
+      "toc_index": 1119,
+      "file_offset": 250135520,
+      "file_size": 260208,
+      "extract_size": 260208,
+      "category": "special",
+      "variant": "main",
+      "label": "Wisp/Ability: rod",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_pha_rod",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 231141,
+        "segment_count": 1,
+        "has_loop_segments": true,
+        "duration_sec": 4.815,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 231141,
+            "data_size": 260122,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_pha_spk_wav__38cbe1486db0",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_pha_spk_wav.aax",
+      "filename": "bgm_pha_spk_wav.aax",
+      "file_id": 623,
+      "toc_index": 1120,
+      "file_offset": 250395744,
+      "file_size": 654192,
+      "extract_size": 654192,
+      "category": "special",
+      "variant": "main",
+      "label": "Wisp/Ability: spk",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_pha_spk",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 581346,
+        "segment_count": 1,
+        "has_loop_segments": true,
+        "duration_sec": 12.111,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 581346,
+            "data_size": 654106,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_pha_spn_wav__3160c0607ce8",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_pha_spn_wav.aax",
+      "filename": "bgm_pha_spn_wav.aax",
+      "file_id": 624,
+      "toc_index": 1121,
+      "file_offset": 251049952,
+      "file_size": 287816,
+      "extract_size": 287816,
+      "category": "special",
+      "variant": "main",
+      "label": "Wisp/Ability: spn",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_pha_spn",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 255709,
+        "segment_count": 1,
+        "has_loop_segments": true,
+        "duration_sec": 5.327,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 255709,
+            "data_size": 287734,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_pha_spn_wtr_wav__6ec9bb6fa521",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_pha_spn_wtr_wav.aax",
+      "filename": "bgm_pha_spn_wtr_wav.aax",
+      "file_id": 625,
+      "toc_index": 1122,
+      "file_offset": 251337792,
+      "file_size": 729144,
+      "extract_size": 729144,
+      "category": "special",
+      "variant": "main",
+      "label": "Wisp/Ability: spn wtr",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_pha_spn_wtr",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 647998,
+        "segment_count": 1,
+        "has_loop_segments": true,
+        "duration_sec": 13.5,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 647998,
+            "data_size": 729058,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_pha_united_ast_wav__395ec5be602d",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_pha_united_ast_wav.aax",
+      "filename": "bgm_pha_united_ast_wav.aax",
+      "file_id": 626,
+      "toc_index": 1123,
+      "file_offset": 252066944,
+      "file_size": 762512,
+      "extract_size": 762512,
+      "category": "special",
+      "variant": "main",
+      "label": "Wisp/Ability: united ast",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_pha_united_ast",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 677653,
+        "segment_count": 1,
+        "has_loop_segments": true,
+        "duration_sec": 14.118,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 677653,
+            "data_size": 762430,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_pha_united_lsr_wav__2c65ea1ff4fa",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_pha_united_lsr_wav.aax",
+      "filename": "bgm_pha_united_lsr_wav.aax",
+      "file_id": 627,
+      "toc_index": 1124,
+      "file_offset": 252829472,
+      "file_size": 395712,
+      "extract_size": 395712,
+      "category": "special",
+      "variant": "main",
+      "label": "Wisp/Ability: united lsr",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_pha_united_lsr",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 351515,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 7.323,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 283809,
+            "data_size": 319378,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 67706,
+            "data_size": 76234,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_pha_united_pzl_wav__fa80246ee294",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_pha_united_pzl_wav.aax",
+      "filename": "bgm_pha_united_pzl_wav.aax",
+      "file_id": 628,
+      "toc_index": 1125,
+      "file_offset": 253225184,
+      "file_size": 381344,
+      "extract_size": 381344,
+      "category": "special",
+      "variant": "main",
+      "label": "Wisp/Ability: united pzl",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_pha_united_pzl",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 338824,
+        "segment_count": 1,
+        "has_loop_segments": true,
+        "duration_sec": 7.059,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 338824,
+            "data_size": 381262,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_pha_united_rkt_wav__3fad88364277",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_pha_united_rkt_wav.aax",
+      "filename": "bgm_pha_united_rkt_wav.aax",
+      "file_id": 629,
+      "toc_index": 1126,
+      "file_offset": 253606528,
+      "file_size": 441792,
+      "extract_size": 441792,
+      "category": "special",
+      "variant": "main",
+      "label": "Wisp/Ability: united rkt",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_pha_united_rkt",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 392569,
+        "segment_count": 1,
+        "has_loop_segments": false,
+        "duration_sec": 8.179,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 392569,
+            "data_size": 441706,
+            "loop": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_pha_united_spk_wav__e72da843a397",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_pha_united_spk_wav.aax",
+      "filename": "bgm_pha_united_spk_wav.aax",
+      "file_id": 630,
+      "toc_index": 1127,
+      "file_offset": 254048320,
+      "file_size": 654192,
+      "extract_size": 654192,
+      "category": "special",
+      "variant": "main",
+      "label": "Wisp/Ability: united spk",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_pha_united_spk",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 581354,
+        "segment_count": 1,
+        "has_loop_segments": true,
+        "duration_sec": 12.112,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 581354,
+            "data_size": 654106,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_pha_united_spn_wav__59263e0352f9",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_pha_united_spn_wav.aax",
+      "filename": "bgm_pha_united_spn_wav.aax",
+      "file_id": 631,
+      "toc_index": 1128,
+      "file_offset": 254702528,
+      "file_size": 287816,
+      "extract_size": 287816,
+      "category": "special",
+      "variant": "main",
+      "label": "Wisp/Ability: united spn",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_pha_united_spn",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 255693,
+        "segment_count": 1,
+        "has_loop_segments": true,
+        "duration_sec": 5.327,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 255693,
+            "data_size": 287734,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_pha_united_spn_wtr_wav__c6323f5a55a5",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_pha_united_spn_wtr_wav.aax",
+      "filename": "bgm_pha_united_spn_wtr_wav.aax",
+      "file_id": 632,
+      "toc_index": 1129,
+      "file_offset": 254990368,
+      "file_size": 648216,
+      "extract_size": 648216,
+      "category": "special",
+      "variant": "main",
+      "label": "Wisp/Ability: united spn wtr",
+      "stage": null,
+      "world": null,
+      "act": null,
+      "cue": "bgm_pha_united_spn_wtr",
+      "confidence": 0.85,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 576036,
+        "segment_count": 1,
+        "has_loop_segments": true,
+        "duration_sec": 12.001,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 576036,
+            "data_size": 648130,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg110_rso_fx_wav__3453dfaf9236",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg110_rso_fx_wav.aax",
+      "filename": "bgm_stg110_rso_fx_wav.aax",
+      "file_id": 633,
+      "toc_index": 1130,
+      "file_offset": 321104192,
+      "file_size": 3697464,
+      "extract_size": 3697464,
+      "category": "stage",
+      "variant": "fx",
+      "label": "Tropical Resort Act 1 (FX)",
+      "stage": "stg110",
+      "world": "Tropical Resort",
+      "act": 1,
+      "cue": "bgm_stg110_rso",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 6572886,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 136.935,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1151708,
+            "data_size": 647896,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 5421178,
+            "data_size": 3049474,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg110_rso_wav__d59004166dc0",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg110_rso_wav.aax",
+      "filename": "bgm_stg110_rso_wav.aax",
+      "file_id": 634,
+      "toc_index": 1131,
+      "file_offset": 324801664,
+      "file_size": 7394720,
+      "extract_size": 7394720,
+      "category": "stage",
+      "variant": "main",
+      "label": "Tropical Resort Act 1",
+      "stage": "stg110",
+      "world": "Tropical Resort",
+      "act": 1,
+      "cue": "bgm_stg110_rso",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 6572886,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 136.935,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1151708,
+            "data_size": 1295734,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 5421178,
+            "data_size": 6098890,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg120_rso_fx_wav__47aaea7aa01a",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg120_rso_fx_wav.aax",
+      "filename": "bgm_stg120_rso_fx_wav.aax",
+      "file_id": 635,
+      "toc_index": 1132,
+      "file_offset": 332196384,
+      "file_size": 3392560,
+      "extract_size": 3392560,
+      "category": "stage",
+      "variant": "fx",
+      "label": "Tropical Resort Act 2 (FX)",
+      "stage": "stg120",
+      "world": "Tropical Resort",
+      "act": 2,
+      "cue": "bgm_stg120_rso",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 6030794,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 125.642,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 610722,
+            "data_size": 343606,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 5420072,
+            "data_size": 3048862,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg120_rso_wav__b11a051b22d7",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg120_rso_wav.aax",
+      "filename": "bgm_stg120_rso_wav.aax",
+      "file_id": 636,
+      "toc_index": 1133,
+      "file_offset": 335588960,
+      "file_size": 6784920,
+      "extract_size": 6784920,
+      "category": "stage",
+      "variant": "main",
+      "label": "Tropical Resort Act 2",
+      "stage": "stg120",
+      "world": "Tropical Resort",
+      "act": 2,
+      "cue": "bgm_stg120_rso",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 6030794,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 125.642,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 610722,
+            "data_size": 687154,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 5420072,
+            "data_size": 6097666,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg130_rso_fx_wav__80d7d6d53029",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg130_rso_fx_wav.aax",
+      "filename": "bgm_stg130_rso_fx_wav.aax",
+      "file_id": 637,
+      "toc_index": 1134,
+      "file_offset": 342373888,
+      "file_size": 2202576,
+      "extract_size": 2202576,
+      "category": "stage",
+      "variant": "fx",
+      "label": "Tropical Resort Act 3 (FX)",
+      "stage": "stg130",
+      "world": "Tropical Resort",
+      "act": 3,
+      "cue": "bgm_stg130_rso",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 3915291,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 81.569,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 602319,
+            "data_size": 338872,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 3312972,
+            "data_size": 1863616,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg130_rso_wav__16e914164ab7",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg130_rso_wav.aax",
+      "filename": "bgm_stg130_rso_wav.aax",
+      "file_id": 638,
+      "toc_index": 1135,
+      "file_offset": 344576480,
+      "file_size": 4404952,
+      "extract_size": 4404952,
+      "category": "stage",
+      "variant": "main",
+      "label": "Tropical Resort Act 3",
+      "stage": "stg130",
+      "world": "Tropical Resort",
+      "act": 3,
+      "cue": "bgm_stg130_rso",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 3915291,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 81.569,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 602319,
+            "data_size": 677686,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 3312972,
+            "data_size": 3727174,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg210_fct_fx_wav__14b29bba370c",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg210_fct_fx_wav.aax",
+      "filename": "bgm_stg210_fct_fx_wav.aax",
+      "file_id": 639,
+      "toc_index": 1136,
+      "file_offset": 348981440,
+      "file_size": 3087008,
+      "extract_size": 3087008,
+      "category": "stage",
+      "variant": "fx",
+      "label": "Sweet Mountain Act 1 (FX)",
+      "stage": "stg210",
+      "world": "Sweet Mountain",
+      "act": 1,
+      "cue": "bgm_stg210_fct",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 5487618,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 114.325,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 758340,
+            "data_size": 426640,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 4729278,
+            "data_size": 2660278,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg210_fct_wav__bb2588da0c09",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg210_fct_wav.aax",
+      "filename": "bgm_stg210_fct_wav.aax",
+      "file_id": 640,
+      "toc_index": 1137,
+      "file_offset": 352068448,
+      "file_size": 6173816,
+      "extract_size": 6173816,
+      "category": "stage",
+      "variant": "main",
+      "label": "Sweet Mountain Act 1",
+      "stage": "stg210",
+      "world": "Sweet Mountain",
+      "act": 1,
+      "cue": "bgm_stg210_fct",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 5487618,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 114.325,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 758340,
+            "data_size": 853222,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 4729278,
+            "data_size": 5320498,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg220_fct_fx_wav__12f672980646",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg220_fct_fx_wav.aax",
+      "filename": "bgm_stg220_fct_fx_wav.aax",
+      "file_id": 641,
+      "toc_index": 1138,
+      "file_offset": 358242272,
+      "file_size": 2451304,
+      "extract_size": 2451304,
+      "category": "stage",
+      "variant": "fx",
+      "label": "Sweet Mountain Act 2 (FX)",
+      "stage": "stg220",
+      "world": "Sweet Mountain",
+      "act": 2,
+      "cue": "bgm_stg220_fct",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 4357486,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 90.781,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 141108,
+            "data_size": 79438,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 4216378,
+            "data_size": 2371774,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg220_fct_wav__248f864c73cf",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg220_fct_wav.aax",
+      "filename": "bgm_stg220_fct_wav.aax",
+      "file_id": 642,
+      "toc_index": 1139,
+      "file_offset": 360693600,
+      "file_size": 4902408,
+      "extract_size": 4902408,
+      "category": "stage",
+      "variant": "main",
+      "label": "Sweet Mountain Act 2",
+      "stage": "stg220",
+      "world": "Sweet Mountain",
+      "act": 2,
+      "cue": "bgm_stg220_fct",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 4357486,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 90.781,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 141108,
+            "data_size": 158818,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 4216378,
+            "data_size": 4743490,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg230_fct_fx_wav__98f57a308e93",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg230_fct_fx_wav.aax",
+      "filename": "bgm_stg230_fct_fx_wav.aax",
+      "file_id": 643,
+      "toc_index": 1140,
+      "file_offset": 365596032,
+      "file_size": 5048488,
+      "extract_size": 5048488,
+      "category": "stage",
+      "variant": "fx",
+      "label": "Sweet Mountain Act 3 (FX)",
+      "stage": "stg230",
+      "world": "Sweet Mountain",
+      "act": 3,
+      "cue": "bgm_stg230_fct",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 8974667,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 186.972,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1941380,
+            "data_size": 1092100,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 7033287,
+            "data_size": 3956296,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg230_fct_wav__947b6d2eb7d7",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg230_fct_wav.aax",
+      "filename": "bgm_stg230_fct_wav.aax",
+      "file_id": 644,
+      "toc_index": 1141,
+      "file_offset": 370644544,
+      "file_size": 10096768,
+      "extract_size": 10096768,
+      "category": "stage",
+      "variant": "main",
+      "label": "Sweet Mountain Act 3",
+      "stage": "stg230",
+      "world": "Sweet Mountain",
+      "act": 3,
+      "cue": "bgm_stg230_fct",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 8974667,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 186.972,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1941380,
+            "data_size": 2184142,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 7033287,
+            "data_size": 7912534,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg310_shp_fx_wav__7e474678fe64",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg310_shp_fx_wav.aax",
+      "filename": "bgm_stg310_shp_fx_wav.aax",
+      "file_id": 645,
+      "toc_index": 1142,
+      "file_offset": 380741312,
+      "file_size": 3240640,
+      "extract_size": 3240640,
+      "category": "stage",
+      "variant": "fx",
+      "label": "Starlight Carnival Act 1 (FX)",
+      "stage": "stg310",
+      "world": "Starlight Carnival",
+      "act": 1,
+      "cue": "bgm_stg310_shp",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 5760737,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 120.015,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1536581,
+            "data_size": 864400,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 4224156,
+            "data_size": 2376148,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg310_shp_nomal_wav__4a621752babb",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg310_shp_nomal_wav.aax",
+      "filename": "bgm_stg310_shp_nomal_wav.aax",
+      "file_id": 646,
+      "toc_index": 1143,
+      "file_offset": 383981952,
+      "file_size": 6481072,
+      "extract_size": 6481072,
+      "category": "stage",
+      "variant": "main",
+      "label": "Starlight Carnival Act 1",
+      "stage": "stg310",
+      "world": "Starlight Carnival",
+      "act": 1,
+      "cue": "bgm_stg310_shp",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 5760737,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 120.015,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1536581,
+            "data_size": 1728742,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 4224156,
+            "data_size": 4752238,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg320_shp_fx_wav__7e590791bd01",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg320_shp_fx_wav.aax",
+      "filename": "bgm_stg320_shp_fx_wav.aax",
+      "file_id": 647,
+      "toc_index": 1144,
+      "file_offset": 390463040,
+      "file_size": 2535872,
+      "extract_size": 2535872,
+      "category": "stage",
+      "variant": "fx",
+      "label": "Starlight Carnival Act 2 (FX)",
+      "stage": "stg320",
+      "world": "Starlight Carnival",
+      "act": 2,
+      "cue": "bgm_stg320_shp",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 4507821,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 93.913,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 417394,
+            "data_size": 234850,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 4090427,
+            "data_size": 2300926,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg320_shp_nomal_wav__d8bade4229c3",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg320_shp_nomal_wav.aax",
+      "filename": "bgm_stg320_shp_nomal_wav.aax",
+      "file_id": 648,
+      "toc_index": 1145,
+      "file_offset": 392998912,
+      "file_size": 5071536,
+      "extract_size": 5071536,
+      "category": "stage",
+      "variant": "main",
+      "label": "Starlight Carnival Act 2",
+      "stage": "stg320",
+      "world": "Starlight Carnival",
+      "act": 2,
+      "cue": "bgm_stg320_shp",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 4507821,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 93.913,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 417394,
+            "data_size": 469642,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 4090427,
+            "data_size": 4601794,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg330_shp_fx_wav__7e6e97450a28",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg330_shp_fx_wav.aax",
+      "filename": "bgm_stg330_shp_fx_wav.aax",
+      "file_id": 649,
+      "toc_index": 1146,
+      "file_offset": 398070464,
+      "file_size": 2664320,
+      "extract_size": 2664320,
+      "category": "stage",
+      "variant": "fx",
+      "label": "Starlight Carnival Act 3 (FX)",
+      "stage": "stg330",
+      "world": "Starlight Carnival",
+      "act": 3,
+      "cue": "bgm_stg330_shp",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 4736161,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 98.67,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 512685,
+            "data_size": 288454,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 4223476,
+            "data_size": 2375770,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg330_shp_nomal_wav__f37267e60cf6",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg330_shp_nomal_wav.aax",
+      "filename": "bgm_stg330_shp_nomal_wav.aax",
+      "file_id": 650,
+      "toc_index": 1147,
+      "file_offset": 400734784,
+      "file_size": 5328432,
+      "extract_size": 5328432,
+      "category": "stage",
+      "variant": "main",
+      "label": "Starlight Carnival Act 3",
+      "stage": "stg330",
+      "world": "Starlight Carnival",
+      "act": 3,
+      "cue": "bgm_stg330_shp",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 4736161,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 98.67,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 512685,
+            "data_size": 576850,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 4223476,
+            "data_size": 4751482,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg340_shp_fx_wav__969cf3d7c42c",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg340_shp_fx_wav.aax",
+      "filename": "bgm_stg340_shp_fx_wav.aax",
+      "file_id": 651,
+      "toc_index": 1148,
+      "file_offset": 406063232,
+      "file_size": 2488840,
+      "extract_size": 2488840,
+      "category": "stage",
+      "variant": "fx",
+      "label": "Starlight Carnival Act 4 (FX)",
+      "stage": "stg340",
+      "world": "Starlight Carnival",
+      "act": 4,
+      "cue": "bgm_stg340_shp",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 4424345,
+        "segment_count": 1,
+        "has_loop_segments": true,
+        "duration_sec": 92.174,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 4424345,
+            "data_size": 2488756,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg340_shp_nomal_wav__07f9ef475dd0",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg340_shp_nomal_wav.aax",
+      "filename": "bgm_stg340_shp_nomal_wav.aax",
+      "file_id": 652,
+      "toc_index": 1149,
+      "file_offset": 408552096,
+      "file_size": 4977536,
+      "extract_size": 4977536,
+      "category": "stage",
+      "variant": "main",
+      "label": "Starlight Carnival Act 4",
+      "stage": "stg340",
+      "world": "Starlight Carnival",
+      "act": 4,
+      "cue": "bgm_stg340_shp",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 4424345,
+        "segment_count": 1,
+        "has_loop_segments": true,
+        "duration_sec": 92.174,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 4424345,
+            "data_size": 4977454,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg410_pla_fx_wav__92456c46cc51",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg410_pla_fx_wav.aax",
+      "filename": "bgm_stg410_pla_fx_wav.aax",
+      "file_id": 653,
+      "toc_index": 1150,
+      "file_offset": 413529632,
+      "file_size": 4291608,
+      "extract_size": 4291608,
+      "category": "stage",
+      "variant": "fx",
+      "label": "Planet Wisp Act 1 (FX)",
+      "stage": "stg410",
+      "world": "Planet Wisp",
+      "act": 1,
+      "cue": "bgm_stg410_pla",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 7629126,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 158.94,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 623533,
+            "data_size": 350806,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 7005593,
+            "data_size": 3940708,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg410_pla_wav__9d6bca466329",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg410_pla_wav.aax",
+      "filename": "bgm_stg410_pla_wav.aax",
+      "file_id": 654,
+      "toc_index": 1151,
+      "file_offset": 417821248,
+      "file_size": 8583008,
+      "extract_size": 8583008,
+      "category": "stage",
+      "variant": "main",
+      "label": "Planet Wisp Act 1",
+      "stage": "stg410",
+      "world": "Planet Wisp",
+      "act": 1,
+      "cue": "bgm_stg410_pla",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 7629126,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 158.94,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 623533,
+            "data_size": 701554,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 7005593,
+            "data_size": 7881358,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg420_pla_fx_wav__7f349124a7ab",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg420_pla_fx_wav.aax",
+      "filename": "bgm_stg420_pla_fx_wav.aax",
+      "file_id": 655,
+      "toc_index": 1152,
+      "file_offset": 426404256,
+      "file_size": 4075952,
+      "extract_size": 4075952,
+      "category": "stage",
+      "variant": "fx",
+      "label": "Planet Wisp Act 2 (FX)",
+      "stage": "stg420",
+      "world": "Planet Wisp",
+      "act": 2,
+      "cue": "bgm_stg420_pla",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 7245722,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 150.953,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1824526,
+            "data_size": 1026364,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 5421196,
+            "data_size": 3049492,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg420_pla_wav__b5fb4d8aae41",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg420_pla_wav.aax",
+      "filename": "bgm_stg420_pla_wav.aax",
+      "file_id": 656,
+      "toc_index": 1153,
+      "file_offset": 430480224,
+      "file_size": 8151688,
+      "extract_size": 8151688,
+      "category": "stage",
+      "variant": "main",
+      "label": "Planet Wisp Act 2",
+      "stage": "stg420",
+      "world": "Planet Wisp",
+      "act": 2,
+      "cue": "bgm_stg420_pla",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 7245722,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 150.953,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1824526,
+            "data_size": 2052670,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 5421196,
+            "data_size": 6098926,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg430_pla_fx_wav__cc4e6615e224",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg430_pla_fx_wav.aax",
+      "filename": "bgm_stg430_pla_fx_wav.aax",
+      "file_id": 657,
+      "toc_index": 1154,
+      "file_offset": 438631936,
+      "file_size": 3195248,
+      "extract_size": 3195248,
+      "category": "stage",
+      "variant": "fx",
+      "label": "Planet Wisp Act 3 (FX)",
+      "stage": "stg430",
+      "world": "Planet Wisp",
+      "act": 3,
+      "cue": "bgm_stg430_pla",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 5680034,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 118.334,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 802942,
+            "data_size": 451714,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 4877092,
+            "data_size": 2743438,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg430_pla_wav__bbaa2bfb2671",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg430_pla_wav.aax",
+      "filename": "bgm_stg430_pla_wav.aax",
+      "file_id": 658,
+      "toc_index": 1155,
+      "file_offset": 441827200,
+      "file_size": 6390288,
+      "extract_size": 6390288,
+      "category": "stage",
+      "variant": "main",
+      "label": "Planet Wisp Act 3",
+      "stage": "stg430",
+      "world": "Planet Wisp",
+      "act": 3,
+      "cue": "bgm_stg430_pla",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 5680034,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 118.334,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 802942,
+            "data_size": 903370,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 4877092,
+            "data_size": 5486818,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg510_qua_fx_wav__c249296dd735",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg510_qua_fx_wav.aax",
+      "filename": "bgm_stg510_qua_fx_wav.aax",
+      "file_id": 659,
+      "toc_index": 1156,
+      "file_offset": 448217504,
+      "file_size": 3554960,
+      "extract_size": 3554960,
+      "category": "stage",
+      "variant": "fx",
+      "label": "Aquarium Park Act 1 (FX)",
+      "stage": "stg510",
+      "world": "Aquarium Park",
+      "act": 1,
+      "cue": "bgm_stg510_qua",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 6319528,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 131.657,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 526634,
+            "data_size": 296302,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 5792894,
+            "data_size": 3258562,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg510_qua_nomal_wav__debf701f2bb5",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg510_qua_nomal_wav.aax",
+      "filename": "bgm_stg510_qua_nomal_wav.aax",
+      "file_id": 660,
+      "toc_index": 1157,
+      "file_offset": 451772480,
+      "file_size": 7109712,
+      "extract_size": 7109712,
+      "category": "stage",
+      "variant": "main",
+      "label": "Aquarium Park Act 1",
+      "stage": "stg510",
+      "world": "Aquarium Park",
+      "act": 1,
+      "cue": "bgm_stg510_qua",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 6319528,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 131.657,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 526634,
+            "data_size": 592546,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 5792894,
+            "data_size": 6517066,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg520_qua_fx_wav__2d430587a885",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg520_qua_fx_wav.aax",
+      "filename": "bgm_stg520_qua_fx_wav.aax",
+      "file_id": 661,
+      "toc_index": 1158,
+      "file_offset": 458882208,
+      "file_size": 3568944,
+      "extract_size": 3568944,
+      "category": "stage",
+      "variant": "fx",
+      "label": "Aquarium Park Act 2 (FX)",
+      "stage": "stg520",
+      "world": "Aquarium Park",
+      "act": 2,
+      "cue": "bgm_stg520_qua",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 6344393,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 132.175,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1001848,
+            "data_size": 563602,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 5342545,
+            "data_size": 3005248,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg520_qua_nomal_wav__602283cb6aaa",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg520_qua_nomal_wav.aax",
+      "filename": "bgm_stg520_qua_nomal_wav.aax",
+      "file_id": 662,
+      "toc_index": 1159,
+      "file_offset": 462451168,
+      "file_size": 7137680,
+      "extract_size": 7137680,
+      "category": "stage",
+      "variant": "main",
+      "label": "Aquarium Park Act 2",
+      "stage": "stg520",
+      "world": "Aquarium Park",
+      "act": 2,
+      "cue": "bgm_stg520_qua",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 6344393,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 132.175,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1001848,
+            "data_size": 1127146,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 5342545,
+            "data_size": 6010438,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg530_qua_fx_wav__42cb5fbeb537",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg530_qua_fx_wav.aax",
+      "filename": "bgm_stg530_qua_fx_wav.aax",
+      "file_id": 663,
+      "toc_index": 1160,
+      "file_offset": 469588864,
+      "file_size": 2962544,
+      "extract_size": 2962544,
+      "category": "stage",
+      "variant": "fx",
+      "label": "Aquarium Park Act 3 (FX)",
+      "stage": "stg530",
+      "world": "Aquarium Park",
+      "act": 3,
+      "cue": "bgm_stg530_qua",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 5266313,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 109.715,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 263303,
+            "data_size": 148180,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 5003010,
+            "data_size": 2814268,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg530_qua_nomal_wav__0f1cedca9c89",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg530_qua_nomal_wav.aax",
+      "filename": "bgm_stg530_qua_nomal_wav.aax",
+      "file_id": 664,
+      "toc_index": 1161,
+      "file_offset": 472551424,
+      "file_size": 5924872,
+      "extract_size": 5924872,
+      "category": "stage",
+      "variant": "main",
+      "label": "Aquarium Park Act 3",
+      "stage": "stg530",
+      "world": "Aquarium Park",
+      "act": 3,
+      "cue": "bgm_stg530_qua",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 5266313,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 109.715,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 263303,
+            "data_size": 296302,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 5003010,
+            "data_size": 5628478,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg540_qua_fx_wav__67ca1207a670",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg540_qua_fx_wav.aax",
+      "filename": "bgm_stg540_qua_fx_wav.aax",
+      "file_id": 665,
+      "toc_index": 1162,
+      "file_offset": 478476320,
+      "file_size": 3381024,
+      "extract_size": 3381024,
+      "category": "stage",
+      "variant": "fx",
+      "label": "Aquarium Park Act 4 (FX)",
+      "stage": "stg540",
+      "world": "Aquarium Park",
+      "act": 4,
+      "cue": "bgm_stg540_qua",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 6010447,
+        "segment_count": 1,
+        "has_loop_segments": true,
+        "duration_sec": 125.218,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 6010447,
+            "data_size": 3380944,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg540_qua_nomal_wav__2e210ef533c9",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg540_qua_nomal_wav.aax",
+      "filename": "bgm_stg540_qua_nomal_wav.aax",
+      "file_id": 666,
+      "toc_index": 1163,
+      "file_offset": 481857344,
+      "file_size": 6761912,
+      "extract_size": 6761912,
+      "category": "stage",
+      "variant": "main",
+      "label": "Aquarium Park Act 4",
+      "stage": "stg540",
+      "world": "Aquarium Park",
+      "act": 4,
+      "cue": "bgm_stg540_qua",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 6010447,
+        "segment_count": 1,
+        "has_loop_segments": true,
+        "duration_sec": 125.218,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 6010447,
+            "data_size": 6761830,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg610_ast_fx_wav__a366ddabc724",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg610_ast_fx_wav.aax",
+      "filename": "bgm_stg610_ast_fx_wav.aax",
+      "file_id": 667,
+      "toc_index": 1164,
+      "file_offset": 488619264,
+      "file_size": 3277864,
+      "extract_size": 3277864,
+      "category": "stage",
+      "variant": "fx",
+      "label": "Asteroid Coaster Act 1 (FX)",
+      "stage": "stg610",
+      "world": "Asteroid Coaster",
+      "act": 1,
+      "cue": "bgm_stg610_ast",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 5826935,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 121.394,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1039385,
+            "data_size": 584716,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 4787550,
+            "data_size": 2693056,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg610_ast_normal_wav__fcb575ecbd8e",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg610_ast_normal_wav.aax",
+      "filename": "bgm_stg610_ast_normal_wav.aax",
+      "file_id": 668,
+      "toc_index": 1165,
+      "file_offset": 491897152,
+      "file_size": 6555520,
+      "extract_size": 6555520,
+      "category": "stage",
+      "variant": "main",
+      "label": "Asteroid Coaster Act 1",
+      "stage": "stg610",
+      "world": "Asteroid Coaster",
+      "act": 1,
+      "cue": "bgm_stg610_ast",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 5826935,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 121.394,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1039385,
+            "data_size": 1169374,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 4787550,
+            "data_size": 5386054,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg620_ast_fx_wav__877177b78623",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg620_ast_fx_wav.aax",
+      "filename": "bgm_stg620_ast_fx_wav.aax",
+      "file_id": 669,
+      "toc_index": 1166,
+      "file_offset": 498452672,
+      "file_size": 3471528,
+      "extract_size": 3471528,
+      "category": "stage",
+      "variant": "fx",
+      "label": "Asteroid Coaster Act 2 (FX)",
+      "stage": "stg620",
+      "world": "Asteroid Coaster",
+      "act": 2,
+      "cue": "bgm_stg620_ast",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 6171196,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 128.567,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1682868,
+            "data_size": 946678,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 4488328,
+            "data_size": 2524756,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg620_ast_normal_wav__5e8f187cdca8",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg620_ast_normal_wav.aax",
+      "filename": "bgm_stg620_ast_normal_wav.aax",
+      "file_id": 670,
+      "toc_index": 1167,
+      "file_offset": 501924224,
+      "file_size": 6942848,
+      "extract_size": 6942848,
+      "category": "stage",
+      "variant": "main",
+      "label": "Asteroid Coaster Act 2",
+      "stage": "stg620",
+      "world": "Asteroid Coaster",
+      "act": 2,
+      "cue": "bgm_stg620_ast",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 6171196,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 128.567,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1682868,
+            "data_size": 1893298,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 4488328,
+            "data_size": 5049454,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg630_ast_fx_wav__26c2556a7569",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg630_ast_fx_wav.aax",
+      "filename": "bgm_stg630_ast_fx_wav.aax",
+      "file_id": 671,
+      "toc_index": 1168,
+      "file_offset": 508867072,
+      "file_size": 4190432,
+      "extract_size": 4190432,
+      "category": "stage",
+      "variant": "fx",
+      "label": "Asteroid Coaster Act 3 (FX)",
+      "stage": "stg630",
+      "world": "Asteroid Coaster",
+      "act": 3,
+      "cue": "bgm_stg630_ast",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 7449263,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 155.193,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1267772,
+            "data_size": 713182,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 6181491,
+            "data_size": 3477154,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg630_ast_normal_wav__c7a46d3aa0de",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg630_ast_normal_wav.aax",
+      "filename": "bgm_stg630_ast_normal_wav.aax",
+      "file_id": 672,
+      "toc_index": 1169,
+      "file_offset": 513057504,
+      "file_size": 8380656,
+      "extract_size": 8380656,
+      "category": "stage",
+      "variant": "main",
+      "label": "Asteroid Coaster Act 3",
+      "stage": "stg630",
+      "world": "Asteroid Coaster",
+      "act": 3,
+      "cue": "bgm_stg630_ast",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 7449263,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 155.193,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1267772,
+            "data_size": 1426306,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 6181491,
+            "data_size": 6954250,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg710_elv_fx_wav__5415ecf664cd",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg710_elv_fx_wav.aax",
+      "filename": "bgm_stg710_elv_fx_wav.aax",
+      "file_id": 673,
+      "toc_index": 1170,
+      "file_offset": 521438176,
+      "file_size": 3555320,
+      "extract_size": 3555320,
+      "category": "stage",
+      "variant": "fx",
+      "label": "Terminal Velocity Act 1 (FX)",
+      "stage": "stg710",
+      "world": "Terminal Velocity",
+      "act": 1,
+      "cue": "bgm_stg710_elv",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 6320154,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 131.67,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 527280,
+            "data_size": 296662,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 5792874,
+            "data_size": 3258562,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg710_elv_wav__63f8322c923b",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg710_elv_wav.aax",
+      "filename": "bgm_stg710_elv_wav.aax",
+      "file_id": 674,
+      "toc_index": 1171,
+      "file_offset": 524993504,
+      "file_size": 7110432,
+      "extract_size": 7110432,
+      "category": "stage",
+      "variant": "main",
+      "label": "Terminal Velocity Act 1",
+      "stage": "stg710",
+      "world": "Terminal Velocity",
+      "act": 1,
+      "cue": "bgm_stg710_elv",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 6320154,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 131.67,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 527280,
+            "data_size": 593266,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 5792874,
+            "data_size": 6517066,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg720_elv_fx_wav__96438e6c580d",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg720_elv_fx_wav.aax",
+      "filename": "bgm_stg720_elv_fx_wav.aax",
+      "file_id": 675,
+      "toc_index": 1172,
+      "file_offset": 532103936,
+      "file_size": 871248,
+      "extract_size": 871248,
+      "category": "stage",
+      "variant": "fx",
+      "label": "Terminal Velocity Act 2 (FX)",
+      "stage": "stg720",
+      "world": "Terminal Velocity",
+      "act": 2,
+      "cue": "bgm_stg720_elv",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 1548622,
+        "segment_count": 1,
+        "has_loop_segments": false,
+        "duration_sec": 32.263,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1548622,
+            "data_size": 871168,
+            "loop": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg720_elv_wav__95d7d3e4b7a3",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg720_elv_wav.aax",
+      "filename": "bgm_stg720_elv_wav.aax",
+      "file_id": 676,
+      "toc_index": 1173,
+      "file_offset": 532975200,
+      "file_size": 1742360,
+      "extract_size": 1742360,
+      "category": "stage",
+      "variant": "main",
+      "label": "Terminal Velocity Act 2",
+      "stage": "stg720",
+      "world": "Terminal Velocity",
+      "act": 2,
+      "cue": "bgm_stg720_elv",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 1548622,
+        "segment_count": 1,
+        "has_loop_segments": false,
+        "duration_sec": 32.263,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 1548622,
+            "data_size": 1742278,
+            "loop": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg730_elv_fx_wav__701d3c4d2184",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg730_elv_fx_wav.aax",
+      "filename": "bgm_stg730_elv_fx_wav.aax",
+      "file_id": 677,
+      "toc_index": 1174,
+      "file_offset": 534717568,
+      "file_size": 3631168,
+      "extract_size": 3631168,
+      "category": "stage",
+      "variant": "fx",
+      "label": "Terminal Velocity Act 3 (FX)",
+      "stage": "stg730",
+      "world": "Terminal Velocity",
+      "act": 3,
+      "cue": "bgm_stg730_elv",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 1,
+        "sample_count": 6455026,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 134.48,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 661139,
+            "data_size": 371956,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 5793887,
+            "data_size": 3259120,
+            "loop": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "bgm_stg730_elv_wav__0e9aa6a87ea2",
+      "kind": "music",
+      "archive": "sonic2010_0.cpk",
+      "path": "sound/Synth/bgm_stg730_elv_wav.aax",
+      "filename": "bgm_stg730_elv_wav.aax",
+      "file_id": 678,
+      "toc_index": 1175,
+      "file_offset": 538348736,
+      "file_size": 300744,
+      "extract_size": 300744,
+      "category": "stage",
+      "variant": "main",
+      "label": "Terminal Velocity Act 3",
+      "stage": "stg730",
+      "world": "Terminal Velocity",
+      "act": 3,
+      "cue": "bgm_stg730_elv",
+      "confidence": 0.95,
+      "audio": {
+        "format": "aax",
+        "sample_rate": 48000,
+        "channels": 2,
+        "sample_count": 267119,
+        "segment_count": 2,
+        "has_loop_segments": true,
+        "duration_sec": 5.565,
+        "segments": [
+          {
+            "index": 0,
+            "sample_count": 114998,
+            "data_size": 129442,
+            "loop": false
+          },
+          {
+            "index": 1,
+            "sample_count": 152121,
+            "data_size": 171202,
+            "loop": true
+          }
+        ]
+      }
+    }
+  ]
+}

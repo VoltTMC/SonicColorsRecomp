@@ -1,0 +1,26 @@
+#pragma once
+#include <atomic>
+#include <cstdint>
+#include <filesystem>
+#include <string>
+
+// HTTPS downloads for the mod browser (platform/http.h; redirects are followed, never from
+// https to http). Blocking: call them from a worker thread.
+
+struct HttpProgress
+{
+    std::atomic<uint64_t> done{ 0 };
+    std::atomic<uint64_t> total{ 0 };   // 0 while unknown
+    std::atomic<bool> cancel{ false };
+};
+
+constexpr uint64_t kHttpMaxGet = 64ull << 20;          // API answers, images
+constexpr uint64_t kHttpMaxDownload = 4ull << 30;      // mod archives
+
+// The response body of a GET; false with a message on failure, a non-200 status, a body
+// over kHttpMaxGet or cancel.
+bool Http_Get(const std::string& url, std::string& body, std::string& error, HttpProgress* progress = nullptr);
+// Same, into a file (written to <file>.part, then renamed). https:// addresses only, at
+// most maxBytes.
+bool Http_Download(const std::string& url, const std::filesystem::path& file, std::string& error,
+                   HttpProgress* progress = nullptr, uint64_t maxBytes = kHttpMaxDownload);

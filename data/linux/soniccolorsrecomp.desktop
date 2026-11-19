@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Sonic Colors - Recompiled
+Comment=Native recompilation of Sonic Colors (Wii)
+Exec=SonicColorsRecomp
+Icon=soniccolorsrecomp
+Categories=Game;
+Terminal=false
+StartupWMClass=SonicColorsRecomp

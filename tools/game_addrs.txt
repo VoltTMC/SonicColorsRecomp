@@ -1,0 +1,65 @@
+# Sonic Colors (SNCP8P) game addresses for the runtime and recompiler.
+# Sources: decomp symbols.txt, sonic2010.sel (bases 0x80004000 / 0x800113C0),
+# and manual ID from disassembly / KPAD→WPAD call graph. KIND: func / code / data.
+
+# ---------------------------------------------------------------- OS (runtime/kernel)
+OSSaveContext                func 8033B9C0  # was fn_8033B9C0; stmw+SPR save, size 0x80
+OSLoadContext                func 8033BA40
+OSInitContext                func 8033BBC0  # was fn_8033BBC0; size 0xBC
+OSEnableInterrupts           func 8033FE30
+OSDisableInterrupts          func 8033FE10
+OSRestoreInterrupts          func 8033FE50
+OSReport                     func 8033BFB0
+OSPanic                      func 8033C040
+OSFatal                      func 8033E2A0
+VIGetRetraceCount            func 80354530  # was fn_80354530; lwz r3, SDA; blr
+OSExceptionTable             data 808F38EC
+# Frame pacing (fn_800126EC): steady-state addi r0,2 before VIGetRetraceCount wait loop
+FrameRateWait                code 80012774
+# Whole frame-wait/update helper (for --perf guest-loop timing; PPC_ORIGINAL still runs)
+FrameLoopWait                func 800126EC
+# Boost plugin path that references sn_boost (0x80714bbc) at 80088B14 — Phase 9 diagnostics
+BoostPluginSnBoost           func 800888CC
+# Boost plugin per-frame/state tick (vtable @ 8075e0a8); +0x1C state → 80088D28 / 80088F0C
+BoostPluginTick              func 80088CB8
+# MSL sprintf — Music Mods watches scripts/%s_mission.lua (and friends) for live stage loads
+sprintf                      func 80379820
+
+# ---------------------------------------------------------------- WPAD / KPAD
+# Init: one-shot init flag + OSRegisterShutdownFunction + setup; sole caller KPAD at 803B87D0
+WPADInit                     func 803A0060
+# GetStatus: thunk; KPAD compares result to 3 (WPAD_STATE_SETUP)
+WPADGetStatus                func 803A0110
+WPADGetRadioSensitivity      func 803A0120  # SEL
+# AccGravityUnit: KPAD passes (chan, type=0, &acc on stack) after Read
+WPADGetAccGravityUnit        func 803A1220
+WPADDisconnect               func 803A1330  # SEL
+WPADProbe                    func 803A13F0  # SEL
+WPADSetSamplingCallback      func 803A1480  # between Probe and SetConnectCallback; KPAD installs
+WPADSetConnectCallback       func 803A1510  # SEL
+WPADSetExtensionCallback     func 803A15A0  # SEL
+# GetDataFormat: KPAD stores return into status+0x40 immediately after Read
+WPADGetDataFormat            func 803A1600
+WPADSetDataFormat            func 803A1650  # follows GetDataFormat; called from KPAD
+WPADGetInfoAsync             func 803A1770  # SEL
+WPADControlMotor             func 803A1990  # SEL
+WPADEnableMotor              func 803A1A60  # SEL
+WPADIsMotorEnabled           func 803A1AA0  # SEL
+# ControlDpd: (chan, cmd, cb); caller at 803A13CC passes cmd=0, cb=803A1300 (size 0x1E8)
+WPADControlDpd               func 803A1AE0
+# Read: KPAD moves chan→r3, status*→r4 then bl; body memcpy's into status
+WPADRead                     func 803A1D80
+WPADIsSpeakerEnabled         func 803A21A0  # SEL
+WPADControlSpeaker           func 803A21F0  # SEL
+WPADGetSpeakerVolume         func 803A37F0  # SEL
+WPADCanSendStreamData        func 803A39C0  # SEL
+WPADSendStreamData           func 803A3A50  # SEL
+# KPADReadCore: fn_803B7F70 — polls GetStatus/Probe; size 0x808
+KPADReadCore                 func 803B7F70
+
+# ---------------------------------------------------------------- GameCube PAD / SI
+# PADRead: fills PADStatus[4]; called from Sonic pad-manager vtable 803C02CC (no static bl).
+# Evidence: stack PADStatus*, err at +0xA checked for -1/-2; size 0x4C0; calls SI path.
+PADRead                      func 80357660
+# SIGetType: used by PAD type probe fn_80357B20 (game callers at 802241F4+)
+SIGetType                    func 8038AAA0

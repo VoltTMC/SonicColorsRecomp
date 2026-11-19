@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# File-based music asset tool (WAV→AAX→CPK). Uses .venv-music when present.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+export PYTHONPATH="$ROOT/tools${PYTHONPATH:+:$PYTHONPATH}"
+PY="$ROOT/.venv-music/bin/python"
+if [[ ! -x "$PY" ]]; then
+  PY="$(command -v python3)"
+fi
+# Avoid Cursor AppImage hijacking the venv interpreter when PATH is polluted.
+exec /usr/bin/env -i \
+  PATH="/usr/bin:/bin:$ROOT/.venv-music/bin" \
+  HOME="$HOME" \
+  PYTHONPATH="$PYTHONPATH" \
+  "$PY" -m music_asset_pkg.cli "$@"
