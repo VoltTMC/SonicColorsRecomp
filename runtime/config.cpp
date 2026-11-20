@@ -4,6 +4,7 @@
 #include "platform/platform.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -12,9 +13,15 @@
 #include <format>
 #include <fstream>
 #include <sstream>
+#include <vector>
 
 Config g_config;
 static std::string s_path;
+
+static std::string Trim(std::string s);
+static std::string Lower(std::string s);
+static bool ParseBool(const std::string& v);
+static int ParseLanguage(const std::string& v);
 
 // order matches Config::bind
 const char* const kBindActions[12] = { "jump", "slash", "wii_b", "shake_nunchuk", "guard", "nunchuk_c",
@@ -137,6 +144,140 @@ bool Config_BackupCurrent(std::string* outPath)
     if (ec) { LOG_WARN("config: backup failed: {}", ec.message()); return false; }
     if (outPath) *outPath = dest.string();
     LOG_INFO("config: backed up to {}", dest.string());
+    return true;
+}
+
+static std::string SanitizeProfileName(const std::string& name)
+{
+    std::string out;
+    for (unsigned char ch : name)
+    {
+        if (std::isalnum(ch) || ch == '-' || ch == '_' || ch == ' ')
+            out.push_back(ch == ' ' ? '_' : (char)ch);
+        if (out.size() >= 48) break;
+    }
+    while (!out.empty() && out.front() == '_') out.erase(out.begin());
+    while (!out.empty() && out.back() == '_') out.pop_back();
+    return out.empty() ? "default" : out;
+}
+
+std::filesystem::path Config_InputProfilesDir()
+{
+    return Platform_UserDir() / "input_profiles";
+}
+
+std::vector<std::string> Config_ListInputProfiles()
+{
+    namespace fs = std::filesystem;
+    std::vector<std::string> names;
+    std::error_code ec;
+    fs::path dir = Config_InputProfilesDir();
+    if (!fs::is_directory(dir, ec)) return names;
+    for (auto& e : fs::directory_iterator(dir, ec))
+    {
+        if (!e.is_regular_file(ec)) continue;
+        if (e.path().extension() != ".ini") continue;
+        names.push_back(e.path().stem().string());
+    }
+    std::sort(names.begin(), names.end());
+    return names;
+}
+
+std::string Config_InputProfileText(const Config& c)
+{
+    std::string s;
+    s += "; Sonic Colors Recomp input profile (controller + keyboard + dead zones)\n\n";
+    s += "[Input]\n";
+    s += std::format("rumble = {}\n", Bool(c.rumble));
+    s += std::format("remote_speaker = {}\n", Bool(c.remoteSpeaker));
+    s += std::format("stick_deadzone = {:.3f}\n", c.stickDeadzone);
+    s += std::format("stick_deadzone_right = {:.3f}\n", c.stickDeadzoneRight);
+    s += std::format("trigger_deadzone = {:.3f}\n", c.triggerDeadzone);
+    for (int i = 0; i < 12; i++) s += std::format("{} = {}\n", kBindActions[i], c.bind[i]);
+    s += "\n[Keyboard]\n";
+    for (int i = 0; i < 21; i++) s += std::format("{} = {}\n", kKeyActions[i], c.keys[i]);
+    return s;
+}
+
+bool Config_ApplyInputProfileText(const std::string& text, Config& c)
+{
+    std::istringstream in(text);
+    std::string line, section;
+    bool any = false;
+    while (std::getline(in, line))
+    {
+        line = Trim(line);
+        if (line.empty() || line[0] == ';' || line[0] == '#') continue;
+        if (line[0] == '[')
+        {
+            section = Lower(Trim(line.substr(1, line.find(']') - 1)));
+            continue;
+        }
+        size_t eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        std::string key = Lower(Trim(line.substr(0, eq)));
+        std::string val = Trim(line.substr(eq + 1));
+        if (section == "input")
+        {
+            any = true;
+            if (key == "rumble") c.rumble = ParseBool(val);
+            else if (key == "remote_speaker") c.remoteSpeaker = ParseBool(val);
+            else if (key == "stick_deadzone")
+                c.stickDeadzone = std::clamp(std::strtof(val.c_str(), nullptr), 0.0f, 0.5f);
+            else if (key == "stick_deadzone_right")
+                c.stickDeadzoneRight = std::clamp(std::strtof(val.c_str(), nullptr), 0.0f, 0.5f);
+            else if (key == "trigger_deadzone")
+                c.triggerDeadzone = std::clamp(std::strtof(val.c_str(), nullptr), 0.0f, 0.5f);
+            for (int i = 0; i < 12; i++)
+                if (key == kBindActions[i]) c.bind[i] = val;
+        }
+        else if (section == "keyboard")
+        {
+            any = true;
+            for (int i = 0; i < 21; i++)
+                if (key == kKeyActions[i]) c.keys[i] = val;
+        }
+    }
+    return any;
+}
+
+bool Config_SaveInputProfile(const std::string& name, std::string* outPath)
+{
+    namespace fs = std::filesystem;
+    const std::string safe = SanitizeProfileName(name);
+    std::error_code ec;
+    fs::path dir = Config_InputProfilesDir();
+    fs::create_directories(dir, ec);
+    if (ec) { LOG_WARN("config: cannot create {}: {}", dir.string(), ec.message()); return false; }
+    fs::path dest = dir / (safe + ".ini");
+    fs::path tmp = dest;
+    tmp += ".tmp";
+    {
+        std::ofstream f(tmp);
+        if (!f) return false;
+        f << Config_InputProfileText(g_config);
+    }
+    if (!Platform_ReplaceFile(tmp.string(), dest.string()))
+    {
+        fs::remove(tmp, ec);
+        return false;
+    }
+    if (outPath) *outPath = dest.string();
+    LOG_INFO("config: saved input profile {}", dest.string());
+    return true;
+}
+
+bool Config_LoadInputProfile(const std::string& name)
+{
+    namespace fs = std::filesystem;
+    const std::string safe = SanitizeProfileName(name);
+    fs::path path = Config_InputProfilesDir() / (safe + ".ini");
+    std::ifstream f(path);
+    if (!f) { LOG_WARN("config: input profile not found: {}", path.string()); return false; }
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    if (!Config_ApplyInputProfileText(ss.str(), g_config)) return false;
+    LOG_INFO("config: loaded input profile {}", path.string());
     return true;
 }
 

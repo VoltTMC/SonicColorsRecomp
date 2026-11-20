@@ -1,6 +1,7 @@
 // Config_Text / Config_Load roundtrip for Audio (+ a few Video) keys. No game / GUI.
 #include "../../runtime/config.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -126,6 +127,20 @@ int main()
     CHECK(Config_BackupCurrent(&backupPath));
     CHECK(fs::is_regular_file(backupPath, ec));
     CHECK(backupPath.find("config_backups") != std::string::npos);
+
+    g_config.bind[0] = "B";
+    g_config.keys[0] = "Z";
+    g_config.stickDeadzone = 0.33f;
+    CHECK(Config_SaveInputProfile("unit_test", nullptr));
+    auto profiles = Config_ListInputProfiles();
+    CHECK(std::find(profiles.begin(), profiles.end(), "unit_test") != profiles.end());
+    g_config.bind[0] = "A";
+    g_config.keys[0] = "SPACE";
+    g_config.stickDeadzone = 0.24f;
+    CHECK(Config_LoadInputProfile("unit_test"));
+    CHECK(g_config.bind[0] == "B");
+    CHECK(g_config.keys[0] == "Z");
+    CHECK(std::fabs(g_config.stickDeadzone - 0.33f) < 0.001f);
     fs::remove_all(g_userDir, ec);
 
     fs::remove(tmp, ec);

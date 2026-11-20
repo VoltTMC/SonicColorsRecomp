@@ -1,6 +1,7 @@
 #pragma once
 #include "mods/mods.h"
 
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -73,5 +74,12 @@ void Config_Load(const std::string& path);
 bool Config_Save();
 // Copies the current config.ini into user_data/config_backups/ (before a settings reset).
 bool Config_BackupCurrent(std::string* outPath = nullptr);
+// Input/keyboard (+ deadzone/rumble) profiles under user_data/input_profiles/<name>.ini
+std::filesystem::path Config_InputProfilesDir();
+std::vector<std::string> Config_ListInputProfiles();
+std::string Config_InputProfileText(const Config& c);
+bool Config_ApplyInputProfileText(const std::string& text, Config& c);
+bool Config_SaveInputProfile(const std::string& name, std::string* outPath = nullptr);
+bool Config_LoadInputProfile(const std::string& name);
 const std::string& Config_Path();
 std::string Config_Text(const Config& c);

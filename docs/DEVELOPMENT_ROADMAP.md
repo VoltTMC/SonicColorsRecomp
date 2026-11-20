@@ -81,10 +81,14 @@ Baseline: Phase 19 `72ae9de` (+ stability-recovery docs). Matching decomp: read-
 
 ## Session log
 
+### 2026-11-20 — Input binding profiles
+
+- Named profiles for binds/deadzones under `input_profiles/`; Input tab Save/Load.
+- Next: Win native WASAPI/DPI verification; graphics preset persistence label; more launcher polish.
+
 ### 2026-11-20 — Focus-loss mute + launcher status
 
 - `AudioOut_SetSuspended` + rumble stop on pause-on-focus; launcher Current settings strip.
-- Next: controller profile export/import; Win native WASAPI/DPI verification; more launcher polish.
 
 ### 2026-11-20 — Config backup on reset + FPS overlay
 

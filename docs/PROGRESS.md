@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Input binding profiles
+
+- Save/load controller + keyboard + deadzone profiles under `user_data/input_profiles/`.
+- Input settings UI: name, Save, Load combo, open folder; `scr_config_test` roundtrip.
+
 ## 2026-11-20 — Focus-loss mute + launcher status
 
 - Pause-on-focus-loss mutes host audio (`AudioOut_SetSuspended`) and stops rumble immediately.

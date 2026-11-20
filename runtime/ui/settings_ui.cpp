@@ -377,6 +377,57 @@ void InputTab(SettingsHost host)
         for (int i = 0; i < 21; i++) c.keys[i] = defaults.keys[i];
         Changed(host, false);
     }
+
+    ImGui::SeparatorText("Input profiles");
+    Help("Save or load controller bindings, keyboard bindings, rumble and dead zones as named profiles "
+         "under user_data/input_profiles/.");
+    {
+        static char profileName[48] = "default";
+        static int selected = 0;
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14);
+        ImGui::InputText("Profile name", profileName, sizeof(profileName));
+        if (ImGui::Button("Save profile"))
+        {
+            std::string path;
+            if (Config_SaveInputProfile(profileName, &path))
+            {
+                Overlay_Toast(std::format("Saved input profile {}",
+                                          std::filesystem::path(path).stem().string())
+                                  .c_str());
+                Changed(host, false);
+            }
+            else
+                Overlay_Toast("Could not save input profile");
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Open profiles folder"))
+            Shell_OpenFolder(Config_InputProfilesDir());
+        std::vector<std::string> profiles = Config_ListInputProfiles();
+        if (profiles.empty())
+            ImGui::TextDisabled("No saved profiles yet.");
+        else
+        {
+            if (selected >= (int)profiles.size()) selected = 0;
+            std::vector<const char*> items;
+            items.reserve(profiles.size());
+            for (auto& p : profiles) items.push_back(p.c_str());
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14);
+            ImGui::Combo("Load profile", &selected, items.data(), (int)items.size());
+            ImGui::SameLine();
+            if (ImGui::Button("Load"))
+            {
+                if (Config_LoadInputProfile(profiles[selected]))
+                {
+                    Gamepad_ReloadBindings();
+                    Overlay_Toast(std::format("Loaded input profile {}", profiles[selected]).c_str());
+                    Changed(host, true);
+                }
+                else
+                    Overlay_Toast("Could not load input profile");
+            }
+        }
+    }
+
     // Warn when the same key/mouse button is bound to more than one action.
     {
         std::unordered_map<int, std::vector<int>> owners;
