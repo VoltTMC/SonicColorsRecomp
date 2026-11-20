@@ -1,5 +1,6 @@
 #include "settings_ui.h"
 #include "music_ui.h"
+#include "overlay.h"
 #include "../platform/platform.h"
 #include "../config.h"
 #include "../audio/audio_out.h"
@@ -530,6 +531,8 @@ void SystemTab(SettingsHost host)
         Changed(host, true);
     Check(host, "Pause when the window is in the background", c.pauseOnFocusLoss, false,
           "Freeze the game while another window has focus.");
+    Check(host, "Show FPS overlay", c.showFpsOverlay, false,
+          "Draw a small FPS counter while playing (host present rate). Toggle anytime from System.");
     ImGui::Spacing();
     ImGui::TextWrapped("User data: %s", Platform_UserDir().string().c_str());
     Help("Config, log, screenshots and default saves. AppImage uses ~/.local/share/SonicColorsRecomp unless --portable / SCR_PORTABLE=1.");
@@ -541,14 +544,23 @@ void SystemTab(SettingsHost host)
     ImGui::SeparatorText("Reset");
     if (ImGui::Button("Reset settings to defaults…"))
         ImGui::OpenPopup("Reset settings");
-    Help("Restores Video, Audio, Input and System defaults. Keeps Paths, the Mods list, and Music Library folder settings.");
+    Help("Restores Video, Audio, Input and System defaults. Keeps Paths, the Mods list, and Music Library folder settings. "
+         "A timestamped copy of config.ini is written under user_data/config_backups/ first.");
     if (ImGui::BeginPopupModal("Reset settings", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
         ImGui::TextWrapped("Reset Video, Audio, Input and System options to their built-in defaults?\n\n"
+                           "A backup of the current config.ini is saved under config_backups/ first.\n"
                            "Paths, installed-mod order, and Music Library folder settings are kept. "
                            "Some options (frame rate, resolution, language) need a restart.");
         if (ImGui::Button("Reset", ImVec2(120, 0)))
         {
+            std::string backupPath;
+            if (Config_BackupCurrent(&backupPath))
+                Overlay_Toast(std::format("Settings backed up to {}",
+                                          std::filesystem::path(backupPath).filename().string())
+                                  .c_str());
+            else
+                Overlay_Toast("Could not back up config.ini (reset continues)");
             Config keepPaths = c;
             Config defaults;
             defaults.dataDir = keepPaths.dataDir;

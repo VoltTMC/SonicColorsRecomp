@@ -22,6 +22,8 @@ static int g_fail = 0;
 
 // Stubs pulled in by config.cpp
 void Log_Write(int, const std::string&) {}
+static fs::path g_userDir;
+fs::path Platform_UserDir() { return g_userDir.empty() ? fs::temp_directory_path() / "scr_config_test_user" : g_userDir; }
 bool Platform_ReplaceFile(const std::string& from, const std::string& to)
 {
     std::error_code ec;
@@ -110,6 +112,21 @@ int main()
     CHECK(std::fabs(g_config.triggerDeadzone - 0.05f) < 0.001f);
     CHECK(Config_Text(g_config).find("stick_deadzone") != std::string::npos);
     CHECK(Config_Text(g_config).find("trigger_deadzone") != std::string::npos);
+
+    g_config.showFpsOverlay = true;
+    CHECK(Config_Save());
+    g_config = Config{};
+    Config_Load(tmp.string());
+    CHECK(g_config.showFpsOverlay);
+    CHECK(Config_Text(g_config).find("show_fps_overlay") != std::string::npos);
+
+    g_userDir = fs::temp_directory_path() / "scr_config_test_user";
+    fs::remove_all(g_userDir, ec);
+    std::string backupPath;
+    CHECK(Config_BackupCurrent(&backupPath));
+    CHECK(fs::is_regular_file(backupPath, ec));
+    CHECK(backupPath.find("config_backups") != std::string::npos);
+    fs::remove_all(g_userDir, ec);
 
     fs::remove(tmp, ec);
     if (g_fail)

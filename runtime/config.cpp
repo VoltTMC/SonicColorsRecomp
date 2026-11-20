@@ -4,8 +4,11 @@
 #include "platform/platform.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
+#include <filesystem>
 #include <format>
 #include <fstream>
 #include <sstream>
@@ -61,7 +64,9 @@ std::string Config_Text(const Config& c)
     s += "; english, german, french, spanish, italian, dutch, japanese\n";
     s += std::format("language = {}\n", kLanguages[std::clamp(c.language, 0, 6)]);
     s += "; freeze the game while its window is in the background\n";
-    s += std::format("pause_on_focus_loss = {}\n\n", Bool(c.pauseOnFocusLoss));
+    s += std::format("pause_on_focus_loss = {}\n", Bool(c.pauseOnFocusLoss));
+    s += "; draw an FPS counter while playing (host present rate)\n";
+    s += std::format("show_fps_overlay = {}\n\n", Bool(c.showFpsOverlay));
     s += "[Audio]\n";
     s += "; host volume scales (0.0–1.0). Music and SFX share the Wii mix — only a master\n";
     s += "; control is available without changing original game mixing.\n";
@@ -105,6 +110,35 @@ std::string Config_Text(const Config& c)
 }
 
 const std::string& Config_Path() { return s_path; }
+
+bool Config_BackupCurrent(std::string* outPath)
+{
+    if (s_path.empty()) return false;
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    if (!fs::is_regular_file(s_path, ec)) return false;
+    fs::path dir = Platform_UserDir() / "config_backups";
+    fs::create_directories(dir, ec);
+    if (ec) { LOG_WARN("config: cannot create {}: {}", dir.string(), ec.message()); return false; }
+
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t t = std::chrono::system_clock::to_time_t(now);
+    std::tm tm{};
+#if defined(_WIN32)
+    localtime_s(&tm, &t);
+#else
+    localtime_r(&t, &tm);
+#endif
+    char stamp[32];
+    std::snprintf(stamp, sizeof(stamp), "%04d%02d%02d_%02d%02d%02d",
+                  tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+    fs::path dest = dir / std::format("config_{}.ini", stamp);
+    fs::copy_file(s_path, dest, fs::copy_options::overwrite_existing, ec);
+    if (ec) { LOG_WARN("config: backup failed: {}", ec.message()); return false; }
+    if (outPath) *outPath = dest.string();
+    LOG_INFO("config: backed up to {}", dest.string());
+    return true;
+}
 
 bool Config_Save()
 {
@@ -204,6 +238,7 @@ void Config_Load(const std::string& path)
         {
             if (key == "language") c.language = ParseLanguage(val);
             else if (key == "pause_on_focus_loss") c.pauseOnFocusLoss = ParseBool(val);
+            else if (key == "show_fps_overlay") c.showFpsOverlay = ParseBool(val);
         }
         else if (section == "audio")
         {

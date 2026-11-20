@@ -1,5 +1,11 @@
 # Progress log
 
+## 2026-11-20 — Config backup on reset + FPS overlay
+
+- `Config_BackupCurrent` writes `user_data/config_backups/config_YYYYMMDD_HHMMSS.ini` before System → Reset.
+- `[System] show_fps_overlay` + in-game corner FPS (host present rate); toast confirms backup filename.
+- `scr_config_test` covers show_fps_overlay roundtrip and backup path.
+
 ## 2026-11-20 — Trigger deadzone + graphics presets
 
 - `trigger_deadzone` + Input UI; Video graphics presets (Performance/Balanced/Quality).

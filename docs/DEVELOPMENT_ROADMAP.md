@@ -81,12 +81,16 @@ Baseline: Phase 19 `72ae9de` (+ stability-recovery docs). Matching decomp: read-
 
 ## Session log
 
+### 2026-11-20 — Config backup on reset + FPS overlay
+
+- Reset settings copies `config.ini` → `config_backups/` first; System → Show FPS overlay.
+- Next: pause-on-focus polish; controller profile save/load; Win native verification of WASAPI/DPI; launcher home status cards.
+
 ### 2026-11-20 — Trigger deadzone + graphics presets
 
 - `trigger_deadzone` config + Input slider; remaps LT/RT before digital threshold.
 - Video **Graphics preset** (Performance / Balanced / Quality) for scale/AF/VSync/async/gpu thread.
 - Launcher missing-data first-run bullets; README play-without-compile + Windows status honesty.
-- Next: config backup before reset; in-game FPS overlay toggle; pause-on-focus polish; Win parity gaps.
 
 ### 2026-11-20 — Continuous improvement initiative
 

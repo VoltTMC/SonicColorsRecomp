@@ -27,6 +27,7 @@ struct Config
     // [System]
     int language = 1;                // Wii IPL.LNG: 0 ja, 1 en, 2 de, 3 fr, 4 es, 5 it, 6 nl
     bool pauseOnFocusLoss = false;   // freeze the game while the window is in the background
+    bool showFpsOverlay = false;     // on-screen FPS while playing (host present rate)
     // [Audio]
     float masterVolume = 1.0f;     // 0..1 host scale for the main (TV) mix
     float speakerVolume = 0.6f;    // 0..1 relative Wii Remote speaker level (× master)
@@ -70,5 +71,7 @@ extern const char* const kKeyActions[21];   // config.ini names of Config::keys
 void Config_Load(const std::string& path);
 // Writes the current g_config back to config.ini (with comments).
 bool Config_Save();
+// Copies the current config.ini into user_data/config_backups/ (before a settings reset).
+bool Config_BackupCurrent(std::string* outPath = nullptr);
 const std::string& Config_Path();
 std::string Config_Text(const Config& c);

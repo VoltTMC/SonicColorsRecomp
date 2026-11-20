@@ -68,6 +68,8 @@ Last updated: 2026-11-20 (continuous improvement audit; stick deadzone; spiral g
 | Stick deadzone (L/R) | yes | yes | FULL `[source]` | Settings + config.ini |
 | Trigger deadzone | yes | yes | FULL `[source]` | Settings + config.ini (2026-11-20) |
 | Graphics presets | yes | yes | FULL `[source]` | Video tab Performance/Balanced/Quality |
+| Config backup before reset | yes | yes | FULL `[source]` | `user_data/config_backups/` (2026-11-20) |
+| On-screen FPS overlay | yes | yes | FULL `[source]` | System → Show FPS overlay |
 | Rumble | yes | yes | UNVERIFIED | `[native]` |
 | Hot-plug toasts | yes | yes | FULL `[source]` | — |
 | Launcher home / Play | yes | yes | FULL `[source]` | Version on home (2026-11-20) |

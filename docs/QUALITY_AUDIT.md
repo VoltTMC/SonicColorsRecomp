@@ -100,7 +100,7 @@ Baseline: Phase 19 commit `72ae9de`. Phase 20 commits (`388ee48`…`de7a72e`) an
 
 1. **H8** — Prepare path verified (`music_pipeline_smoke.sh`); still need in-game TR1 listen with prepared CPK.
 2. Linux/Windows feature parity — keep `docs/WINDOWS_FEATURE_PARITY.md` honest; expand `[native]` coverage.
-3. Launcher polish, performance, and PC QoL (deadzone done; more input/audio UX).
+3. Launcher polish, performance, and PC QoL (deadzone/presets/FPS overlay/config backup done; more input/audio UX).
 4. Full-game matrix beyond TR1 (compatibility doc).
 5. Optional: final AppImage art, CI packaging.
 6. **H7** / **AP1 spiral** — deferred; not active investigation targets.

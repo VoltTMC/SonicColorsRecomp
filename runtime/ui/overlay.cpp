@@ -2,6 +2,7 @@
 #include "settings_ui.h"
 #include "ui_image.h"
 #include "ui_shot.h"
+#include "../config.h"
 #include "../env.h"
 #include "../log.h"
 #include "../platform/platform.h"
@@ -101,7 +102,8 @@ void Overlay_Render(float w, float h)
         else if (!s_toast.empty())
             s_toast.clear();
     }
-    if (!s_open && toastMsg.empty()) return;
+    const bool showFps = g_config.showFpsOverlay;
+    if (!s_open && toastMsg.empty() && !showFps) return;
 
     ImGui_ImplDX11_NewFrame();
     UiBackend_NewFrame();
@@ -110,6 +112,23 @@ void Overlay_Render(float w, float h)
     float scale = std::max(0.75f, ImGui::GetIO().DisplaySize.y / 720.0f);
     ImGui::GetStyle().FontScaleMain = scale;
     ImGui::NewFrame();
+
+    if (showFps)
+    {
+        static float s_fpsSmooth = 0.0f;
+        const float dt = ImGui::GetIO().DeltaTime;
+        const float inst = (dt > 0.0001f) ? (1.0f / dt) : 0.0f;
+        s_fpsSmooth = (s_fpsSmooth <= 0.0f) ? inst : (s_fpsSmooth * 0.9f + inst * 0.1f);
+        const ImGuiViewport* vp = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + 12.0f * scale, vp->WorkPos.y + 12.0f * scale), ImGuiCond_Always);
+        ImGui::SetNextWindowBgAlpha(0.55f);
+        ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+                                 ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove |
+                                 ImGuiWindowFlags_NoInputs;
+        if (ImGui::Begin("##scr_fps", nullptr, flags))
+            ImGui::Text("%.0f FPS", s_fpsSmooth);
+        ImGui::End();
+    }
 
     if (s_open)
     {
