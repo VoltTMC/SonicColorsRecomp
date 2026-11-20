@@ -640,7 +640,7 @@ void SystemTab(SettingsHost host)
     Check(host, "Show FPS overlay", c.showFpsOverlay, false,
           "Draw FPS, frame time, Present ms, draws/XFB, guest Hz, memory and audio underruns while playing.");
     Check(host, "Show input hints", c.showInputHints, false,
-          "Corner prompts for Jump / Slash / Pause (pad button + keyboard) while playing.");
+          "Corner prompts with pad/key glyphs for Jump / Slash / Pause while playing.");
     Check(host, "Backup saves when starting the game", c.autoBackupSavesOnLaunch, false,
           "Before each Play, copy the save tree into save_backups/<timestamp>/. Skipped for --nand test runs.");
     Check(host, "Backup saves after the game writes them", c.autoBackupSavesOnWrite, false,

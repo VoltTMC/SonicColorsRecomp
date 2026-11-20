@@ -39,7 +39,7 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 | 10 | Parity | Native Win WASAPI / DPI / pad checklist | UNVERIFIED |
 | 11 | Launcher | First-run setup wizard polish | Partial |
 | 12 | Performance | Frame-time / startup benchmarks doc | **Done** (`docs/PERFORMANCE.md`) |
-| 13 | QoL | Controller prompt glyphs in overlay | Text hints **Done**; glyph art open |
+| 13 | QoL | Controller prompt glyphs in overlay | **Done** (coloured pad chips + key glyphs) |
 | 14 | Accessibility | Remappable F1/F12 / UI scale | **Done** (UI scale + F-key hotkeys) |
 | 15 | Mods | Mod profiles (enable sets) | **Done** (2026-11-20) |
 | 16 | Saves | Auto-backup on launch + after write + retention | **Done** (2026-11-20) |
@@ -108,6 +108,11 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 ---
 
 ## Session log
+
+### 2026-11-20 — Input hint glyphs
+
+- Coloured face/shoulder chips + key glyphs on Show input hints overlay.
+- Next: Win native checklist; D3D timestamp queries; first-run polish.
 
 ### 2026-11-20 — FPS overlay Present ms + draws/XFB
 

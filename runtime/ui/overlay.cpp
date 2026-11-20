@@ -15,7 +15,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cstdio>
+#include <cstring>
 #include <mutex>
 #include <string>
 
@@ -37,6 +39,95 @@ uint64_t s_shotHold = 1000;
 std::mutex s_toastMu;
 std::string s_toast;
 uint64_t s_toastUntil = 0;
+
+// Compact pad / key chips for the on-screen input hints (Xbox-style face colours).
+ImU32 GlyphPadColor(const char* name)
+{
+    if (!_stricmp(name, "A")) return IM_COL32(60, 180, 75, 255);
+    if (!_stricmp(name, "B")) return IM_COL32(220, 60, 60, 255);
+    if (!_stricmp(name, "X")) return IM_COL32(60, 120, 220, 255);
+    if (!_stricmp(name, "Y")) return IM_COL32(230, 200, 50, 255);
+    if (!_stricmp(name, "LB") || !_stricmp(name, "RB") || !_stricmp(name, "LT") || !_stricmp(name, "RT"))
+        return IM_COL32(90, 95, 110, 255);
+    if (!_stricmp(name, "START") || !_stricmp(name, "BACK")) return IM_COL32(70, 75, 90, 255);
+    return IM_COL32(100, 105, 120, 255);
+}
+
+bool GlyphIsFace(const char* name)
+{
+    return !_stricmp(name, "A") || !_stricmp(name, "B") || !_stricmp(name, "X") || !_stricmp(name, "Y");
+}
+
+void DrawPadGlyph(const char* name)
+{
+    if (!name || !name[0] || !_stricmp(name, "NONE"))
+    {
+        ImGui::TextDisabled("—");
+        return;
+    }
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float h = ImGui::GetTextLineHeight();
+    const ImVec2 label = ImGui::CalcTextSize(name);
+    const bool face = GlyphIsFace(name);
+    const float padX = face ? h * 0.35f : h * 0.28f;
+    const float w = face ? h : (label.x + padX * 2.0f);
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+    const ImVec2 p1(p0.x + w, p0.y + h);
+    const ImU32 fill = GlyphPadColor(name);
+    if (face)
+        dl->AddCircleFilled(ImVec2((p0.x + p1.x) * 0.5f, (p0.y + p1.y) * 0.5f), h * 0.48f, fill, 24);
+    else
+        dl->AddRectFilled(p0, p1, fill, h * 0.25f);
+    const ImVec2 tp(p0.x + (w - label.x) * 0.5f, p0.y + (h - label.y) * 0.5f);
+    dl->AddText(tp, IM_COL32(255, 255, 255, 255), name);
+    ImGui::Dummy(ImVec2(w, h));
+}
+
+void DrawKeyGlyph(const char* keysCsv)
+{
+    if (!keysCsv || !keysCsv[0] || !_stricmp(keysCsv, "NONE"))
+    {
+        ImGui::TextDisabled("—");
+        return;
+    }
+    // First binding only when comma-separated (keep the chip compact).
+    char buf[48];
+    size_t n = 0;
+    for (const char* p = keysCsv; *p && *p != ',' && n + 1 < sizeof(buf); p++)
+    {
+        if (*p == ' ' && n == 0) continue;
+        buf[n++] = (char)std::toupper((unsigned char)*p);
+    }
+    while (n > 0 && buf[n - 1] == ' ') n--;
+    buf[n] = 0;
+    if (!buf[0])
+    {
+        ImGui::TextDisabled("—");
+        return;
+    }
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float h = ImGui::GetTextLineHeight();
+    const ImVec2 label = ImGui::CalcTextSize(buf);
+    const float padX = h * 0.30f;
+    const float w = label.x + padX * 2.0f;
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+    const ImVec2 p1(p0.x + w, p0.y + h);
+    dl->AddRectFilled(p0, p1, IM_COL32(55, 58, 70, 255), h * 0.22f);
+    dl->AddRect(p0, p1, IM_COL32(160, 165, 180, 200), h * 0.22f);
+    dl->AddText(ImVec2(p0.x + padX, p0.y + (h - label.y) * 0.5f), IM_COL32(235, 235, 240, 255), buf);
+    ImGui::Dummy(ImVec2(w, h));
+}
+
+void HintRow(const char* action, const char* pad, const char* keys)
+{
+    ImGui::TextUnformatted(action);
+    ImGui::SameLine(ImGui::GetFontSize() * 5.5f);
+    DrawPadGlyph(pad);
+    ImGui::SameLine(0.0f, ImGui::GetFontSize() * 0.35f);
+    ImGui::TextDisabled("/");
+    ImGui::SameLine(0.0f, ImGui::GetFontSize() * 0.35f);
+    DrawKeyGlyph(keys);
+}
 }   // namespace
 
 void Overlay_Init(void* window, ID3D11Device* device, ID3D11DeviceContext* ctx)
@@ -181,9 +272,9 @@ void Overlay_Render(float w, float h)
                                  ImGuiWindowFlags_NoInputs;
         if (ImGui::Begin("##scr_hints", nullptr, flags))
         {
-            ImGui::Text("Jump  %s / %s", g_config.bind[0].c_str(), g_config.keys[0].c_str());
-            ImGui::Text("Slash %s / %s", g_config.bind[1].c_str(), g_config.keys[1].c_str());
-            ImGui::Text("Pause %s / %s", g_config.bind[6].c_str(), g_config.keys[6].c_str());
+            HintRow("Jump", g_config.bind[0].c_str(), g_config.keys[0].c_str());
+            HintRow("Slash", g_config.bind[1].c_str(), g_config.keys[1].c_str());
+            HintRow("Pause", g_config.bind[6].c_str(), g_config.keys[6].c_str());
             ImGui::TextDisabled("Settings %s · View/Back", Config_HotkeyName(g_config.hotkeySettings, "F1").c_str());
         }
         ImGui::End();

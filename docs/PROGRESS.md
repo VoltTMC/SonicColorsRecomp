@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — Input hint glyphs
+
+- On-screen Jump/Slash/Pause hints draw coloured pad chips + keyboard key glyphs (first bind).
+
 ## 2026-11-20 — FPS overlay Present ms + draws/XFB
 
 - Always sample Present wall time; overlay shows smoothed Present ms and draw calls per XFB.
