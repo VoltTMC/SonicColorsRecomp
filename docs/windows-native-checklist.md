@@ -53,6 +53,7 @@ what you can prove — note that in any report.
 - [ ] System → Check for updates (network); Open Releases page; Download update package → `downloads\` (newest 3 kept)
 - [ ] Play → Open downloads; optional CLI `--download-update`
 - [ ] System → Save diagnostic report (includes `.1.log` / free space); or `--save-diagnostics`
+- [ ] System → Copy log path / Copy user data path; after a forced crash, Play banner → Save diagnostic report
 - [ ] FPS overlay shows guest Hz + memory; input hints for Jump/Slash/Pause
 - [ ] Save/load a **video profile** (Settings → Video)
 - [ ] Missing/corrupt data: Releases / log recovery buttons work

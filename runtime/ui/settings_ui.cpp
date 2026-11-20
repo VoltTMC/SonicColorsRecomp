@@ -748,6 +748,12 @@ void SystemTab(SettingsHost host)
                 Shell_OpenFolder(p.has_parent_path() ? p.parent_path() : p);
             }
             Help("Opens the folder with SonicColorsRecomp.log plus the last few runs (.1.log … .5.log).");
+            ImGui::SameLine();
+            if (ImGui::Button("Copy log path"))
+            {
+                ImGui::SetClipboardText(logPath.c_str());
+                diagMsg = "Log path copied to clipboard";
+            }
         }
         else
             ImGui::TextDisabled("Log path not available yet.");
@@ -760,6 +766,12 @@ void SystemTab(SettingsHost host)
             Shell_OpenFolder(shots);
         }
         Help("Host screenshot hotkey (default F12) saves a full-resolution PNG into this folder.");
+        if (ImGui::Button("Copy user data path"))
+        {
+            ImGui::SetClipboardText(Platform_UserDir().string().c_str());
+            diagMsg = "User data path copied to clipboard";
+        }
+        Help("Copies the config/log/saves folder path for bug reports.");
         {
             ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12);
             if (ImGui::SliderInt("Keep screenshots", &c.screenshotKeep, 0, 200, "%d (0 = all)"))

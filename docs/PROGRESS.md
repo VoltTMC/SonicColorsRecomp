@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Crash-banner diagnostics + copy paths
+
+- Play crash recovery: Save diagnostic report; System: Copy log / user-data paths.
+- Desktop entry Keywords/Comment mention PAL + RecompLauncher.
+
 ## 2026-11-20 — Install helpers test
 
 - `scr_install_helpers_test` covers disc extensions + USA/JP unsupported messages; wired into `regression_smoke`.

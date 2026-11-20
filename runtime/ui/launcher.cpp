@@ -203,13 +203,25 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
                     Shell_OpenFolder(Platform_UserDir());
             }
             ImGui::SameLine();
+            if (ImGui::SmallButton("Save diagnostic report##crash"))
+            {
+                std::string err;
+                const std::string path = SettingsUI_WriteDiagnosticReport(err);
+                if (!path.empty())
+                {
+                    ImGui::SetClipboardText(path.c_str());
+                    fs::path p(path);
+                    Shell_OpenFolder(p.has_parent_path() ? p.parent_path() : p);
+                }
+            }
+            ImGui::SameLine();
             if (ImGui::SmallButton("Dismiss##crash"))
                 abnormal.clear();
             ImGui::TextDisabled("Crash details are usually in SonicColorsRecomp.1.log after the restart.");
             ImGui::Spacing();
         }
     }
-        if (UpdateCheck_NewerAvailable())
+    if (UpdateCheck_NewerAvailable())
     {
         ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.35f, 1.f), "%s", UpdateCheck_Message().c_str());
         ImGui::SameLine();

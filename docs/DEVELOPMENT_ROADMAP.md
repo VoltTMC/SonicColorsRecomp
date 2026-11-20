@@ -109,6 +109,11 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — Crash-banner diagnostics + copy paths
+
+- One-click diagnostic from crash banner; clipboard helpers for log/user-data; desktop Keywords refresh.
+- Next: Win native checklist; optional auto-install / Recomp Achievements.
+
 ### 2026-11-20 — Install helpers test
 
 - `scr_install_helpers_test` in regression_smoke; Windows `package.ps1` TESTING sync.

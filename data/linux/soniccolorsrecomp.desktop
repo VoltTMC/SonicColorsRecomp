@@ -1,11 +1,11 @@
 [Desktop Entry]
 Type=Application
 Name=Sonic Colors - Recompiled
-Comment=Native recompilation of Sonic Colors (Wii)
+Comment=Native PC recompilation of Sonic Colors (Wii) — Europe / PAL SNCP8P
 Exec=SonicColorsRecomp
 Icon=soniccolorsrecomp
-Categories=Game;
-Keywords=sonic;colors;wii;recomp;platformer;
+Categories=Game;ActionGame;
+Keywords=sonic;colors;colours;wii;recomp;recomplauncher;platformer;pal;sncp8p;
 Terminal=false
 StartupWMClass=SonicColorsRecomp
 PrefersNonDefaultGPU=true
