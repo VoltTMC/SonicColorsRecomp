@@ -639,6 +639,15 @@ void SystemTab(SettingsHost host)
         Shell_OpenFolder(dir);
     }
     Help("Timestamped copies of config.ini written before Settings Reset (newest 20 kept).");
+    ImGui::SameLine();
+    if (ImGui::Button("Open shader cache"))
+    {
+        fs::path dir = Platform_UserDir() / "shadercache";
+        std::error_code ec;
+        fs::create_directories(dir, ec);
+        Shell_OpenFolder(dir);
+    }
+    Help("Compiled host shaders. Safe to delete if a graphics update leaves the game black or crashing on boot.");
     ImGui::TextDisabled("Settings file: %s", Config_Path().c_str());
 
     ImGui::SeparatorText("Reset");
@@ -1000,7 +1009,13 @@ std::string SettingsUI_WriteDiagnosticReport(std::string& error)
     out << "log: " << Log_Path() << "\n";
     out << "nand: " << nand_paths::ActiveRoot().string() << "\n";
     out << "data: " << g_config.dataDir << "\n";
+    Input_EnsurePadsProbed();
     out << "pads: " << Pad_Count() << "\n";
+    for (int i = 0; i < 4; i++)
+    {
+        if (const char* name = Pad_Name(i))
+            out << "pad" << i << ": " << name << "\n";
+    }
     {
         const std::string& dev = AudioOut_CurrentDeviceName();
         out << "audio_device: " << (dev.empty() ? "(default)" : dev) << "\n";

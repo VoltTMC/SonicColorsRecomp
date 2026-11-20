@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — list-gamepads + shader cache folder
+
+- CLI `--list-gamepads`; System → Open shader cache; diagnostic reports list pad names.
+
 ## 2026-11-20 — Maximized restore + release-notes unit test
 
 - `window_maximized` restored on launch; SoftenReleaseBody moved to `release_notes.h` with `scr_release_notes_test`.

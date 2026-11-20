@@ -78,4 +78,6 @@ const char* Pad_Name(int index)
     return "XInput controller";
 }
 
+void Input_EnsurePadsProbed() {}
+
 bool Key_Down(int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0; }

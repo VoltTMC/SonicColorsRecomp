@@ -100,6 +100,8 @@ void Input_ProbeConnectedPads()
     SDL_free(ids);
 }
 
+void Input_EnsurePadsProbed() { Input_ProbeConnectedPads(); }
+
 void Input_PollHotplug() {}   // SDL_EVENT_GAMEPAD_* handled in Input_HandleEvent
 
 int Pad_Count()

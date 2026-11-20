@@ -19,6 +19,7 @@
 #include "install/verify.h"
 #include "region.h"
 #include "platform/platform.h"
+#include "platform/input.h"
 #include "ui/settings_ui.h"
 #include "ui/update_check.h"
 #include "version.h"
@@ -135,6 +136,7 @@ static void PrintUsage()
         "Audio / music:\n"
         "  --mute                  Silence host audio\n"
         "  --list-audio-devices    Print playback devices and exit\n"
+        "  --list-gamepads         Print connected controllers (slots 0–3) and exit\n"
         "  --music-mods DIR        Music replacement directory\n"
         "  --music-debug           Log music-mod decisions\n"
         "  --music-force-stage ID  Force stage id for music cues (e.g. stg110)\n"
@@ -225,6 +227,19 @@ int main(int argc, char** argv)
                     std::printf("default\n");
                 else
                     std::printf("%s\n", d.name.c_str());
+            }
+            return 0;
+        }
+        if (a == "--list-gamepads")
+        {
+            Input_EnsurePadsProbed();
+            const int n = Pad_Count();
+            std::printf("pads: %d\n", n);
+            for (int i = 0; i < 4; i++)
+            {
+                const char* name = Pad_Name(i);
+                if (name)
+                    std::printf("%d: %s\n", i, name);
             }
             return 0;
         }

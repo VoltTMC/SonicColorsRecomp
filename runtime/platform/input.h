@@ -25,6 +25,8 @@ void Pad_SetRumble(int index, uint16_t low, uint16_t high);
 int Pad_Count();
 // Human-readable name for slot 0–3, or nullptr if empty.
 const char* Pad_Name(int index);
+// Linux: SDL probe of already-connected pads (no toasts). Windows: no-op (XInput is polled).
+void Input_EnsurePadsProbed();
 // Windows: poll XInput connect/disconnect and show Overlay_Toast. Linux: no-op (SDL events).
 void Input_PollHotplug();
 // A keyboard key or mouse button (Windows virtual-key code, see keys.h) is held now.

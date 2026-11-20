@@ -63,9 +63,13 @@ echo "$ver_out" | grep -Fq "SonicColorsRecomp" || fail "--version missing produc
 ok "--version"
 
 echo "$help_out" | grep -Fq -- "--list-audio-devices" || fail "--help missing --list-audio-devices"
+echo "$help_out" | grep -Fq -- "--list-gamepads" || fail "--help missing --list-gamepads"
 adev_out=$("$appdir/AppRun" --list-audio-devices 2>&1) || fail "--list-audio-devices exited non-zero"
 echo "$adev_out" | grep -Eq '^default$' || fail "--list-audio-devices missing default line: $adev_out"
 ok "--list-audio-devices"
+pad_out=$("$appdir/AppRun" --list-gamepads 2>&1) || fail "--list-gamepads exited non-zero: $pad_out"
+echo "$pad_out" | grep -Eq '^pads: [0-9]+$' || fail "--list-gamepads missing pads count: $pad_out"
+ok "--list-gamepads"
 
 # Headless launcher must abort when UI shot env is set (no accidental game boot).
 shot_out=$(SCR_UI_SHOT=/tmp/scr_package_smoke.bmp "$appdir/AppRun" --nobox 2>&1 || true)

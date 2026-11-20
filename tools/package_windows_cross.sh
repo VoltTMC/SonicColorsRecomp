@@ -122,6 +122,7 @@ Useful:
   SonicColorsRecomp.exe --help
   SonicColorsRecomp.exe --check-updates
   SonicColorsRecomp.exe --save-diagnostics
+  SonicColorsRecomp.exe --list-gamepads
   docs\\windows-native-checklist.md
 
 Do not redistribute copyrighted game files with this package.
