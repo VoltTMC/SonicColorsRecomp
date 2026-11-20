@@ -3,6 +3,7 @@
 #include "../window.h"
 #include "../platform.h"
 #include "sdl.h"
+#include "../../audio/audio_out.h"
 #include "../../config.h"
 #include "../../log.h"
 #include "../../ui/overlay.h"
@@ -28,6 +29,34 @@ static void UpdateSize()
 
 struct CreateParams { int width, height; bool fullscreen; bool ok = false; };
 
+// Borderless desktop (NULL mode) vs exclusive display mode from config.
+static void ApplyFullscreenMode()
+{
+    if (!s_window) return;
+    if (!g_config.exclusiveFullscreen)
+    {
+        SDL_SetWindowFullscreenMode(s_window, nullptr);
+        return;
+    }
+    SDL_DisplayID disp = SDL_GetDisplayForWindow(s_window);
+    const SDL_DisplayMode* desk = SDL_GetDesktopDisplayMode(disp);
+    if (!desk)
+    {
+        LOG_WARN("exclusive fullscreen: no desktop mode ({})", SDL_GetError());
+        SDL_SetWindowFullscreenMode(s_window, nullptr);
+        return;
+    }
+    SDL_DisplayMode closest{};
+    const SDL_DisplayMode* mode = desk;
+    if (SDL_GetClosestFullscreenDisplayMode(disp, desk->w, desk->h, desk->refresh_rate, true, &closest))
+        mode = &closest;
+    if (!SDL_SetWindowFullscreenMode(s_window, mode))
+    {
+        LOG_WARN("exclusive fullscreen mode failed ({}); using borderless", SDL_GetError());
+        SDL_SetWindowFullscreenMode(s_window, nullptr);
+    }
+}
+
 static void CreateOnMain(void* userdata)
 {
     CreateParams* p = (CreateParams*)userdata;
@@ -36,14 +65,17 @@ static void CreateOnMain(void* userdata)
         LOG_ERROR("SDL video init failed ({})", SDL_GetError());
         return;
     }
+    // Create windowed first, then apply mode + fullscreen — exclusive needs a window/display.
     s_window = SDL_CreateWindow("Sonic Colors - Recompiled", p->width, p->height,
-                                SDL_WINDOW_RESIZABLE | SDL_WINDOW_VULKAN | SDL_WINDOW_HIGH_PIXEL_DENSITY |
-                                    (p->fullscreen ? SDL_WINDOW_FULLSCREEN : 0));
+                                SDL_WINDOW_RESIZABLE | SDL_WINDOW_VULKAN | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (!s_window)
     {
         LOG_ERROR("SDL_CreateWindow failed ({})", SDL_GetError());
         return;
     }
+    ApplyFullscreenMode();
+    if (p->fullscreen)
+        SDL_SetWindowFullscreen(s_window, true);
     SDL_HideCursor();   // the game draws its own Wii Remote pointer
     UpdateSize();
     s_focused = (SDL_GetWindowFlags(s_window) & SDL_WINDOW_INPUT_FOCUS) != 0;
@@ -73,7 +105,9 @@ bool Window_TakeResized() { return s_resized.exchange(false); }
 
 static void SetFullscreenOnMain(void* on)
 {
-    if (s_window) SDL_SetWindowFullscreen(s_window, on != nullptr);
+    if (!s_window) return;
+    ApplyFullscreenMode();
+    SDL_SetWindowFullscreen(s_window, on != nullptr);
 }
 
 void Window_SetFullscreen(bool on) { SDL_RunOnMainThread(SetFullscreenOnMain, on ? (void*)1 : nullptr, false); }
@@ -113,6 +147,7 @@ bool Window_CursorInClient(int x, int y, float& u, float& v)
 static void HandleEvent(const SDL_Event& e)
 {
     Input_HandleEvent(e);   // controllers coming and going
+    AudioOut_HandleEvent(&e);   // output device unplug / replug
     if (Overlay_HandleEvent(e)) return;   // the settings overlay has the input
     switch (e.type)
     {
@@ -153,17 +188,24 @@ static void HandleEvent(const SDL_Event& e)
         if (e.key.key == SDLK_F11 || (e.key.key == SDLK_RETURN && (e.key.mod & SDL_KMOD_ALT)))
         {
             bool on = !(SDL_GetWindowFlags(s_window) & SDL_WINDOW_FULLSCREEN);
+            ApplyFullscreenMode();
             SDL_SetWindowFullscreen(s_window, on);
             g_config.fullscreen = on;
         }
         else if (e.key.key == SDLK_F1)
             Overlay_Toggle();
+        else if (e.key.key == SDLK_F12)
+        {
+            extern void Renderer_RequestScreenshot();
+            Renderer_RequestScreenshot();
+        }
         break;
     }
 }
 
 void Window_RunEventLoop()
 {
+    Input_ProbeConnectedPads();
     bool cursorShown = false;
     for (;;)
     {

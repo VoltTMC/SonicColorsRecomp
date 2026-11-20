@@ -20,9 +20,13 @@
 #include "../kernel/memory.h"
 #include "../log.h"
 #include "../platform/platform.h"
+#include "../platform/image.h"
+#include "../ui/overlay.h"
 
+#include <chrono>
 #include <cstdlib>
 #include <d3dcompiler.h>
+#include <format>
 #include <unordered_map>
 #include <vector>
 
@@ -1823,8 +1827,18 @@ void Render_PresentXFB(ID3D11ShaderResourceView* srv, float u0, float v0, float 
 static ID3D11Texture2D* s_xfbTex = nullptr;
 static ID3D11RenderTargetView* s_xfbRTV = nullptr;
 static ID3D11ShaderResourceView* s_xfbSRV = nullptr;
+
+void Renderer_RepeatLastXfb()
+{
+    if (!s_xfbSRV) return;
+    Video_Present(s_xfbSRV, 0, 0, 1, 1);
+    g_framesPresented++;
+}
 int g_screenshotEvery = 0;   // frames between automatic screenshots (0 = off)
 uint32_t g_screenshotStart = 0;
+static std::atomic<bool> s_userScreenshot{ false };
+
+void Renderer_RequestScreenshot() { s_userScreenshot.store(true, std::memory_order_relaxed); }
 
 static void SaveTextureBMP(ID3D11Texture2D* tex, const char* path)
 {
@@ -1869,6 +1883,37 @@ static void SaveTextureBMP(ID3D11Texture2D* tex, const char* path)
         g_ctx->Unmap(st, 0);
     }
     st->Release();
+}
+
+// Full-resolution PNG for F12 user screenshots (BMP kept for TAS / --shots debug dumps).
+static bool SaveTexturePNG(ID3D11Texture2D* tex, const std::filesystem::path& path)
+{
+    Image_Init();
+    D3D11_TEXTURE2D_DESC d;
+    tex->GetDesc(&d);
+    D3D11_TEXTURE2D_DESC sd = d;
+    sd.Usage = D3D11_USAGE_STAGING;
+    sd.BindFlags = 0;
+    sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    sd.MiscFlags = 0;
+    ID3D11Texture2D* st = nullptr;
+    if (FAILED(g_device->CreateTexture2D(&sd, nullptr, &st))) return false;
+    g_ctx->CopyResource(st, tex);
+    bool ok = false;
+    D3D11_MAPPED_SUBRESOURCE m;
+    if (SUCCEEDED(g_ctx->Map(st, 0, D3D11_MAP_READ, 0, &m)))
+    {
+        std::vector<uint32_t> rgba((size_t)d.Width * d.Height);
+        for (uint32_t y = 0; y < d.Height; y++)
+        {
+            const auto* src = reinterpret_cast<const uint32_t*>((const uint8_t*)m.pData + (size_t)y * m.RowPitch);
+            memcpy(rgba.data() + (size_t)y * d.Width, src, (size_t)d.Width * 4);
+        }
+        g_ctx->Unmap(st, 0);
+        ok = Image_SavePNG(path, d.Width, d.Height, rgba.data());
+    }
+    st->Release();
+    return ok;
 }
 
 static void DoEFBCopy()
@@ -1937,26 +1982,67 @@ static void DoEFBCopy()
             snprintf(path, sizeof(path), "shot_%04u.bmp", g_framesPresented / g_screenshotEvery);
             SaveTextureBMP(s_xfbTex, path);
         }
-        Tas_OnPresent([](const char* path) { SaveTextureBMP(s_xfbTex, path); });
-        s_frame++;
-        // evict textures and EFB copies unused for ~600 frames so VRAM stays bounded
-        if ((s_frame % 300) == 0)
+        if (s_userScreenshot.exchange(false, std::memory_order_relaxed))
         {
-            for (auto* cache : { &s_texCache })
-                for (auto it = cache->begin(); it != cache->end();)
-                {
-                    if (s_frame - it->second.lastFrame > 600) { ReleaseTex(it->second); it = cache->erase(it); }
-                    else ++it;
-                }
-            for (auto it = s_efbCopies.begin(); it != s_efbCopies.end();)
+            namespace fs = std::filesystem;
+            fs::path dir = Platform_UserDir() / "screenshots";
+            std::error_code ec;
+            fs::create_directories(dir, ec);
+            using clock = std::chrono::system_clock;
+            auto t = clock::to_time_t(clock::now());
+            std::tm tm{};
+#ifdef _WIN32
+            localtime_s(&tm, &t);
+#else
+            localtime_r(&t, &tm);
+#endif
+            fs::path path = dir / std::format("scr_{:04d}{:02d}{:02d}_{:02d}{:02d}{:02d}.png", tm.tm_year + 1900,
+                                             tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+            if (SaveTexturePNG(s_xfbTex, path))
             {
-                if (s_frame - it->second.lastFrame > 600) { ReleaseTex(it->second); it = s_efbCopies.erase(it); }
-                else ++it;
+                LOG_INFO("screenshot saved to {}", path.string());
+                Overlay_Toast(("Screenshot saved: " + path.filename().string()).c_str());
+            }
+            else
+            {
+                LOG_ERROR("screenshot failed: {}", path.string());
+                Overlay_Toast("Screenshot failed");
             }
         }
+        Tas_OnPresent([](const char* path) { SaveTextureBMP(s_xfbTex, path); });
+        s_frame++;
+        // Evict stale GPU textures so long sessions do not unbounded-grow VRAM.
+        // Age threshold ~600 presents; hard caps catch thrashing/unique-addr storms.
+        if ((s_frame % 300) == 0)
+        {
+            auto evictAged = [&](auto& cache, uint32_t age) {
+                for (auto it = cache.begin(); it != cache.end();)
+                {
+                    if (s_frame - it->second.lastFrame > age) { ReleaseTex(it->second); it = cache.erase(it); }
+                    else ++it;
+                }
+            };
+            auto evictCap = [&](auto& cache, size_t cap) {
+                while (cache.size() > cap)
+                {
+                    auto oldest = cache.begin();
+                    for (auto it = cache.begin(); it != cache.end(); ++it)
+                        if (it->second.lastFrame < oldest->second.lastFrame) oldest = it;
+                    ReleaseTex(oldest->second);
+                    cache.erase(oldest);
+                }
+            };
+            evictAged(s_texCache, 600);
+            evictAged(s_efbCopies, 600);
+            evictCap(s_texCache, 4096);
+            evictCap(s_efbCopies, 256);
+        }
+        HiRes_TickEvict(s_frame);
         if ((g_framesPresented % 300) == 0)
-            LOG_INFO("GX: {} frames, {} shaders (vs {} / ps {}), {} textures", g_framesPresented, s_vsCache.size() + s_psCache.size(),
-                     s_vsCache.size(), s_psCache.size(), s_texCache.size());
+            LOG_INFO("GX: {} frames, {} shaders (vs {} / ps {}), {} textures, {} efbCopies, {} hires",
+                     g_framesPresented, s_vsCache.size() + s_psCache.size(),
+                     s_vsCache.size(), s_psCache.size(), s_texCache.size(),
+                     s_efbCopies.size(), HiRes_LoadedCount());
     }
     else
     {

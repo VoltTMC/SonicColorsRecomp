@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata for software centres / AppImageHub-style listings. -->
+<component type="desktop-application">
+  <id>io.github.soniccolorsrecomp.SonicColorsRecomp</id>
+  <name>Sonic Colors - Recompiled</name>
+  <summary>Native PC recompilation of Sonic Colors (Wii)</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-2.0-only</project_license>
+  <developer_name>Sonic Colors Recomp contributors</developer_name>
+  <description>
+    <p>
+      Sonic Colors Recomp runs the original Wii game as a native PC application
+      (recompilation), with a launcher, settings, music replacement, and mod support.
+      You must supply your own legally obtained game data.
+    </p>
+  </description>
+  <launchable type="desktop-id">soniccolorsrecomp.desktop</launchable>
+  <categories>
+    <category>Game</category>
+    <category>ActionGame</category>
+  </categories>
+  <keywords>
+    <keyword>sonic</keyword>
+    <keyword>colors</keyword>
+    <keyword>wii</keyword>
+    <keyword>recomp</keyword>
+  </keywords>
+  <recommends>
+    <control>gamepad</control>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </recommends>
+  <content_rating type="oars-1.1"/>
+</component>

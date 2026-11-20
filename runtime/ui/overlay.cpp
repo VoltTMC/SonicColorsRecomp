@@ -2,6 +2,7 @@
 #include "settings_ui.h"
 #include "ui_image.h"
 #include "ui_shot.h"
+#include "../env.h"
 #include "../log.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
@@ -12,6 +13,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <mutex>
 #include <string>
 
 void App_Restart();
@@ -24,23 +26,26 @@ ID3D11DeviceContext* s_ctx = nullptr;
 std::atomic<bool> s_ready{ false };
 std::atomic<bool> s_open{ false };
 std::atomic<bool> s_homePress{ false };
-// test aid: BKR_UI_SHOT_OVERLAY=<file.bmp> opens the overlay BKR_UI_SHOT_AFTER seconds
-// (default 30) into the game, saves a screenshot BKR_UI_SHOT_HOLD seconds later (default 1)
-// and closes it again
+// test aid: SCR_UI_SHOT_OVERLAY=<file.bmp> (legacy BKR_*) opens the overlay
+// SCR_UI_SHOT_AFTER seconds (default 30) into the game, saves after SCR_UI_SHOT_HOLD (default 1)
 const char* s_shotPath = nullptr;
 uint64_t s_shotOpenAt = 0;
 uint64_t s_shotHold = 1000;
+std::mutex s_toastMu;
+std::string s_toast;
+uint64_t s_toastUntil = 0;
 }   // namespace
 
 void Overlay_Init(void* window, ID3D11Device* device, ID3D11DeviceContext* ctx)
 {
-    s_shotPath = getenv("BKR_UI_SHOT_OVERLAY");
+    s_shotPath = EnvGet("SCR_UI_SHOT_OVERLAY", "BKR_UI_SHOT_OVERLAY");
     if (Tas_Active() && !s_shotPath) return;   // scripted runs drive the game; no overlay
     if (s_shotPath)
     {
-        const char* after = getenv("BKR_UI_SHOT_AFTER");
+        const char* after = EnvGet("SCR_UI_SHOT_AFTER", "BKR_UI_SHOT_AFTER");
         s_shotOpenAt = Platform_TickMs() + (after ? atoi(after) : 30) * 1000ull;
-        if (const char* hold = getenv("BKR_UI_SHOT_HOLD")) s_shotHold = atoi(hold) * 1000ull;
+        if (const char* hold = EnvGet("SCR_UI_SHOT_HOLD", "BKR_UI_SHOT_HOLD"))
+            s_shotHold = atoi(hold) * 1000ull;
     }
     s_dev = device;
     s_ctx = ctx;
@@ -72,6 +77,14 @@ bool Overlay_IsOpen() { return s_open; }
 
 bool Overlay_TakeHomePress() { return s_homePress.exchange(false); }
 
+void Overlay_Toast(const char* msg, uint32_t durationMs)
+{
+    if (!msg || !msg[0] || !s_ready) return;
+    std::lock_guard lk(s_toastMu);
+    s_toast = msg;
+    s_toastUntil = Platform_TickMs() + std::max<uint32_t>(500, durationMs);
+}
+
 bool Overlay_ShotPending() { return s_shotPath && s_shotOpenAt && Platform_TickMs() >= s_shotOpenAt; }
 
 void Overlay_Render(float w, float h)
@@ -79,7 +92,16 @@ void Overlay_Render(float w, float h)
     if (!s_ready) return;
     UiBackend_ReplayInput();
     if (s_shotPath && s_shotOpenAt && Platform_TickMs() >= s_shotOpenAt && !s_open) s_open = true;
-    if (!s_open) return;
+
+    std::string toastMsg;
+    {
+        std::lock_guard lk(s_toastMu);
+        if (!s_toast.empty() && Platform_TickMs() < s_toastUntil)
+            toastMsg = s_toast;
+        else if (!s_toast.empty())
+            s_toast.clear();
+    }
+    if (!s_open && toastMsg.empty()) return;
 
     ImGui_ImplDX11_NewFrame();
     UiBackend_NewFrame();
@@ -89,66 +111,106 @@ void Overlay_Render(float w, float h)
     ImGui::GetStyle().FontScaleMain = scale;
     ImGui::NewFrame();
 
-    const ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImVec2 size(std::min(vp->Size.x * 0.9f, 900.0f * scale), std::min(vp->Size.y * 0.88f, 630.0f * scale));
-    ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(size, ImGuiCond_Always);
-    bool open = true;
-    if (ImGui::Begin("Sonic Colors###overlay", &open, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
-                                          ImGuiWindowFlags_NoSavedSettings))
+    if (s_open)
     {
-        float bottom = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
-        ImGui::BeginChild("panel", ImVec2(0, -bottom), ImGuiChildFlags_NavFlattened);
-        if (ImGui::BeginTabBar("overlayTabs"))
+        const ImGuiViewport* vp = ImGui::GetMainViewport();
+        ImVec2 size(std::min(vp->Size.x * 0.9f, 900.0f * scale), std::min(vp->Size.y * 0.88f, 630.0f * scale));
+        ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSize(size, ImGuiCond_Always);
+        bool open = true;
+        if (ImGui::Begin("Sonic Colors###overlay", &open, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+                                              ImGuiWindowFlags_NoSavedSettings))
         {
-            static int shotFrames = 0;
-            bool shotMods = SettingsUI_ShotMods() && shotFrames++ < 2;
-            static int selected = 0;
-            int pick = SettingsUI_PadTab(selected, 3, true);
-            if (SettingsUI_TabItem("Settings", 0, pick))
+            float bottom = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
+            ImGui::BeginChild("panel", ImVec2(0, -bottom), ImGuiChildFlags_NavFlattened);
+            if (ImGui::BeginTabBar("overlayTabs"))
             {
-                selected = 0;
-                SettingsUI_Draw(SettingsHost::InGame);
-                ImGui::EndTabItem();
+                static int shotFrames = 0;
+                bool shotMods = SettingsUI_ShotMods() && shotFrames++ < 2;
+                static int selected = 0;
+                int pick = SettingsUI_PadTab(selected, 3, true);
+                if (SettingsUI_TabItem("Settings", 0, pick))
+                {
+                    selected = 0;
+                    SettingsUI_Draw(SettingsHost::InGame);
+                    ImGui::EndTabItem();
+                }
+                if (SettingsUI_TabItem("Mods", 1, pick, shotMods))
+                {
+                    selected = 1;
+                    SettingsUI_DrawMods(SettingsHost::InGame);
+                    ImGui::EndTabItem();
+                }
+                if (SettingsUI_TabItem("Music", 2, pick))
+                {
+                    selected = 2;
+                    SettingsUI_DrawMusic(SettingsHost::InGame);
+                    ImGui::EndTabItem();
+                }
+                ImGui::EndTabBar();
             }
-            if (SettingsUI_TabItem("Mods", 1, pick, shotMods))
+            ImGui::EndChild();
+            if (ImGui::Button("Close")) open = false;
+            ImGui::SameLine();
+            if (ImGui::Button("Wii HOME Menu"))
             {
-                selected = 1;
-                SettingsUI_DrawMods(SettingsHost::InGame);
-                ImGui::EndTabItem();
+                s_homePress = true;   // the game opens it on the next controller read
+                open = false;
             }
-            if (SettingsUI_TabItem("Music", 2, pick))
+            ImGui::SameLine();
+            if (ImGui::Button("Restart game"))
+                ImGui::OpenPopup("Restart game?");
+            ImGui::SameLine();
+            if (ImGui::Button("Quit game"))
+                ImGui::OpenPopup("Quit game?");
+            ImGui::SameLine();
+            ImGui::TextDisabled("View / F1 / Esc closes");
+            SettingsUI_DrawVersion();
+
+            if (ImGui::BeginPopupModal("Restart game?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
             {
-                selected = 2;
-                SettingsUI_DrawMusic(SettingsHost::InGame);
-                ImGui::EndTabItem();
+                ImGui::TextWrapped("Restart the game now? Unsaved progress in the current stage may be lost.");
+                if (ImGui::Button("Restart", ImVec2(120, 0)))
+                {
+                    ImGui::CloseCurrentPopup();
+                    App_Restart();
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
             }
-            ImGui::EndTabBar();
+            if (ImGui::BeginPopupModal("Quit game?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+            {
+                ImGui::TextWrapped("Quit Sonic Colors Recomp? Unsaved progress in the current stage may be lost.");
+                if (ImGui::Button("Quit", ImVec2(120, 0)))
+                {
+                    LOG_INFO("quit from the settings overlay");
+                    Gamepad_StopRumble();
+                    Platform_Terminate(0);
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
+            }
         }
-        ImGui::EndChild();
-        if (ImGui::Button("Close")) open = false;
-        ImGui::SameLine();
-        if (ImGui::Button("Wii HOME Menu"))
-        {
-            s_homePress = true;   // the game opens it on the next controller read
-            open = false;
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Restart game")) App_Restart();
-        ImGui::SameLine();
-        if (ImGui::Button("Quit game"))
-        {
-            LOG_INFO("quit from the settings overlay");
-            Gamepad_StopRumble();
-            Platform_Terminate(0);
-        }
-        ImGui::SameLine();
-        ImGui::TextDisabled("View / F1 / Esc closes");
-        SettingsUI_DrawVersion();
+        ImGui::End();
+        if (!open) s_open = false;
+        if (SettingsUI_TakeRestartRequest()) App_Restart();
     }
-    ImGui::End();
-    if (!open) s_open = false;
-    if (SettingsUI_TakeRestartRequest()) App_Restart();
+
+    if (!toastMsg.empty())
+    {
+        const ImGuiViewport* vp = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y - 48.0f * scale),
+                                ImGuiCond_Always, ImVec2(0.5f, 1.0f));
+        ImGui::SetNextWindowBgAlpha(0.82f);
+        ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+                                 ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove |
+                                 ImGuiWindowFlags_NoInputs;
+        if (ImGui::Begin("##scr_toast", nullptr, flags))
+            ImGui::TextUnformatted(toastMsg.c_str());
+        ImGui::End();
+    }
 
     ImGui::Render();
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());

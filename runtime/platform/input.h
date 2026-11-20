@@ -21,5 +21,11 @@ constexpr int16_t PAD_RIGHT_THUMB_DEADZONE = 8689;
 bool Pad_Read(int index, PadState& out);
 // Rumble motors (0 = off .. 65535).
 void Pad_SetRumble(int index, uint16_t low, uint16_t high);
+// How many physical pads are currently open (0–4).
+int Pad_Count();
+// Human-readable name for slot 0–3, or nullptr if empty.
+const char* Pad_Name(int index);
+// Windows: poll XInput connect/disconnect and show Overlay_Toast. Linux: no-op (SDL events).
+void Input_PollHotplug();
 // A keyboard key or mouse button (Windows virtual-key code, see keys.h) is held now.
 bool Key_Down(int vk);

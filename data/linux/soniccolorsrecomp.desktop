@@ -5,5 +5,7 @@ Comment=Native recompilation of Sonic Colors (Wii)
 Exec=SonicColorsRecomp
 Icon=soniccolorsrecomp
 Categories=Game;
+Keywords=sonic;colors;wii;recomp;platformer;
 Terminal=false
 StartupWMClass=SonicColorsRecomp
+PrefersNonDefaultGPU=true

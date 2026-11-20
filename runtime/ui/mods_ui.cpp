@@ -1,6 +1,7 @@
 #include "mods_ui.h"
 #include "ui_image.h"
 #include "../config.h"
+#include "../env.h"
 #include "../log.h"
 #include "../mods/gamebanana.h"
 #include "../mods/mod_install.h"
@@ -711,14 +712,13 @@ void BrowseTab(SettingsHost host)
     }
 }
 
-// test aids (UI screenshots, scripted install checks): BKR_UI_SHOT_MODS=browse opens the
-// GameBanana tab, BKR_UI_SHOT_MODS_SELECT=<id> selects that mod, BKR_MODS_AUTOINSTALL=<id>
-// installs its newest file once its details are loaded
+// test aids: SCR_UI_SHOT_MODS=browse (legacy BKR_*) opens GameBanana; SCR_UI_SHOT_MODS_SELECT=<id>
+// selects; SCR_MODS_AUTOINSTALL=<id> installs newest file once details load
 void TestAids(bool& openBrowse)
 {
-    static const char* view = getenv("BKR_UI_SHOT_MODS");
-    static const char* select = getenv("BKR_UI_SHOT_MODS_SELECT");
-    static const char* install = getenv("BKR_MODS_AUTOINSTALL");
+    static const char* view = EnvGet("SCR_UI_SHOT_MODS", "BKR_UI_SHOT_MODS");
+    static const char* select = EnvGet("SCR_UI_SHOT_MODS_SELECT", "BKR_UI_SHOT_MODS_SELECT");
+    static const char* install = EnvGet("SCR_MODS_AUTOINSTALL", "BKR_MODS_AUTOINSTALL");
     static int frames = 0;
     openBrowse = view && !_stricmp(view, "browse") && frames++ < 2;
     if (select && !s_selected) s_selected = strtoull(select, nullptr, 10);

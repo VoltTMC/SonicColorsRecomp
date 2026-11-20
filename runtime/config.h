@@ -10,12 +10,15 @@ struct Config
 {
     // [Video]
     int frameRate = 30;          // 30 (original), 60, or 0 (uncapped / no VI wait)
+    int hostFpsCap = 0;          // when uncapped: max guest updates/sec (0 = unlimited)
     int internalScale = 3;       // EFB resolution multiplier (1 = 640x528)
     int windowWidth = 1280;
     int windowHeight = 720;
     bool fullscreen = false;
+    bool exclusiveFullscreen = false; // false = borderless desktop (default); true = exclusive mode
     bool vsync = false;
     bool widescreen = true;
+    bool integerScale = false;   // present at integer multiples of 640×(360|480); letterbox rest
     int anisotropy = 1;          // forced anisotropic filtering (1 = as the game sets it)
     bool asyncShaders = true;    // compile new shaders in the background (no hitches)
     bool gpuThread = true;       // GX processing/rendering on its own thread
@@ -24,9 +27,16 @@ struct Config
     // [System]
     int language = 1;                // Wii IPL.LNG: 0 ja, 1 en, 2 de, 3 fr, 4 es, 5 it, 6 nl
     bool pauseOnFocusLoss = false;   // freeze the game while the window is in the background
+    // [Audio]
+    float masterVolume = 1.0f;     // 0..1 host scale for the main (TV) mix
+    float speakerVolume = 0.6f;    // 0..1 relative Wii Remote speaker level (× master)
+    std::string audioDevice;       // empty = system default; Linux: SDL device name
     // [Input]
     bool rumble = true;
     bool remoteSpeaker = true;   // play Wii Remote speaker sounds on the PC
+    // Stick dead zones as a fraction of full throw (0 = none, ~0.24 ≈ XInput left default).
+    float stickDeadzone = 0.24f;
+    float stickDeadzoneRight = 0.26f;
     // button bindings, action -> controller button name (A, B, X, Y, LB, RB, LT, RT,
     // START, BACK, LS, RS, UP, DOWN, LEFT, RIGHT or NONE); see config.cpp for actions.
     // Wii "-" is unbound by default: the game does not use it, and BACK (the View button)

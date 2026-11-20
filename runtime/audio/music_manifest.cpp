@@ -304,7 +304,8 @@ std::string MusicManifest_ImportWav(const fs::path& musicDir, const std::string&
     if (!ec && !canonDir.empty())
     {
         auto rel = fs::relative(canonSrc, canonDir, ec);
-        if (!ec && !rel.empty() && rel.native().find("..") == std::string::npos)
+        // Use generic_string(): path::native() is wchar_t on Windows (MSVC rejects find("..")).
+        if (!ec && !rel.empty() && rel.generic_string().find("..") == std::string::npos)
             return rel.generic_string();
     }
     std::string name = MusicManifest_SafeFileName(stage, src);

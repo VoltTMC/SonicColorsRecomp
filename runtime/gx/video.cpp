@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <d3dcompiler.h>
 #include <dxgi1_2.h>
 
@@ -188,11 +189,19 @@ void Video_Present(ID3D11ShaderResourceView* srv, float u0, float v0, float u1, 
     g_ctx->ClearRenderTargetView(target, black);
     if (srv)
     {
-        // letterbox to target aspect
+        // letterbox to target aspect (optional integer scale keeps sharp pixels)
         float aspect = g_videoConfig.widescreen ? 16.0f / 9.0f : 4.0f / 3.0f;
         float dw = w, dh = h;
         if (w / h > aspect) dw = h * aspect;
         else dh = w / aspect;
+        if (g_videoConfig.integerScale)
+        {
+            const float baseW = 640.0f;
+            const float baseH = baseW / aspect;
+            const int scale = std::max(1, (int)std::floor(std::min(dw / baseW, dh / baseH)));
+            dw = baseW * (float)scale;
+            dh = baseH * (float)scale;
+        }
         float x0 = (w - dw) / 2, y0 = (h - dh) / 2;
         float cb[8] = { u0, v0, u1, v1,
                         x0 / w * 2 - 1, 1 - y0 / h * 2, (x0 + dw) / w * 2 - 1, 1 - (y0 + dh) / h * 2 };

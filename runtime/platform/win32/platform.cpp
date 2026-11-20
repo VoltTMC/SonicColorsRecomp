@@ -13,6 +13,17 @@ void Gamepad_StopRumble();
 // ---------------------------------------------------------------- process
 void Platform_Init(int, char**)
 {
+    // Per-monitor DPI so the window and ImGui framebuffer scale correctly on high-DPI displays.
+#ifndef DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+    using DPI_AWARENESS_CONTEXT = HANDLE;
+#define DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 ((DPI_AWARENESS_CONTEXT)(LONG_PTR)-4)
+#endif
+    using SetDpiAwarenessContextFn = BOOL(WINAPI*)(DPI_AWARENESS_CONTEXT);
+    if (HMODULE user32 = GetModuleHandleW(L"user32.dll"))
+    {
+        if (auto fn = (SetDpiAwarenessContextFn)(void*)GetProcAddress(user32, "SetProcessDpiAwarenessContext"))
+            fn(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    }
     // Keep full timer resolution and CPU speed even when the window is minimized or in
     // the background (Windows 11 power throttling would coarsen all waits to ~15.6 ms).
     PROCESS_POWER_THROTTLING_STATE pt{};
@@ -83,7 +94,24 @@ fs::path Platform_ExeDir()
     return fs::path(buf).parent_path();
 }
 
-fs::path Platform_UserDir() { return Platform_ExeDir(); }
+static bool s_portable = false;
+void Platform_RequestPortable() { s_portable = true; }
+
+fs::path Platform_UserDir()
+{
+    if (s_portable) return Platform_ExeDir();
+    if (const char* env = getenv("SCR_USER_DIR"))
+        if (env[0]) return fs::path(env);
+    const fs::path exe = Platform_ExeDir();
+    std::error_code ec;
+    // Portable ZIP / legacy layout: keep data next to the exe when already present or marked.
+    if (fs::exists(exe / "portable.txt", ec) || fs::exists(exe / "config.ini", ec)
+        || fs::exists(exe / "userdata", ec) || fs::exists(exe / "nand", ec))
+        return exe;
+    if (const char* appdata = getenv("APPDATA"))
+        return fs::path(appdata) / "SonicColorsRecomp";
+    return exe;
+}
 
 fs::path Platform_DolphinTextureDir()
 {
@@ -93,7 +121,88 @@ fs::path Platform_DolphinTextureDir()
 
 bool Platform_ReplaceFile(const std::string& from, const std::string& to)
 {
-    return MoveFileExA(from.c_str(), to.c_str(), MOVEFILE_REPLACE_EXISTING) != 0;
+    auto widen = [](const std::string& s) {
+        std::wstring w(MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0), L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), w.data(), (int)w.size());
+        return w;
+    };
+    return MoveFileExW(widen(from).c_str(), widen(to).c_str(), MOVEFILE_REPLACE_EXISTING) != 0;
+}
+
+bool Platform_RunProcess(const std::vector<std::string>& argv,
+                         const fs::path& stdoutPath,
+                         const fs::path& stderrPath,
+                         int& exitCode)
+{
+    exitCode = -1;
+    if (argv.empty() || argv[0].empty()) return false;
+
+    auto widen = [](const std::string& s) {
+        std::wstring w(MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0), L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), w.data(), (int)w.size());
+        return w;
+    };
+
+    // Quote each arg for CreateProcess command line (UTF-16).
+    auto quote = [](const std::wstring& a) {
+        if (a.find_first_of(L" \t\"") == std::wstring::npos) return a;
+        std::wstring o = L"\"";
+        for (wchar_t c : a)
+        {
+            if (c == L'"') o += L"\\\"";
+            else o += c;
+        }
+        o += L'"';
+        return o;
+    };
+
+    std::wstring cmd;
+    for (size_t i = 0; i < argv.size(); i++)
+    {
+        if (i) cmd += L' ';
+        cmd += quote(widen(argv[i]));
+    }
+
+    SECURITY_ATTRIBUTES sa{ sizeof(sa), nullptr, TRUE };
+    HANDLE hOut = INVALID_HANDLE_VALUE, hErr = INVALID_HANDLE_VALUE;
+    auto openOut = [&](const fs::path& p, HANDLE& h) -> bool {
+        if (p.empty()) return true;
+        std::wstring wp = p.wstring();
+        h = CreateFileW(wp.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &sa, CREATE_ALWAYS,
+                        FILE_ATTRIBUTE_NORMAL, nullptr);
+        return h != INVALID_HANDLE_VALUE;
+    };
+    if (!openOut(stdoutPath, hOut) || !openOut(stderrPath, hErr))
+    {
+        if (hOut != INVALID_HANDLE_VALUE) CloseHandle(hOut);
+        if (hErr != INVALID_HANDLE_VALUE) CloseHandle(hErr);
+        return false;
+    }
+
+    STARTUPINFOW si{ sizeof(si) };
+    if (hOut != INVALID_HANDLE_VALUE || hErr != INVALID_HANDLE_VALUE)
+    {
+        si.dwFlags |= STARTF_USESTDHANDLES;
+        si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+        si.hStdOutput = hOut != INVALID_HANDLE_VALUE ? hOut : GetStdHandle(STD_OUTPUT_HANDLE);
+        si.hStdError = hErr != INVALID_HANDLE_VALUE ? hErr : GetStdHandle(STD_ERROR_HANDLE);
+    }
+
+    PROCESS_INFORMATION pi{};
+    std::wstring mutableCmd = cmd;
+    BOOL ok = CreateProcessW(nullptr, mutableCmd.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
+                             nullptr, nullptr, &si, &pi);
+    if (hOut != INVALID_HANDLE_VALUE) CloseHandle(hOut);
+    if (hErr != INVALID_HANDLE_VALUE) CloseHandle(hErr);
+    if (!ok) return false;
+
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD code = 1;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    exitCode = (int)code;
+    return true;
 }
 
 std::string Platform_UiFont()

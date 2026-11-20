@@ -1,6 +1,7 @@
 // /dev/fs and NAND file access, backed by a host directory.
 #include "../config.h"
 #include "ios.h"
+#include "fs_atomic.h"
 #include "../kernel/memory.h"
 #include "../log.h"
 #include "../region.h"
@@ -98,29 +99,11 @@ private:
     void Flush()
     {
         if (!m_dirty) return;
-        // write-then-rename so an interrupted save never leaves a truncated file
+        // write-then-rename so an interrupted save never leaves a truncated file.
+        // Keep m_dirty on failure so a later Close/Flush can retry (C1 / M7).
         fs::path hp = HostPath(m_name);
-        fs::path tmp = hp;
-        tmp += ".tmp";
-        std::error_code ec;
-        fs::create_directories(hp.parent_path(), ec);
-        {
-            std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
-            f.write((const char*)m_data.data(), (std::streamsize)m_data.size());
-            if (!f)
-            {
-                LOG_WARN("FS: failed to write {}", tmp.string());
-                fs::remove(tmp, ec);
-                return; // keep m_dirty so a later Close/Flush can retry
-            }
-        }
-        fs::rename(tmp, hp, ec);
-        if (ec)
-        {
-            LOG_WARN("FS: failed to replace {}: {}", hp.string(), ec.message());
-            fs::remove(tmp, ec);
-            return; // keep m_dirty — do not treat a failed rename as a successful save
-        }
+        if (!Fs_WriteFileAtomic(hp, m_data.data(), m_data.size()))
+            return;
         m_dirty = false;
     }
 

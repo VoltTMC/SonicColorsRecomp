@@ -2,6 +2,7 @@
 // decrementer, MSR and assorted rarely used instructions.
 #include "ppc_context.h"
 #include "cpu.h"
+#include "../env.h"
 #include "../log.h"
 #include "../kernel/memory.h"
 #include "../kernel/threads.h"
@@ -15,7 +16,9 @@
 #include <vector>
 
 static constexpr uint32_t CODE_BEGIN = 0x80004000;
-static constexpr uint32_t CODE_END = 0x80700000;
+// DOL .text runs through ~0x807125EC (ctors at 0x80712600). Was 0x80700000, which
+// truncated the jump table and overflowed s_table while registering later functions.
+static constexpr uint32_t CODE_END = 0x80713000;
 static std::vector<PPCFunc> s_table;
 
 // The HOME menu module, recompiled at its boot-time link address. Its functions are
@@ -59,7 +62,14 @@ void Cpu_Init()
     {
         if (m->guest >= s_rsoBegin && m->guest < s_rsoEnd)
         {
-            s_rsoTable[(m->guest - s_rsoBegin) / 4] = m->host;
+            size_t i = (m->guest - s_rsoBegin) / 4;
+            if (i < s_rsoTable.size()) s_rsoTable[i] = m->host;
+            else LOG_WARN("RSO function {:08x} outside table", m->guest);
+            continue;
+        }
+        if (m->guest < CODE_BEGIN || m->guest >= CODE_END || (m->guest & 3))
+        {
+            LOG_WARN("skip function {:08x} outside code table [{:08x}, {:08x})", m->guest, CODE_BEGIN, CODE_END);
             continue;
         }
         s_table[(m->guest - CODE_BEGIN) / 4] = m->host;
@@ -91,8 +101,8 @@ extern "C" void ppc_call_indirect(PPCContext& ctx, uint8_t* base, uint32_t addr)
         bool inRam = (addr >= 0x80000000) && (phys < MEM1_SIZE || (phys >= 0x10000000 && phys < 0x10000000 + MEM2_SIZE));
         if (!inRam || (addr & 3))
             FATAL("indirect call to invalid address {:08x} (lr={:08x})", addr, ctx.lr);
-        // BKR_DUMPMEM2=1: dump MEM2 on the first call into it (input for tools/rso.py)
-        static const bool dumpMem2 = getenv("BKR_DUMPMEM2") != nullptr;
+        // SCR_DUMPMEM2=1 (legacy BKR_*): dump MEM2 on first call into it (tools/rso.py)
+        static const bool dumpMem2 = EnvHas("SCR_DUMPMEM2", "BKR_DUMPMEM2");
         if (dumpMem2)
         {
             static bool dumped = false;

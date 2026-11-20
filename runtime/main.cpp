@@ -1,6 +1,7 @@
 // SonicColorsRecomp: statically recompiled Sonic Colors (Wii) PAL SNCP8P
 #include "log.h"
 #include "config.h"
+#include "perf.h"
 #include "gx/video.h"
 #include "cpu/cpu.h"
 #include "kernel/memory.h"
@@ -10,19 +11,27 @@
 #include "hw/hw.h"
 #include "ios/disc.h"
 #include "ios/ios.h"
+#include "ios/nand_paths.h"
 #include "mods/mods.h"
 #include "audio/music_mod.h"
+#include "install/releases.h"
+#include "install/verify.h"
 #include "region.h"
 #include "platform/platform.h"
+#include "version.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <string>
+#ifdef _WIN32
+#include <stdlib.h>
+#endif
 
-void Log_Open(const char* path);
 void NAND_InitSystemFiles();
 void Renderer_Init();
-void AudioOut_Init();
+#include "audio/audio_out.h"
 void Crash_Init();
 void Crash_StartWatchdog();
 extern bool g_noMessageBox;
@@ -51,6 +60,8 @@ static void RunGame()
     HW_Init();
     Renderer_Init();
     AudioOut_Init();
+    AudioOut_ApplyVolumes(g_config.masterVolume, g_config.speakerVolume);
+    if (!g_config.audioDevice.empty()) AudioOut_SetDevice(g_config.audioDevice);
     MusicMod_Init();
     { extern bool g_gpuThread; if (g_gpuThread) GX_StartThread(); }
     if (!Disc_Open(s_dataDir, s_isoPath, Mods_Loaded())) FATAL("cannot open disc data");
@@ -66,6 +77,51 @@ static void RunGame()
     Threads_RunMain(entry);
 }
 
+static void PrintUsage()
+{
+    // Fixed product name — argv[0] is often an AppImage/IDE wrapper, not our binary.
+    const char* exe = "SonicColorsRecomp";
+    std::printf(
+        "Sonic Colors Recomp — native PC recompilation of Sonic Colors (Wii)\n"
+        "\n"
+        "Usage: %s [options]\n"
+        "\n"
+        "General:\n"
+        "  -h, --help              Show this help and exit\n"
+        "  -V, --version           Print build version and exit\n"
+        "  --portable              Keep config/saves/logs next to the executable\n"
+        "                          (also: SCR_PORTABLE=1). Default for writable installs;\n"
+        "                          useful for AppImage when you want a side-by-side folder.\n"
+        "  --skip-launcher         Start the game without the launcher UI\n"
+        "  --data DIR              Game data directory (extracted DATA)\n"
+        "  --iso PATH              Disc image used by the installer\n"
+        "  --nand DIR              Host NAND / save directory for this run\n"
+        "  --mods DIR              Mods directory override\n"
+        "  --nobox                 Suppress message boxes / dialogs\n"
+        "  --verbose               Extra log detail\n"
+        "\n"
+        "Display / pacing:\n"
+        "  --frame-rate 30|60|0    Pacing (0 = uncapped). Also --60fps\n"
+        "                          60 = true 60 Hz guest + spring cooldown gate.\n"
+        "  --guest-60              Force wait=1 (implied by --60fps)\n"
+        "  --spring-cd-gate        Force spring gate on (implied by --60fps);\n"
+        "                          SCR_SPRING_CD_GATE=0 disables\n"
+        "  --spring-diag           Log Spring/WideSpring/SpringPole collide+act+upd (SCR_SPRING_DIAG)\n"
+        "  --scale N               Internal resolution scale (1–8)\n"
+        "  --single-core           Process GX on the CPU thread\n"
+        "\n"
+        "Audio / music:\n"
+        "  --mute                  Silence host audio\n"
+        "  --list-audio-devices    Print playback devices and exit\n"
+        "  --music-mods DIR        Music replacement directory\n"
+        "  --music-debug           Log music-mod decisions\n"
+        "  --music-force-stage ID  Force stage id for music cues (e.g. stg110)\n"
+        "\n"
+        "Config and saves live under the user/data directory; F1 opens in-game settings,\n"
+        "F11 toggles fullscreen. F12 saves a screenshot. See docs/ for music modding and compatibility notes.\n",
+        exe);
+}
+
 int main(int argc, char** argv)
 {
     Platform_Init(argc, argv);
@@ -74,6 +130,34 @@ int main(int argc, char** argv)
     {
         extern int Renderer_PrecompileShaders(const std::string& dir);
         return Renderer_PrecompileShaders(argv[2]) ? 1 : 0;
+    }
+    for (int i = 1; i < argc; i++)
+    {
+        std::string a = argv[i];
+        if (a == "-h" || a == "--help")
+        {
+            PrintUsage();
+            return 0;
+        }
+        if (a == "-V" || a == "--version")
+        {
+            std::printf("SonicColorsRecomp %s\n", g_version);
+            return 0;
+        }
+        if (a == "--list-audio-devices")
+        {
+            auto devices = AudioOut_ListDevices();
+            for (const auto& d : devices)
+            {
+                if (d.name.empty())
+                    std::printf("default\n");
+                else
+                    std::printf("%s\n", d.name.c_str());
+            }
+            return 0;
+        }
+        if (a == "--portable")
+            Platform_RequestPortable();
     }
     std::string root = Platform_UserDir().string();   // the exe directory on Windows
     Log_Open((root + "/SonicColorsRecomp.log").c_str());
@@ -93,6 +177,30 @@ int main(int argc, char** argv)
         else if (a == "--iso" && i + 1 < argc) isoPath = argv[++i];
         else if (a == "--verbose") g_logLevel = 0;
         else if (a == "--60fps") fps60 = true;
+        else if (a == "--guest-60")
+        {
+#ifdef _WIN32
+            _putenv_s("SCR_GUEST_60", "1");
+#else
+            setenv("SCR_GUEST_60", "1", 1);
+#endif
+        }
+        else if (a == "--spring-cd-gate")
+        {
+#ifdef _WIN32
+            _putenv_s("SCR_SPRING_CD_GATE", "1");
+#else
+            setenv("SCR_SPRING_CD_GATE", "1", 1);
+#endif
+        }
+        else if (a == "--spring-diag")
+        {
+#ifdef _WIN32
+            _putenv_s("SCR_SPRING_DIAG", "1");
+#else
+            setenv("SCR_SPRING_DIAG", "1", 1);
+#endif
+        }
         else if (a == "--frame-rate" && i + 1 < argc)
         {
             int v = atoi(argv[++i]);
@@ -168,6 +276,7 @@ int main(int argc, char** argv)
     }
 
     g_cfgFrameRate = fpsOverride >= 0 ? (uint32_t)fpsOverride : (fps60 ? 60u : (uint32_t)g_config.frameRate);
+    Perf_SetHostFpsCap(g_config.hostFpsCap);
     { extern bool g_gpuThread; g_gpuThread = g_config.gpuThread && !singleCore; }
     g_videoConfig.internalScale = scaleOverride ? scaleOverride : g_config.internalScale;
     g_videoConfig.windowWidth = g_config.windowWidth;
@@ -175,38 +284,62 @@ int main(int argc, char** argv)
     g_videoConfig.fullscreen = g_config.fullscreen;
     g_videoConfig.vsync = g_config.vsync;
     g_videoConfig.widescreen = g_config.widescreen;
-    LOG_INFO("SonicColorsRecomp starting; data={} iso={} fps={} scale={}", dataDir, isoPath, g_cfgFrameRate, g_videoConfig.internalScale);
+    g_videoConfig.integerScale = g_config.integerScale;
+    {
+        const uint32_t wf = Perf_WaitFields();
+        if (g_cfgFrameRate >= 60 || Perf_Guest60Forced())
+            LOG_INFO("guest 60 Hz (wait={}): spring cooldown gate on (WideSpring hold)", wf);
+        if (const char* g = std::getenv("SCR_SPRING_CD_GATE"); g && g[0] == '0')
+            LOG_WARN("SCR_SPRING_CD_GATE=0: spring cooldown gate disabled");
+        if (std::getenv("SCR_SPRING_DIAG"))
+            LOG_INFO("SCR_SPRING_DIAG: Spring/WideSpring/SpringPole event logging on");
+        LOG_INFO("SonicColorsRecomp starting; data={} iso={} fps={} wait={} scale={}", dataDir, isoPath,
+                 g_cfgFrameRate, wf, g_videoConfig.internalScale);
+    }
     if (dataDir.empty())
     {
         // no launcher (restart, --skip-launcher): install directly
         if (g_noMessageBox)
-            FATAL("Game data not installed. Start the game once normally to install it from your disc image, "
-                  "or run bkr_install <disc image> (see README).");
+            FATAL("Sonic Colors game data is not installed. Start once with the launcher to install "
+                  "from your disc image ({}), or run: scr_install <disc-image> <dest-DATA-dir>",
+                  kReleaseNames);
         extern bool InstallUI_Run(const std::filesystem::path&, const std::string&, const std::string&);
         if (!InstallUI_Run(installDest, isoPath, "")) return 1;
         dataDir = installDest.string();
     }
 
+    // Guard against --data / --skip-launcher pointing at an empty or wrong tree.
+    {
+        std::string problem;
+        DataStatus st = Install_QuickCheck(dataDir, problem);
+        if (st != DataStatus::Ok)
+        {
+            if (g_noMessageBox)
+                FATAL("Game data at {} is {}: {}. Supported release: {}",
+                      dataDir, st == DataStatus::Missing ? "missing" : "damaged",
+                      problem.empty() ? "(no detail)" : problem, kReleaseNames);
+            extern bool InstallUI_Run(const std::filesystem::path&, const std::string&, const std::string&);
+            if (!InstallUI_Run(dataDir.empty() ? installDest : std::filesystem::path(dataDir),
+                               isoPath, st == DataStatus::Corrupt ? problem : ""))
+                return 1;
+            if (dataDir.empty()) dataDir = installDest.string();
+        }
+    }
+
     std::string gameId = Release_InstalledId(dataDir);
     {
         std::string error;
-        if (!Region_Select(gameId, error)) FATAL("Cannot start the game: {}", error);
+        if (!Region_Select(gameId, error))
+            FATAL("Cannot start the game: {}. Supported release: {}", error, kReleaseNames);
     }
     Mods_SetLoaded(Mods_Scan(Mods_Roots(g_config.modsDir), g_config.mods, gameId));
     { extern void SettingsUI_SetRelease(const std::string&, const std::string&); SettingsUI_SetRelease(gameId, dataDir); }
     s_dataDir = dataDir;
     s_isoPath = isoPath;
     // Isolated host NAND for saves. Prefer ../userdata (repo layout when exe is in out/),
-    // else <exe>/nand. Override with --nand.
+    // else <exe>/nand. Override with --nand. See ios/nand_paths.h.
     if (nandDir.empty())
-    {
-        std::filesystem::path ud = (std::filesystem::path(root) / ".." / "userdata").lexically_normal();
-        std::filesystem::path legacy = std::filesystem::path(root) / "nand";
-        std::error_code ec;
-        s_nand = (std::filesystem::exists(ud, ec) || !std::filesystem::exists(legacy, ec))
-                     ? ud.string()
-                     : legacy.string();
-    }
+        s_nand = nand_paths::DefaultRoot().string();
     else
         s_nand = nandDir;
     s_watchAddr = watchAddr;

@@ -5,6 +5,7 @@
 #include "../../kernel/crash.h"
 #include "../../kernel/memory.h"
 #include "../../kernel/threads.h"
+#include "../../env.h"
 #include "../../log.h"
 #include "../platform.h"
 
@@ -103,7 +104,8 @@ void Crash_Init()
 
 void Crash_StartSamplers()
 {
-    if (getenv("BKR_SLOW_SAMPLE") || getenv("BKR_IRQ_STALLS")) LOG_WARN("BKR_SLOW_SAMPLE / BKR_IRQ_STALLS are not available on Linux");
+    if (EnvHas("SCR_SLOW_SAMPLE", "BKR_SLOW_SAMPLE") || EnvHas("SCR_IRQ_STALLS", "BKR_IRQ_STALLS"))
+        LOG_WARN("SCR_SLOW_SAMPLE / SCR_IRQ_STALLS are not available on Linux");
     s_guestThread = pthread_self();
     s_guestKnown = true;
 }

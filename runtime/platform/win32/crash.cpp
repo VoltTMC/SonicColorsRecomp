@@ -3,6 +3,7 @@
 #include "../../kernel/crash.h"
 #include "../../kernel/threads.h"
 #include "../../kernel/memory.h"
+#include "../../env.h"
 #include "../../log.h"
 #include "../../cpu/cpu.h"
 
@@ -98,9 +99,18 @@ static LONG CrashReport(EXCEPTION_POINTERS* ep)
     inHandler = true;
     uintptr_t rip = (uintptr_t)ep->ContextRecord->Rip;
     uintptr_t addr = code == EXCEPTION_ACCESS_VIOLATION ? (uintptr_t)ep->ExceptionRecord->ExceptionInformation[1] : 0;
+    ULONG_PTR avOp = code == EXCEPTION_ACCESS_VIOLATION ? ep->ExceptionRecord->ExceptionInformation[0] : 0;
     LOG_ERROR("=== host exception {:08x} at rip={:x} (fault addr {:x}) ===", (uint32_t)code, rip, addr);
-    if (g_base && addr >= (uintptr_t)g_base && addr < (uintptr_t)g_base + 0x100000000ull)
-        LOG_ERROR("  guest address {:08x}", (uint32_t)(addr - (uintptr_t)g_base));
+    if (code == EXCEPTION_ACCESS_VIOLATION)
+        LOG_ERROR("  AV op={} (0=read 1=write 8=NX) g_base={}", (unsigned)avOp, (void*)g_base);
+    if (g_base)
+    {
+        intptr_t delta = (intptr_t)addr - (intptr_t)g_base;
+        if (addr >= (uintptr_t)g_base && addr < (uintptr_t)g_base + 0x100000000ull)
+            LOG_ERROR("  guest address {:08x}", (uint32_t)(addr - (uintptr_t)g_base));
+        else
+            LOG_ERROR("  fault not in guest map (delta from g_base {:+#x})", delta);
+    }
     uint32_t gf = Crash_GuestFunctionForHost(rip);
     LOG_ERROR("  in guest function ~fn_{:08X} (host offset +{:x})", gf, gf ? rip - (uintptr_t)Crash_FirstHostFunction() : 0);
     // Walk the host stack for more guest frames
@@ -254,9 +264,9 @@ static void LogSlowGuest()
 
 void Crash_StartSamplers()
 {
-    if (getenv("BKR_SLOW_SAMPLE"))
+    if (EnvHas("SCR_SLOW_SAMPLE", "BKR_SLOW_SAMPLE"))
         std::thread([] { for (;;) { Sleep(30000); LogSlowGuest(); } }).detach();
-    if (getenv("BKR_IRQ_STALLS")) std::thread(IrqStallSampler).detach();
+    if (EnvHas("SCR_IRQ_STALLS", "BKR_IRQ_STALLS")) std::thread(IrqStallSampler).detach();
     DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &s_guestThread, 0, FALSE, DUPLICATE_SAME_ACCESS);
 }
 

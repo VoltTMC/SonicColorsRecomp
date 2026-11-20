@@ -3,7 +3,9 @@
 Authoritative inventory of defects and polish work for SonicColorsRecomp.
 Status values: `FIXED`, `OPEN`, `WONTFIX`, `DEFERRED`.
 
-Last updated: 2026-11-19 (Phase 19).
+Last updated: 2026-11-20 (continuous improvement; spiral gates removed; stick deadzone).
+
+Baseline: Phase 19 commit `72ae9de`. Phase 20 commits (`388ee48`…`de7a72e`) and WIP are preserved on `backup/pre-stability-recovery-de7a72e` and `stash@{0}` (“WIP black-screen investigation…”).
 
 ---
 
@@ -26,8 +28,8 @@ Last updated: 2026-11-19 (Phase 19).
 | H4 | Music tool / cache paths fragile when cwd ≠ repo root | `music_mod.cpp`, `music_ui.cpp` | **FIXED** | Walk exe/cwd parents; `SCR_MUSIC_ASSET`; writable fallback under `Platform_UserDir` |
 | H5 | Packaging script still BlackKnight-branded; missing `data/linux` | `tools/package_linux.sh` | **FIXED** | Renamed to SonicColorsRecomp; desktop/svg; optional shadercache |
 | H6 | User-facing crash / fatal dialogs said “BlackKnightRecomp” | crash/log/install_ui | **FIXED** | Sonic Colors branding |
-| H7 | Black world after stomp→spring (HUD remains) | GAME_COMPATIBILITY | **OPEN** | Intermittent; no RCA. Diagnostics: `SCR_GX_XFB_DIAG=1` logs zero-draw XFB presents. No framebuffer-reset workaround |
-| H8 | In-game music replacement audibility (TR1) still user-side unverified this phase | Prior phases | **OPEN** | Pipeline/align-8 fixed earlier; not re-audited in P19 |
+| H7 | Black world after stomp (TR1/TR3; HUD remains) + post-black soft-lock | GAME_COMPATIBILITY | **DEFERRED** | **Known, unresolved, intentionally deferred.** Phase 20 RCA/fix attempts (XFB latch, EFB ramHash, copy-clear Z, PE sync, guest-60 gate, indexed-XF expand, NaN skip) **reverted** — they destabilised the build. Do not resume without a separate, scoped plan. Phase 19 optional diag only: `SCR_GX_XFB_DIAG=1` (zero-draw XFB log). |
+| H8 | In-game music replacement audibility (TR1) | Prior phases + smoke | **PART** | `tools/music_pipeline_smoke.sh` PASS (TR1 prepare+proof). In-game listen still unverified |
 
 ---
 
@@ -40,8 +42,9 @@ Last updated: 2026-11-19 (Phase 19).
 | M3 | HTTP User-Agent BKR | linux/win32 http | **FIXED** | |
 | M4 | AppImage / install path discovery incomplete for music catalog | default dir | **FIXED** | Prefer `catalog.json` existence |
 | M5 | First-run / release docs incomplete | README | **PART** | Quick start updated; full packaging still needs CI shader keys |
-| M6 | Win32 window title still Black Knight | win32/window.cpp | **DEFERRED** | Linux is priority; class name left for ABI stability |
-| M7 | No automated test for NAND flush failure path | tests | **OPEN** | Unit harness would need FS mock |
+| M6 | Win32 window title still Black Knight | win32/window.cpp | **FIXED** | Title + class → `SonicColorsRecomp` / “Sonic Colors - Recompiled” |
+| M8 | GameBanana browser used Black Knight game id 6511 | gamebanana.h | **FIXED** | → Sonic Colors **6243** |
+| M7 | No automated test for NAND flush failure path | tests | **FIXED** | `Fs_WriteFileAtomic` + `scr_nand_fs_test` (create/replace/read-only parent/rename-onto-dir) |
 
 ---
 
@@ -51,7 +54,8 @@ Last updated: 2026-11-19 (Phase 19).
 |---|---|---|---|---|
 | L1 | Placeholder AppImage SVG icon | new asset | **FIXED** | Simple brand mark; replace with final art later |
 | L2 | Minor launcher page spacing inconsistencies | visual audit | **DEFERRED** | Music Library already polished in P17–18 |
-| L3 | Residual BKR identifiers in comments / Win32 class names | grep | **DEFERRED** | Non-user-facing |
+| L3 | Residual BKR identifiers in comments / debug env names | grep | **FIXED** | All getenv sites prefer `SCR_*` with `BKR_*` fallback |
+| M9 | No save backup / restore UX | settings System | **FIXED** | Open folder + backup + restore latest; `scr_nand_backup_test` |
 
 ---
 
@@ -75,8 +79,9 @@ Last updated: 2026-11-19 (Phase 19).
 | Boot → TR1 | Previously verified; not re-played this phase |
 | Saves | Atomic flush hardened (C1) |
 | Audio / input | No P19 behavioural change |
-| 30 / 60 FPS / uncapped | Preserved in config |
-| Black-screen | OPEN (H7) + optional XFB diag |
+| 30 / 60 FPS / uncapped | 30 = wait=2; 60 / `--guest-60` = wait=1 + spring gate; uncapped + optional `host_fps_cap` |
+| Black-screen (H7) | **DEFERRED** — accepted known bug; Phase 20 experiments reverted |
+| AP1 spiral (stg510) | **DEFERRED** — experimental gates removed; do not resume |
 
 ---
 
@@ -93,10 +98,11 @@ Last updated: 2026-11-19 (Phase 19).
 
 ## Remaining priority order
 
-1. **H7** — Black-screen RCA with `SCR_GX_XFB_DIAG` + GX capture (code/diagnostics first).
-2. **H8** — Confirm file-based music replacement audible in TR1 with prepared CPK.
-3. **M7** — NAND flush failure regression test.
+1. **H8** — Prepare path verified (`music_pipeline_smoke.sh`); still need in-game TR1 listen with prepared CPK.
+2. Linux/Windows feature parity — keep `docs/WINDOWS_FEATURE_PARITY.md` honest; expand `[native]` coverage.
+3. Launcher polish, performance, and PC QoL (deadzone done; more input/audio UX).
 4. Full-game matrix beyond TR1 (compatibility doc).
-5. Optional: final AppImage art, Win32 branding, CI packaging.
+5. Optional: final AppImage art, CI packaging.
+6. **H7** / **AP1 spiral** — deferred; not active investigation targets.
 
-Do not mark H7/H8 fixed without evidence.
+Do not mark H8 fixed without evidence. Do not resume H7 or AP1 spiral without an explicit new plan.

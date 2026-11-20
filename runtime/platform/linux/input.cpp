@@ -4,15 +4,26 @@
 #include "sdl.h"
 #include "../../input/gamepad.h"
 #include "../../log.h"
+#include "../../ui/overlay.h"
 
+#include <format>
 #include <mutex>
+#include <string>
 
 namespace
 {
 std::mutex s_padMutex;
 SDL_Gamepad* s_pads[4];   // player slots, in the order the controllers were connected
 
-void AddPad(SDL_JoystickID id)
+void CompactPads()
+{
+    int w = 0;
+    for (int r = 0; r < 4; r++)
+        if (s_pads[r]) s_pads[w++] = s_pads[r];
+    while (w < 4) s_pads[w++] = nullptr;
+}
+
+void AddPad(SDL_JoystickID id, bool toast)
 {
     std::lock_guard lk(s_padMutex);
     for (SDL_Gamepad* p : s_pads)
@@ -21,21 +32,48 @@ void AddPad(SDL_JoystickID id)
         if (!s_pads[i])
         {
             s_pads[i] = SDL_OpenGamepad(id);
-            if (s_pads[i]) LOG_INFO("controller {} connected: {}", i + 1, SDL_GetGamepadName(s_pads[i]) ? SDL_GetGamepadName(s_pads[i]) : "?");
+            if (s_pads[i])
+            {
+                const char* name = SDL_GetGamepadName(s_pads[i]);
+                LOG_INFO("controller {} connected: {}", i + 1, name ? name : "?");
+                if (toast)
+                {
+                    std::string msg = std::format("Controller {} connected{}", i + 1,
+                                                  name && name[0] ? std::format(" ({})", name) : "");
+                    Overlay_Toast(msg.c_str());
+                }
+            }
             return;
         }
+    LOG_WARN("controller ignored (4 already connected)");
 }
 
 void RemovePad(SDL_JoystickID id)
 {
     std::lock_guard lk(s_padMutex);
+    bool removed = false;
+    int slot = -1;
     for (int i = 0; i < 4; i++)
         if (s_pads[i] && SDL_GetGamepadID(s_pads[i]) == id)
         {
             LOG_INFO("controller {} disconnected", i + 1);
             SDL_CloseGamepad(s_pads[i]);
             s_pads[i] = nullptr;
+            removed = true;
+            slot = i;
+            break;
         }
+    if (!removed) return;
+    // Pack remaining pads into low slots so player 2 does not stay stranded in slot 3
+    // while slot 1 is empty after player 1 unplugs.
+    CompactPads();
+    if (slot == 0)
+    {
+        LOG_INFO("controller: player 1 pad gone — keyboard/mouse still control player 1");
+        Overlay_Toast("Controller 1 disconnected — keyboard/mouse active");
+    }
+    else if (slot > 0)
+        Overlay_Toast(std::format("Controller {} disconnected", slot + 1).c_str());
 }
 
 int16_t Axis(SDL_Gamepad* p, SDL_GamepadAxis a, bool invert)
@@ -48,8 +86,38 @@ int16_t Axis(SDL_Gamepad* p, SDL_GamepadAxis a, bool invert)
 
 void Input_HandleEvent(const SDL_Event& e)
 {
-    if (e.type == SDL_EVENT_GAMEPAD_ADDED) AddPad(e.gdevice.which);
+    if (e.type == SDL_EVENT_GAMEPAD_ADDED) AddPad(e.gdevice.which, true);
     else if (e.type == SDL_EVENT_GAMEPAD_REMOVED) RemovePad(e.gdevice.which);
+}
+
+void Input_ProbeConnectedPads()
+{
+    int n = 0;
+    SDL_JoystickID* ids = SDL_GetGamepads(&n);
+    if (!ids) return;
+    for (int i = 0; i < n; i++)
+        AddPad(ids[i], false);   // startup probe — no toast spam
+    SDL_free(ids);
+}
+
+void Input_PollHotplug() {}   // SDL_EVENT_GAMEPAD_* handled in Input_HandleEvent
+
+int Pad_Count()
+{
+    std::lock_guard lk(s_padMutex);
+    int n = 0;
+    for (SDL_Gamepad* p : s_pads)
+        if (p) n++;
+    return n;
+}
+
+const char* Pad_Name(int index)
+{
+    std::lock_guard lk(s_padMutex);
+    SDL_Gamepad* p = index >= 0 && index < 4 ? s_pads[index] : nullptr;
+    if (!p) return nullptr;
+    const char* n = SDL_GetGamepadName(p);
+    return n && n[0] ? n : "Gamepad";
 }
 
 bool Pad_Read(int index, PadState& out)

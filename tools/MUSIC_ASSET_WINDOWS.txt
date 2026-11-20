@@ -1,0 +1,26 @@
+Sonic Colors Recomp — music_asset on Windows
+============================================
+
+The Music Library uses `tools/music_asset.exe` (or `music_asset.cmd`) to:
+  - build/update catalog.json
+  - decode original AAX previews (vgmstream)
+  - export original WAV
+  - prepare patched CPK replacements (cricodecs)
+
+Required (same roles as Linux):
+  1. Python 3.11+ on PATH (`python` / `py -3`)
+  2. `pip install cricodecs`
+  3. `vgmstream-cli` on PATH (preview / export)
+  4. `ffmpeg` on PATH (WAV resampling / AAX encode)
+
+Optional project venv:
+  py -3 -m venv .venv-music
+  .venv-music\Scripts\pip install cricodecs
+
+The redistributable ZIP ships `tools/music_asset.exe`, `tools/music_asset.cmd`,
+and `tools/music_asset_pkg/`. It does not bundle Python, cricodecs, vgmstream, or
+ffmpeg (licensing / size). Without them, in-app replacement *playback* of already
+prepared WAVs still works; original decode / export / CPK prepare will report a
+clear error.
+
+Override the launcher path with SCR_MUSIC_ASSET.

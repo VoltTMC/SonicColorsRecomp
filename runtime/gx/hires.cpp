@@ -20,6 +20,16 @@ namespace fs = std::filesystem;
 
 #define FOURCC(a, b, c, d) ((uint32_t)(uint8_t)(a) | ((uint32_t)(uint8_t)(b) << 8) | ((uint32_t)(uint8_t)(c) << 16) | ((uint32_t)(uint8_t)(d) << 24))
 
+// File-scope so HiRes_TickEvict / HiRes_LoadedCount can manage VRAM across long sessions.
+static std::unordered_map<std::string, fs::path> s_files;   // lowercase name -> file
+struct LoadedTex
+{
+    ID3D11ShaderResourceView* srv = nullptr;   // nullptr = failed load (negative cache)
+    uint32_t lastFrame = 0;
+};
+static std::unordered_map<std::string, LoadedTex> s_loaded;
+static uint32_t s_hiresFrame = 1;
+
 namespace
 {
 // ---------------------------------------------------------------- XXH64 (seed 0 use)
@@ -56,9 +66,6 @@ uint64_t XXH64(const uint8_t* p, size_t len, uint64_t seed = 0)
     h ^= h >> 33; h *= P2; h ^= h >> 29; h *= P3; h ^= h >> 32;
     return h;
 }
-
-std::unordered_map<std::string, fs::path> s_files;                    // lowercase name -> file
-std::unordered_map<std::string, ID3D11ShaderResourceView*> s_loaded;   // name -> texture (nullptr = failed)
 
 std::string Lower(std::string s)
 {
@@ -178,6 +185,34 @@ ID3D11ShaderResourceView* LoadDDS(const fs::path& path)
 }
 }   // namespace
 
+size_t HiRes_LoadedCount() { return s_loaded.size(); }
+
+void HiRes_TickEvict(uint32_t frame)
+{
+    s_hiresFrame = frame ? frame : 1;
+    if ((frame % 300u) != 0u) return;
+    constexpr uint32_t kAge = 1200;       // unused for ~20s at 60 XFB/s
+    constexpr size_t kHardCap = 512;
+    for (auto it = s_loaded.begin(); it != s_loaded.end();)
+    {
+        if (s_hiresFrame - it->second.lastFrame > kAge)
+        {
+            if (it->second.srv) it->second.srv->Release();
+            it = s_loaded.erase(it);
+        }
+        else
+            ++it;
+    }
+    while (s_loaded.size() > kHardCap)
+    {
+        auto oldest = s_loaded.begin();
+        for (auto it = s_loaded.begin(); it != s_loaded.end(); ++it)
+            if (it->second.lastFrame < oldest->second.lastFrame) oldest = it;
+        if (oldest->second.srv) oldest->second.srv->Release();
+        s_loaded.erase(oldest);
+    }
+}
+
 void HiRes_Init(const std::string& configuredDir)
 {
     std::vector<fs::path> roots;
@@ -252,14 +287,15 @@ ID3D11ShaderResourceView* HiRes_Find(const uint8_t* data, uint32_t dataSize, con
         auto l = s_loaded.find(n);
         ID3D11ShaderResourceView* srv;
         if (l != s_loaded.end())
-            srv = l->second;
+            srv = l->second.srv;
         else
         {
             bool dds = Lower(f->second.extension().string()) == ".dds";
             srv = dds ? LoadDDS(f->second) : LoadPNG(f->second, mipmapped);
             if (!srv) LOG_WARN("texture pack: failed to load {}", f->second.string());
-            s_loaded[n] = srv;
+            l = s_loaded.emplace(n, LoadedTex{ srv, s_hiresFrame }).first;
         }
+        l->second.lastFrame = s_hiresFrame;
         if (srv) srv->AddRef();
         return srv;
     }

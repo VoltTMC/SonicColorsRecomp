@@ -100,6 +100,15 @@ WAV → 48 kHz PCM → CRI ADX → AAX (template segments, UTF data_alignment=8)
 - `ffmpeg`, `vgmstream-cli` on `PATH`
 - `.venv-music` with **cricodecs**
 
+## Automated prepare check
+
+```bash
+./tools/music_pipeline_smoke.sh
+```
+
+Builds an isolated TR1 (`stg110`) diagnostic replacement and checks the patched
+CPK + payload proof. This does **not** replace an in-game listen test.
+
 ## Restore original music
 
 Disable mappings, turn off custom music assets, or delete

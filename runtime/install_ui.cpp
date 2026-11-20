@@ -48,24 +48,34 @@ InstallResult RunWithProgress(const fs::path& image, const fs::path& dest, std::
 // nothing is installed yet).
 bool InstallUI_Run(const fs::path& dest, const std::string& foundImage, const std::string& damage)
 {
-    std::string why = damage.empty() ? "The game data is not installed yet."
-                                     : "The installed game data is damaged (" + damage + ") and needs reinstalling.";
+    std::string why = damage.empty()
+        ? "Sonic Colors game data is not installed yet."
+        : "The installed Sonic Colors game data is damaged (" + damage + ") and needs reinstalling.";
+    // Supported releases come from runtime/install/releases.cpp (currently Europe SNCP8P).
+    std::string need = std::string("Supported release: ") + kReleaseNames +
+        ".\n\nSelect your own Wii disc image of Sonic Colors (ISO, RVZ, WIA, or WBFS). "
+        "Installation takes about a minute and needs roughly 4 GB of free space; "
+        "the disc image is not needed afterwards.";
     bool installed = false;
     fs::path image;
     if (!foundImage.empty() && Release_Find(Install_GameId(foundImage)))
     {
-        std::string msg = why + " Install it from\n\n" + foundImage + "?\n\nChoose No to select a different disc image.";
+        std::string msg = why + "\n\nInstall from the disc image found next to the game?\n\n" + foundImage +
+                          "\n\nChoose No to pick a different image.";
         MsgResult r = Platform_MessageBox(kTitle, msg, MsgButtons::YesNoCancel, MsgIcon::Question);
         if (r == MsgResult::Yes) image = foundImage;
         else if (r == MsgResult::Cancel) return false;
     }
     else
     {
-        MsgResult r = Platform_MessageBox(kTitle,
-                                          why + "\n\nSelect your own disc image of Sonic and the "
-                                          "Black Knight (USA, Europe or Japan) to install it. ISO, RVZ, WIA and WBFS images work. "
-                                          "This takes a minute and needs about 3.5 GB; the image is not needed afterwards.",
-                                          MsgButtons::OkCancel, MsgIcon::Info);
+        if (!foundImage.empty())
+        {
+            // An image was found but is not a supported Colors release (wrong game / region).
+            std::string id = Install_GameId(foundImage);
+            why += "\n\nA disc image was found at:\n" + foundImage +
+                   (id.empty() ? "\n(could not read its game ID)" : "\nGame ID: " + id + " — not supported by this build");
+        }
+        MsgResult r = Platform_MessageBox(kTitle, why + "\n\n" + need, MsgButtons::OkCancel, MsgIcon::Info);
         if (r != MsgResult::Ok) return false;
     }
     for (;;)
@@ -82,9 +92,11 @@ bool InstallUI_Run(const fs::path& dest, const std::string& foundImage, const st
         }
         if (r == InstallResult::Canceled) break;
         LOG_ERROR("install failed: {}", error);
-        std::string msg = "Could not install the game data:\n\n" + error;
+        std::string msg = "Could not install Sonic Colors game data:\n\n" + error +
+                          "\n\nSupported release: " + kReleaseNames;
         if (r == InstallResult::WriteFailed)
         {
+            msg += "\n\nCheck that the destination has enough free space and that you can write to it.";
             Platform_MessageBox(kTitle, msg, MsgButtons::Ok, MsgIcon::Error);
             break;
         }

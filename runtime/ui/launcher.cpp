@@ -6,11 +6,14 @@
 #include "ui_image.h"
 #include "ui_shot.h"
 #include "../config.h"
+#include "../env.h"
+#include "../install/releases.h"
 #include "../install/verify.h"
 #include "../log.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
 #include "../region.h"
+#include "../version.h"
 
 #include <imgui.h>
 #include <imgui_impl_dx11.h>
@@ -30,19 +33,18 @@ bool InstallUI_Run(const fs::path& dest, const std::string& foundImage, const st
 
 namespace
 {
-// test aid: BKR_UI_SHOT_KEYS=<ImGui key names, comma-separated> (e.g. "DownArrow,Space" or
-// "GamepadDpadDown,GamepadFaceDown") presses those keys one after the other before the
-// screenshot (from BKR_UI_SHOT_KEYS_DELAY seconds, default 1), to check keyboard and
-// controller navigation
+// test aid: SCR_UI_SHOT_KEYS (legacy BKR_*) = ImGui key names, comma-separated
+// (e.g. "DownArrow,Space" or "GamepadDpadDown,GamepadFaceDown") presses those keys
+// one after the other before the screenshot (from SCR_UI_SHOT_KEYS_DELAY seconds, default 1)
 void ShotKeys()
 {
     static std::vector<ImGuiKey> keys;
     static uint64_t start = 0;
     if (!start)
     {
-        const char* delay = getenv("BKR_UI_SHOT_KEYS_DELAY");
+        const char* delay = EnvGet("SCR_UI_SHOT_KEYS_DELAY", "BKR_UI_SHOT_KEYS_DELAY");
         start = Platform_TickMs() + (delay ? atoi(delay) : 1) * 1000ull;
-        if (const char* list = getenv("BKR_UI_SHOT_KEYS"))
+        if (const char* list = EnvGet("SCR_UI_SHOT_KEYS", "BKR_UI_SHOT_KEYS"))
         {
             std::string name;
             for (const char* c = list;; c++)
@@ -181,6 +183,22 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
     }
     if (!st.releaseError.empty()) ImGui::TextColored(red, "%s", st.releaseError.c_str());
     ImGui::TextDisabled("%s", st.data.string().c_str());
+    if (st.status == DataStatus::Missing)
+    {
+        ImGui::TextWrapped("Install Sonic Colors from your own Wii disc image to play. "
+                           "Supported: %s. Formats: ISO, RVZ, WIA, WBFS.",
+                           kReleaseNames);
+        if (!isoPath.empty())
+            ImGui::TextDisabled("Disc image found nearby: %s", isoPath.c_str());
+        else
+            ImGui::TextDisabled("No disc image found next to the game — you will be asked to pick one.");
+    }
+    else if (st.status == DataStatus::Corrupt)
+    {
+        ImGui::TextWrapped("Use \"Reinstall from disc image...\" below (preferred) or \"Check all game files\". "
+                           "Supported release: %s. A wit EXTRACT folder also works if main.dol matches.",
+                           kReleaseNames);
+    }
     if (st.status == DataStatus::Ok)
     {
         // mods load on top of the installed files; the file checks only look at the latter
@@ -196,6 +214,10 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
     ImGui::BeginDisabled(!ready);
     if (ImGui::Button("  Play  ", ImVec2(ImGui::GetFontSize() * 10, ImGui::GetFontSize() * 2.4f))) play = true;
     ImGui::EndDisabled();
+    if (!ready && st.status != DataStatus::Ok && !st.verifying)
+        ImGui::TextDisabled("Play is unavailable until game data is installed.");
+    else if (!ready && !st.releaseError.empty())
+        ImGui::TextDisabled("Play is unavailable: this build cannot use the installed release.");
     if (ready && !ImGui::IsAnyItemActive() && ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere(-1);
 
     ImGui::Spacing();
@@ -222,12 +244,14 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
     }
     else if (!st.verifyResult.empty())
         ImGui::TextWrapped("%s", st.verifyResult.c_str());
-    ImGui::TextDisabled("Install reads your own disc image (ISO, RVZ, WIA, WBFS); it is not needed afterwards.");
-    ImGui::TextDisabled("The checks look at the installed files only; mods are loaded on top of them.");
+    ImGui::TextDisabled("Install reads your own disc image; it is not needed afterwards.");
+    ImGui::TextDisabled("File checks look at the installed files only; mods load on top of them.");
 
     ImGui::Spacing();
     ImGui::SeparatorText("Controls");
     ImGui::TextDisabled("In game: View (Back) or F1 opens the settings. View + Start is the Wii HOME button.");
+    ImGui::Spacing();
+    ImGui::TextDisabled("%s", g_version);
 }
 }   // namespace
 
@@ -239,9 +263,9 @@ bool Launcher_Run(std::string& dataDir, const std::string& isoPath, const fs::pa
     if (!hwnd)
     {
         // UI screenshot / automated GUI tests must not fall through into the game.
-        if (getenv("BKR_UI_SHOT"))
+        if (EnvHas("SCR_UI_SHOT", "BKR_UI_SHOT"))
         {
-            LOG_WARN("launcher: no window (BKR_UI_SHOT) — aborting without starting the game");
+            LOG_WARN("launcher: no window (SCR_UI_SHOT) — aborting without starting the game");
             return false;
         }
         LOG_WARN("launcher: no window, starting the game directly");
@@ -258,9 +282,9 @@ bool Launcher_Run(std::string& dataDir, const std::string& isoPath, const fs::pa
     if (FAILED(D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &sd,
                                              &s_swap, &s_dev, nullptr, &s_ctx)))
     {
-        if (getenv("BKR_UI_SHOT"))
+        if (EnvHas("SCR_UI_SHOT", "BKR_UI_SHOT"))
         {
-            LOG_WARN("launcher: no D3D11 (BKR_UI_SHOT) — aborting without starting the game");
+            LOG_WARN("launcher: no D3D11 (SCR_UI_SHOT) — aborting without starting the game");
             UiWindow_Destroy();
             return false;
         }
@@ -287,13 +311,12 @@ bool Launcher_Run(std::string& dataDir, const std::string& isoPath, const fs::pa
     State st;
     st.data = dataDir.empty() ? installDest : fs::path(dataDir);
     Check(st);
-    // test aid: BKR_UI_SHOT=<file.bmp> saves the launcher (BKR_UI_SHOT_TAB=settings or mods:
-    // that tab) and quits, without asking for a disc image; BKR_UI_SHOT_WAIT=<seconds>
-    // waits that long first (downloads in the Mods tab)
-    const char* shot = getenv("BKR_UI_SHOT");
-    const char* shotWait = getenv("BKR_UI_SHOT_WAIT");
+    // test aid: SCR_UI_SHOT=<file.bmp> (legacy BKR_*) saves the launcher
+    // (SCR_UI_SHOT_TAB=settings|mods|music) and quits; SCR_UI_SHOT_WAIT=<seconds> waits first
+    const char* shot = EnvGet("SCR_UI_SHOT", "BKR_UI_SHOT");
+    const char* shotWait = EnvGet("SCR_UI_SHOT_WAIT", "BKR_UI_SHOT_WAIT");
     ULONGLONG shotAt = Platform_TickMs() + (shotWait ? atoi(shotWait) : 0) * 1000ull;
-    const char* shotTab = getenv("BKR_UI_SHOT_TAB");
+    const char* shotTab = EnvGet("SCR_UI_SHOT_TAB", "BKR_UI_SHOT_TAB");
     st.promptInstall = st.status != DataStatus::Ok && !shot;
 
     bool play = false;

@@ -1,9 +1,11 @@
 #include "config.h"
+#include "audio/audio_out.h"
 #include "log.h"
 #include "platform/platform.h"
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <format>
 #include <fstream>
 #include <sstream>
@@ -31,13 +33,21 @@ std::string Config_Text(const Config& c)
     std::string s;
     s += "; SonicColorsRecomp settings (also editable in the launcher and in game: View button / F1)\n\n";
     s += "[Video]\n";
-    s += "; 30 = original (wait 2 VI fields), 60 = wait 1 field (same sim/frame), 0 = uncapped (no wait)\n";
+    s += "; 30 = original (wait 2). 60 = true 60 Hz guest (wait=1) with spring cooldown gate.\n";
+    s += "; 0 = uncapped (no VI wait). See docs/FRAME_RATE.md\n";
     s += std::format("frame_rate = {}\n", c.frameRate);
+    s += "; when frame_rate is 0 (uncapped): max guest updates per second (0 = unlimited)\n";
+    s += std::format("host_fps_cap = {}\n", c.hostFpsCap);
     s += "; internal resolution multiplier (1 = 640x528, 3 = 1920x1584)\n";
     s += std::format("internal_scale = {}\n", c.internalScale);
     s += std::format("window_width = {}\nwindow_height = {}\n", c.windowWidth, c.windowHeight);
     s += "; F11 or Alt+Enter toggles fullscreen at runtime\n";
-    s += std::format("fullscreen = {}\nvsync = {}\nwidescreen = {}\n", Bool(c.fullscreen), Bool(c.vsync), Bool(c.widescreen));
+    s += std::format("fullscreen = {}\n", Bool(c.fullscreen));
+    s += "; exclusive = monitor mode change (Linux); off = borderless desktop fullscreen\n";
+    s += std::format("exclusive_fullscreen = {}\n", Bool(c.exclusiveFullscreen));
+    s += std::format("vsync = {}\nwidescreen = {}\n", Bool(c.vsync), Bool(c.widescreen));
+    s += "; sharp pixels: largest integer multiple of 640×360 (16:9) or 640×480 (4:3) that fits\n";
+    s += std::format("integer_scale = {}\n", Bool(c.integerScale));
     s += "; force anisotropic texture filtering: 1 (off), 2, 4, 8, 16\n";
     s += std::format("anisotropy = {}\n", c.anisotropy);
     s += "; process graphics on a second CPU core (like Dolphin's dual core)\n";
@@ -52,10 +62,21 @@ std::string Config_Text(const Config& c)
     s += std::format("language = {}\n", kLanguages[std::clamp(c.language, 0, 6)]);
     s += "; freeze the game while its window is in the background\n";
     s += std::format("pause_on_focus_loss = {}\n\n", Bool(c.pauseOnFocusLoss));
+    s += "[Audio]\n";
+    s += "; host volume scales (0.0–1.0). Music and SFX share the Wii mix — only a master\n";
+    s += "; control is available without changing original game mixing.\n";
+    s += std::format("master_volume = {:.3f}\n", c.masterVolume);
+    s += "; Wii Remote speaker level relative to the TV mix (still multiplied by master)\n";
+    s += std::format("speaker_volume = {:.3f}\n", c.speakerVolume);
+    s += "; playback device name (empty = system default). Linux: SDL name; Windows: WASAPI endpoint.\n";
+    s += std::format("audio_device = {}\n\n", c.audioDevice);
     s += "[Input]\n";
     s += std::format("rumble = {}\n", Bool(c.rumble));
     s += "; play sounds the game sends to the Wii Remote speaker\n";
     s += std::format("remote_speaker = {}\n", Bool(c.remoteSpeaker));
+    s += "; analog stick dead zones as a fraction of full throw (0.0–0.5). Defaults ≈ XInput.\n";
+    s += std::format("stick_deadzone = {:.3f}\n", c.stickDeadzone);
+    s += std::format("stick_deadzone_right = {:.3f}\n", c.stickDeadzoneRight);
     s += "; controller bindings: A B X Y LB RB LT RT START BACK LS RS UP DOWN LEFT RIGHT NONE\n";
     s += "; (BACK, the View button, opens the settings overlay; Back+Start together is HOME;\n";
     s += ";  the right stick also flicks slashes)\n";
@@ -136,6 +157,7 @@ void Config_Load(const std::string& path)
     if (!f)
     {
         Config_Save();   // first run: write the defaults
+        AudioOut_ApplyVolumes(g_config.masterVolume, g_config.speakerVolume);
         return;
     }
     std::string line, section;
@@ -160,12 +182,16 @@ void Config_Load(const std::string& path)
                 int v = atoi(val.c_str());
                 c.frameRate = (v <= 0) ? 0 : (v >= 60 ? 60 : 30);
             }
+            else if (key == "host_fps_cap")
+                c.hostFpsCap = std::clamp(atoi(val.c_str()), 0, 1000);
             else if (key == "internal_scale") c.internalScale = std::clamp(atoi(val.c_str()), 1, 8);
             else if (key == "window_width") c.windowWidth = std::max(320, atoi(val.c_str()));
             else if (key == "window_height") c.windowHeight = std::max(240, atoi(val.c_str()));
             else if (key == "fullscreen") c.fullscreen = ParseBool(val);
+            else if (key == "exclusive_fullscreen") c.exclusiveFullscreen = ParseBool(val);
             else if (key == "vsync") c.vsync = ParseBool(val);
             else if (key == "widescreen") c.widescreen = ParseBool(val);
+            else if (key == "integer_scale") c.integerScale = ParseBool(val);
             else if (key == "texture_pack") c.texturePack = ParseBool(val);
             else if (key == "gpu_thread") c.gpuThread = ParseBool(val);
             else if (key == "async_shaders") c.asyncShaders = ParseBool(val);
@@ -177,10 +203,20 @@ void Config_Load(const std::string& path)
             if (key == "language") c.language = ParseLanguage(val);
             else if (key == "pause_on_focus_loss") c.pauseOnFocusLoss = ParseBool(val);
         }
+        else if (section == "audio")
+        {
+            if (key == "master_volume") c.masterVolume = std::clamp(std::strtof(val.c_str(), nullptr), 0.0f, 1.0f);
+            else if (key == "speaker_volume") c.speakerVolume = std::clamp(std::strtof(val.c_str(), nullptr), 0.0f, 1.0f);
+            else if (key == "audio_device") c.audioDevice = val;
+        }
         else if (section == "input")
         {
             if (key == "rumble") c.rumble = ParseBool(val);
-            if (key == "remote_speaker") c.remoteSpeaker = ParseBool(val);
+            else if (key == "remote_speaker") c.remoteSpeaker = ParseBool(val);
+            else if (key == "stick_deadzone")
+                c.stickDeadzone = std::clamp(std::strtof(val.c_str(), nullptr), 0.0f, 0.5f);
+            else if (key == "stick_deadzone_right")
+                c.stickDeadzoneRight = std::clamp(std::strtof(val.c_str(), nullptr), 0.0f, 0.5f);
             for (int i = 0; i < 12; i++)
                 if (key == kBindActions[i]) c.bind[i] = val;
         }
@@ -205,4 +241,6 @@ void Config_Load(const std::string& path)
             else if (key == "music_dir") c.musicModsDir = val;
         }
     }
+    AudioOut_ApplyVolumes(g_config.masterVolume, g_config.speakerVolume);
+    // Device open happens in AudioOut_Init / ApplyLive (needs SDL audio subsystem).
 }

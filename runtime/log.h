@@ -3,6 +3,9 @@
 #include <format>
 #include <string>
 
+void Log_Open(const char* path);
+// Path last passed to Log_Open (empty if logging not opened yet).
+const std::string& Log_Path();
 void Log_Write(int level, const std::string& s);
 
 #define LOG_DEBUG(...) Log_Write(0, std::format(__VA_ARGS__))

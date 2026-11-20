@@ -8,6 +8,19 @@
 #ifndef YieldProcessor
 #define YieldProcessor _mm_pause   // as <windows.h> defines it
 #endif
+// MinGW lacks MSVC's __forceinline keyword; shared PPC headers use it.
+#if defined(__GNUC__) && !defined(__forceinline)
+#define __forceinline inline __attribute__((always_inline))
+#endif
+#if defined(__GNUC__)
+#include <cstring>
+#ifndef _stricmp
+#define _stricmp strcasecmp
+#endif
+#ifndef _strnicmp
+#define _strnicmp strncasecmp
+#endif
+#endif
 #else
 #include <cerrno>
 #include <cstddef>

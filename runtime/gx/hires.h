@@ -9,6 +9,9 @@ struct ID3D11ShaderResourceView;
 // anywhere under <pack dir>/<game ID> (the layout of Dolphin's Load/Textures), e.g. RENE8P.
 void HiRes_Init(const std::string& configuredDir);
 bool HiRes_Enabled();
+size_t HiRes_LoadedCount();
+// Drop HD replacements unused for a long time / over a hard cap (VRAM bound on long sessions).
+void HiRes_TickEvict(uint32_t frame);
 
 // Looks up a replacement for a texture about to be decoded. `data` covers the base
 // level, `tlut` the 512-byte-aligned TMEM palette (CI formats). Returns an SRV with

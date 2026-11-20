@@ -14,8 +14,8 @@ else()
     set(SCR_DEPS_RUNTIME MultiThreaded)
     set(SCR_DEPS_CONFIG Release)
 endif()
-if(WIN32)
-    # the C compiler of the matching toolchain (the project itself only enables C++ there)
+# MSVC/clang-cl: C is driven by the C++ driver. MinGW and Linux: use the C compiler.
+if(WIN32 AND MSVC)
     set(SCR_DEPS_C_COMPILER ${CMAKE_CXX_COMPILER})
 else()
     set(SCR_DEPS_C_COMPILER ${CMAKE_C_COMPILER})
@@ -28,14 +28,24 @@ set(SCR_DEPS_ARGS
     -DCMAKE_POLICY_DEFAULT_CMP0091=NEW
     -DCMAKE_MSVC_RUNTIME_LIBRARY=${SCR_DEPS_RUNTIME}
     -DBUILD_SHARED_LIBS=OFF)
-# Linux: static libraries named lib*.a in lib/ (not lib64/), linkable into the PIE executable
-if(WIN32)
+if(CMAKE_CROSSCOMPILING AND CMAKE_TOOLCHAIN_FILE)
+    list(APPEND SCR_DEPS_ARGS
+        -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
+        -DCMAKE_SYSTEM_NAME=${CMAKE_SYSTEM_NAME}
+        -DCMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR})
+endif()
+# MSVC: zs.lib. MinGW (zlib 1.3.x on WIN32): libzs.a. Linux: libz.a.
+if(WIN32 AND MSVC)
     set(SCR_ZLIB_LIB_NAMES ${SCR_DEPS_INSTALL}/lib/zs.lib ${SCR_DEPS_INSTALL}/lib/zsd.lib)
     set(SCR_LZMA_LIB ${SCR_DEPS_INSTALL}/lib/lzma.lib)
     set(SCR_ARCHIVE_LIB ${SCR_DEPS_INSTALL}/lib/archive.lib)
 else()
     list(APPEND SCR_DEPS_ARGS -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_POSITION_INDEPENDENT_CODE=ON)
-    set(SCR_ZLIB_LIB_NAMES ${SCR_DEPS_INSTALL}/lib/libz.a)
+    if(MINGW)
+        set(SCR_ZLIB_LIB_NAMES ${SCR_DEPS_INSTALL}/lib/libzs.a)
+    else()
+        set(SCR_ZLIB_LIB_NAMES ${SCR_DEPS_INSTALL}/lib/libz.a)
+    endif()
     set(SCR_LZMA_LIB ${SCR_DEPS_INSTALL}/lib/liblzma.a)
     set(SCR_ARCHIVE_LIB ${SCR_DEPS_INSTALL}/lib/libarchive.a)
 endif()
@@ -57,7 +67,7 @@ ExternalProject_Add(scr_lzma
                -DXZ_TOOL_LZMADEC=OFF -DXZ_TOOL_LZMAINFO=OFF -DXZ_TOOL_SCRIPTS=OFF -DXZ_TOOL_SYMLINKS=OFF
     BUILD_BYPRODUCTS ${SCR_LZMA_LIB})
 
-if(NOT WIN32)
+if(NOT (WIN32 AND MSVC))
     set(SCR_ZLIB_LIB ${SCR_ZLIB_LIB_NAMES})
 elseif(SCR_DEPS_CONFIG STREQUAL "Debug")
     set(SCR_ZLIB_LIB ${SCR_DEPS_INSTALL}/lib/zsd.lib)
@@ -87,6 +97,10 @@ add_dependencies(scr_archive scr_libarchive)
 target_include_directories(scr_archive INTERFACE ${SCR_DEPS_INSTALL}/include)
 target_compile_definitions(scr_archive INTERFACE LIBARCHIVE_STATIC)
 target_link_libraries(scr_archive INTERFACE ${SCR_ARCHIVE_LIB} ${SCR_LZMA_LIB} ${SCR_ZLIB_LIB})
+if(WIN32)
+    # libarchive's mktemp uses BCrypt; must follow the archive .a on the GNU link line.
+    target_link_libraries(scr_archive INTERFACE bcrypt)
+endif()
 
 # nlohmann/json (https://github.com/nlohmann/json, MIT) reads GameBanana's API answers
 # (the mod browser); a single header

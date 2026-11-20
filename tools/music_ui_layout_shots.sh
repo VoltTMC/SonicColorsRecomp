@@ -21,11 +21,11 @@ sizes=(
 for sz in "${sizes[@]}"; do
   echo "== Music Library @ $sz =="
   env -u DISPLAY_FAKE \
-    BKR_UI_SIZE="$sz" \
-    BKR_UI_SHOT="$OUT/music_${sz}.bmp" \
-    BKR_UI_SHOT_TAB=music \
-    BKR_UI_LAYOUT_CHECK=1 \
-    BKR_UI_LAYOUT_CHECK_LOG=1 \
+    SCR_UI_SIZE="$sz" \
+    SCR_UI_SHOT="$OUT/music_${sz}.bmp" \
+    SCR_UI_SHOT_TAB=music \
+    SCR_UI_LAYOUT_CHECK=1 \
+    SCR_UI_LAYOUT_CHECK_LOG=1 \
     "$BIN" || true
 done
 

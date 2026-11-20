@@ -19,6 +19,12 @@ Pinned in upstream CMakeLists / our adapted CMakeLists:
 - dxvk-native `v3.1.1` (zlib / LGPL headers) — D3D11 on Vulkan
 - vkd3d-shader (Wine vkd3d) — HLSL→DXBC
 
+## Linux → Windows cross (MinGW-w64)
+
+See `docs/windows-cross.md`. Preset `windows-mingw` uses `x86_64-w64-mingw32-g++`,
+outputs to `out-windows/`, and packages with `tools/package_windows_cross.sh`. MinGW links
+the prebuilt `nod.dll` (not MSVC `nod_static.lib`).
+
 ## Local references (not vendored)
 
 - Decompilation (read-only): `/home/volt/Decomp/sonic2010-sncp8p` — symbols, splits, DOL hash

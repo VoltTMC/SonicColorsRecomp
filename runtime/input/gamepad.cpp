@@ -7,10 +7,11 @@
 #include "../platform/platform.h"
 #include "../platform/window.h"
 
+#include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <string>
 #include <vector>
-#include <cmath>
 
 static float Stick(int16_t v, int16_t dead)
 {
@@ -63,8 +64,8 @@ static std::atomic<bool> s_bindingsChanged{ true };
 static std::atomic<bool> s_keysChanged{ true };
 void Gamepad_ReloadBindings() { s_bindingsChanged = true; s_keysChanged = true; }
 
-// Keyboard and mouse names used in config.ini [Keyboard]. F1 (settings), F11 (fullscreen)
-// and Escape (closes the settings) are reserved.
+// Keyboard and mouse names used in config.ini [Keyboard]. F1 (settings), F11 (fullscreen),
+// F12 (screenshot) and Escape (closes the settings) are reserved.
 static const struct { const char* name; int vk; } kKeys[] = {
     { "SPACE", VK_SPACE }, { "ENTER", VK_RETURN }, { "BACKSPACE", VK_BACK }, { "TAB", VK_TAB },
     { "LSHIFT", VK_LSHIFT }, { "RSHIFT", VK_RSHIFT }, { "LCTRL", VK_LCONTROL }, { "RCTRL", VK_RCONTROL },
@@ -73,7 +74,8 @@ static const struct { const char* name; int vk; } kKeys[] = {
     { "PAGEUP", VK_PRIOR }, { "PAGEDOWN", VK_NEXT }, { "MOUSE1", VK_LBUTTON }, { "MOUSE2", VK_RBUTTON },
     { "MOUSE3", VK_MBUTTON }, { "MOUSE4", VK_XBUTTON1 }, { "MOUSE5", VK_XBUTTON2 },
     { "F2", VK_F2 }, { "F3", VK_F3 }, { "F4", VK_F4 }, { "F5", VK_F5 }, { "F6", VK_F6 }, { "F7", VK_F7 },
-    { "F8", VK_F8 }, { "F9", VK_F9 }, { "F10", VK_F10 }, { "F12", VK_F12 },
+    { "F8", VK_F8 }, { "F9", VK_F9 }, { "F10", VK_F10 },
+    // F1 settings, F11 fullscreen, F12 screenshot — not bindable
     { "NUMPAD0", VK_NUMPAD0 }, { "NUMPAD1", VK_NUMPAD1 }, { "NUMPAD2", VK_NUMPAD2 }, { "NUMPAD3", VK_NUMPAD3 },
     { "NUMPAD4", VK_NUMPAD4 }, { "NUMPAD5", VK_NUMPAD5 }, { "NUMPAD6", VK_NUMPAD6 }, { "NUMPAD7", VK_NUMPAD7 },
     { "NUMPAD8", VK_NUMPAD8 }, { "NUMPAD9", VK_NUMPAD9 },
@@ -199,6 +201,8 @@ void Gamepad_LoadScript(const char* path)
 void Gamepad_Poll(int index, GamepadState& out)
 {
     out = GamepadState();
+    if (index == 0)
+        Input_PollHotplug();   // Win32 XInput connect/disconnect toasts; Linux no-op
     if (Tas_Poll(index, out))
         return;
     if (!s_script.empty() && index == 0)
@@ -260,10 +264,14 @@ void Gamepad_Poll(int index, GamepadState& out)
             out.buttons |= PAD_HOME;
         }
         ApplyBindings(out, phys, lt, rt);
-        out.lx = Stick(st.lx, PAD_LEFT_THUMB_DEADZONE);
-        out.ly = Stick(st.ly, PAD_LEFT_THUMB_DEADZONE);
-        out.rx = Stick(st.rx, PAD_RIGHT_THUMB_DEADZONE);
-        out.ry = Stick(st.ry, PAD_RIGHT_THUMB_DEADZONE);
+        const int16_t lDead = (int16_t)std::lround(
+            std::clamp(g_config.stickDeadzone, 0.0f, 0.5f) * 32767.0f);
+        const int16_t rDead = (int16_t)std::lround(
+            std::clamp(g_config.stickDeadzoneRight, 0.0f, 0.5f) * 32767.0f);
+        out.lx = Stick(st.lx, lDead);
+        out.ly = Stick(st.ly, lDead);
+        out.rx = Stick(st.rx, rDead);
+        out.ry = Stick(st.ry, rDead);
     }
     if (index != 0)
         return;

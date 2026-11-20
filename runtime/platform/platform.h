@@ -28,15 +28,25 @@ void Platform_LogHost();
 // ---------------------------------------------------------------- paths and files
 // The directory of the executable (read-only files shipped with it).
 std::filesystem::path Platform_ExeDir();
+// Force config/saves/logs next to the executable (call before first Platform_UserDir).
+// Also enabled by SCR_PORTABLE=1 or --portable.
+void Platform_RequestPortable();
 // Where the game writes: log, config.ini, saves (nand), shader cache, screenshots and,
-// by default, the installed game data. The exe directory on Windows; on Linux too for a
-// plain build, but $XDG_DATA_HOME/SonicColorsRecomp when it runs from an AppImage or its
-// directory is read-only.
+// by default, the installed game data. Linux: exe dir when writable / portable, else
+// $XDG_DATA_HOME/SonicColorsRecomp. Windows: portable.txt / legacy exe data / --portable
+// → exe dir; else %APPDATA%\SonicColorsRecomp (or SCR_USER_DIR).
 std::filesystem::path Platform_UserDir();
 // Dolphin's custom texture folder (Load/Textures) for this user.
 std::filesystem::path Platform_DolphinTextureDir();
 // Replaces `to` with `from` in one step (config.ini is written to a temporary file first).
 bool Platform_ReplaceFile(const std::string& from, const std::string& to);
+
+// Run argv[0] with remaining args (no shell). Optional stdout/stderr file redirects
+// (empty path = inherit). Unicode-safe on Windows. Sets exitCode when started.
+bool Platform_RunProcess(const std::vector<std::string>& argv,
+                         const std::filesystem::path& stdoutPath,
+                         const std::filesystem::path& stderrPath,
+                         int& exitCode);
 // A UI font of the system (empty: use ImGui's own).
 std::string Platform_UiFont();
 // fonts merged after it for Chinese, Japanese and Korean text and symbols (existing files only)

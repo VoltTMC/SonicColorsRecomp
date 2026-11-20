@@ -45,12 +45,38 @@
             "inherits": "base",
             "cacheVariables": { "CMAKE_C_COMPILER": "clang", "CMAKE_CXX_COMPILER": "clang++" },
             "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+        },
+        {
+            "name": "windows-mingw",
+            "displayName": "Windows (MinGW-w64 cross from Linux)",
+            "description": "x86_64-w64-mingw32-g++; native Win32/D3D11 runtime; output in out-windows/ (docs/windows-cross.md)",
+            "inherits": "base",
+            "toolchainFile": "${sourceDir}/cmake/toolchains/mingw-w64-x86_64.cmake",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "SCR_OUT_DIR": "${sourceDir}/out-windows"
+            },
+            "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+        },
+        {
+            "name": "windows-mingw-debug",
+            "displayName": "Windows (MinGW-w64 Debug cross)",
+            "description": "Debug configuration of windows-mingw",
+            "inherits": "windows-mingw",
+            "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
         }
     ],
     "buildPresets": [
         { "name": "windows-clang", "configurePreset": "windows-clang" },
         { "name": "windows-clang-counts", "configurePreset": "windows-clang-counts" },
-        { "name": "windows-msvc", "configurePreset": "windows-msvc" },
-        { "name": "linux-clang", "configurePreset": "linux-clang" }
+        {
+            "name": "windows-msvc",
+            "configurePreset": "windows-msvc",
+            "jobs": 2,
+            "targets": ["SonicColorsRecomp"]
+        },
+        { "name": "linux-clang", "configurePreset": "linux-clang" },
+        { "name": "windows-mingw", "configurePreset": "windows-mingw" },
+        { "name": "windows-mingw-debug", "configurePreset": "windows-mingw-debug" }
     ]
 }

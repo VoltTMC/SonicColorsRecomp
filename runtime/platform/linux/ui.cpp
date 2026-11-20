@@ -4,6 +4,7 @@
 #include "../platform.h"
 #include "../window.h"
 #include "sdl.h"
+#include "../../env.h"
 #include "../../log.h"
 #include "../../ui/overlay.h"
 
@@ -105,8 +106,8 @@ static SDL_Window* s_launcher = nullptr;
 
 void* UiWindow_Create(const char* title, int w, int h)
 {
-    // Test aid: BKR_UI_SIZE=WxH overrides the initial launcher size (screenshots / layout checks).
-    if (const char* size = getenv("BKR_UI_SIZE"))
+    // Test aid: SCR_UI_SIZE=WxH (legacy BKR_*) overrides launcher size for screenshots.
+    if (const char* size = EnvGet("SCR_UI_SIZE", "BKR_UI_SIZE"))
     {
         int tw = 0, th = 0;
         if (sscanf(size, "%dx%d", &tw, &th) == 2 && tw >= 320 && th >= 240)

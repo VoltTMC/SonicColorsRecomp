@@ -1,16 +1,40 @@
 cmake_minimum_required(VERSION 3.21)
+# Let MSVC_DEBUG_INFORMATION_FORMAT control /Zi vs /Z7 (needed so ppcrecomp can avoid /Zi OOM).
+if(POLICY CMP0141)
+    cmake_policy(SET CMP0141 NEW)
+endif()
 
 # Build with the presets in CMakePresets.json: clang-cl + Ninja on Windows (MSVC also
-# works), clang + Ninja on Linux. The runtime keeps its platform code in runtime/platform:
-# Win32, Direct3D 11, XInput and XAudio2 on Windows; SDL3, dxvk-native (Direct3D 11 on
-# Vulkan) and vkd3d-shader on Linux (docs/linux.md).
+# works), clang + Ninja on Linux, MinGW-w64 cross from Linux (windows-mingw). The runtime
+# keeps its platform code in runtime/platform: Win32, Direct3D 11, XInput and XAudio2 on
+# Windows; SDL3, dxvk-native (Direct3D 11 on Vulkan) and vkd3d-shader on Linux
+# (docs/linux.md, docs/windows-cross.md).
 project(SonicColorsRecomp LANGUAGES CXX)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(LINUX ON)
     enable_language(C)   # the libraries built from source (SDL3, vkd3d, libarchive, ...)
+elseif(MINGW)
+    enable_language(C)   # ExternalProject zlib/xz/libarchive for the MinGW target
 endif()
 
-set(CMAKE_CXX_STANDARD 20)
+# Output directory: Linux/native Windows use out/; Linux→Windows cross uses out-windows/
+# (override with -DSCR_OUT_DIR=...). Never mix host and cross artifacts in one folder.
+if(NOT SCR_OUT_DIR)
+    if(CMAKE_CROSSCOMPILING AND WIN32)
+        set(SCR_OUT_DIR ${CMAKE_SOURCE_DIR}/out-windows)
+    else()
+        set(SCR_OUT_DIR ${CMAKE_SOURCE_DIR}/out)
+    endif()
+endif()
+file(MAKE_DIRECTORY ${SCR_OUT_DIR})
+
+# MSVC: use 23 so CMake emits a single /std flag. Mixing CMAKE_CXX_STANDARD 20 (/std:c++20)
+# with per-target /std:c++latest caused D9025 spam on every TU.
+if(MSVC)
+    set(CMAKE_CXX_STANDARD 23)
+else()
+    set(CMAKE_CXX_STANDARD 20)
+endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
@@ -49,7 +73,7 @@ endif()
 # user's disc image; the prebuilt package is downloaded at configure time.
 include(FetchContent)
 set(NOD_VERSION v2.0.0-alpha.12)
-if(WIN32)
+if(WIN32 AND NOT MINGW)
     FetchContent_Declare(nod_prebuilt
         URL https://github.com/encounter/nod/releases/download/${NOD_VERSION}/libnod-windows-x86_64.tar.gz
         URL_HASH SHA256=c9dfecf8e52066a5222f3cb1cad18d0740c958ce65bf60cb84e780a3856ed881
@@ -60,16 +84,26 @@ elseif(LINUX)
         URL_HASH SHA256=920adb1d2386c8728e0521f8d52809057c04bd46913433a0000ee0931d08d69f
         DOWNLOAD_EXTRACT_TIMESTAMP FALSE)
 endif()
-if(WIN32 OR LINUX)
+if(MINGW)
+    # MSVC prebuilt nod_static.lib / nod.dll need the VC++ runtime. Build windows-gnu instead.
+    include(cmake/nod_mingw.cmake)
+elseif(WIN32 OR LINUX)
     FetchContent_MakeAvailable(nod_prebuilt)
     find_package(nod REQUIRED CONFIG PATHS ${nod_prebuilt_SOURCE_DIR} NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH)
+    set(SCR_NOD_LINK nod::nod_static)
+endif()
+if(WIN32 OR LINUX)
 
     add_library(scr_installer STATIC runtime/install/install.cpp runtime/install/verify.cpp runtime/install/releases.cpp)
     target_include_directories(scr_installer PUBLIC runtime)
-    target_link_libraries(scr_installer PUBLIC nod::nod_static)
+    target_link_libraries(scr_installer PUBLIC ${SCR_NOD_LINK})
     if(WIN32)
         target_compile_definitions(scr_installer PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
         target_sources(scr_installer PRIVATE runtime/platform/win32/sha1.cpp)
+        target_link_libraries(scr_installer PUBLIC bcrypt)   # Sha1 via BCrypt
+        if(MINGW)
+            target_compile_options(scr_installer PRIVATE -include ${CMAKE_SOURCE_DIR}/runtime/platform/compat.h)
+        endif()
     else()
         target_compile_options(scr_installer PRIVATE -include ${CMAKE_SOURCE_DIR}/runtime/platform/compat.h)
         target_sources(scr_installer PRIVATE runtime/platform/linux/sha1.cpp)
@@ -87,9 +121,21 @@ if(WIN32 OR LINUX)
     if(MSVC_FRONTEND)
         target_compile_options(scr_install PRIVATE /EHsc /utf-8)
     endif()
-    set_target_properties(scr_install PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/out
-                                                 RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${CMAKE_SOURCE_DIR}/out
-                                                 RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_SOURCE_DIR}/out)
+    set_target_properties(scr_install PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${SCR_OUT_DIR}
+                                                 RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
+                                                 RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
+    if(MINGW)
+        # CMake defaults Win32 exes to the GUI subsystem under some toolchains; force console.
+        set_target_properties(scr_install PROPERTIES WIN32_EXECUTABLE FALSE)
+        # -municode: entry is wmain (same as MSVC); without it MinGW looks for WinMain/main.
+        target_link_options(scr_install PRIVATE -mconsole -municode
+                            -static-libgcc -static-libstdc++ -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic)
+        if(SCR_NOD_DLL)
+            add_custom_command(TARGET scr_install POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SCR_NOD_DLL}" $<TARGET_FILE_DIR:scr_install>
+                VERBATIM)
+        endif()
+    endif()
 
     include(cmake/mod_deps.cmake)
 
@@ -99,7 +145,7 @@ if(WIN32 OR LINUX)
     else()
         set(SCR_PLATFORM_DIR runtime/platform/linux)
     endif()
-    add_executable(scr_mods_test tools/mods_test/main.cpp runtime/ios/disc.cpp runtime/mods/mods.cpp
+    add_executable(scr_mods_test EXCLUDE_FROM_ALL tools/mods_test/main.cpp runtime/ios/disc.cpp runtime/mods/mods.cpp
                                  runtime/mods/mod_install.cpp runtime/mods/gamebanana.cpp runtime/net/http.cpp
                                  ${SCR_PLATFORM_DIR}/http.cpp ${SCR_PLATFORM_DIR}/image_decode.cpp)
     target_link_libraries(scr_mods_test PRIVATE scr_archive scr_json)
@@ -108,19 +154,23 @@ if(WIN32 OR LINUX)
     if(WIN32)
         target_link_libraries(scr_mods_test PRIVATE winhttp bcrypt shell32 windowscodecs ole32)
         target_compile_definitions(scr_mods_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
+        if(MINGW)
+            target_compile_options(scr_mods_test PRIVATE -include ${CMAKE_SOURCE_DIR}/runtime/platform/compat.h)
+            target_link_options(scr_mods_test PRIVATE -static-libstdc++ -static-libgcc)
+        endif()
     else()
         target_link_libraries(scr_mods_test PRIVATE dl)
         target_link_options(scr_mods_test PRIVATE -static-libstdc++ -static-libgcc)   # as the game: runs on older systems
         target_compile_options(scr_mods_test PRIVATE -include ${CMAKE_SOURCE_DIR}/runtime/platform/compat.h)
     endif()
     if(MSVC_FRONTEND)
-        target_compile_options(scr_mods_test PRIVATE /EHsc /std:c++latest /utf-8)
+        target_compile_options(scr_mods_test PRIVATE /EHsc /utf-8)
     endif()
-    set_target_properties(scr_mods_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/out
-                                                   RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${CMAKE_SOURCE_DIR}/out
-                                                   RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_SOURCE_DIR}/out)
+    set_target_properties(scr_mods_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${SCR_OUT_DIR}
+                                                   RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
+                                                   RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
 
-    add_executable(scr_music_manifest_test tools/music_manifest_test/main.cpp
+    add_executable(scr_music_manifest_test EXCLUDE_FROM_ALL tools/music_manifest_test/main.cpp
                                            runtime/audio/music_manifest.cpp runtime/audio/wav_file.cpp)
     target_include_directories(scr_music_manifest_test PRIVATE runtime)
     if(LINUX)
@@ -128,11 +178,88 @@ if(WIN32 OR LINUX)
         target_link_options(scr_music_manifest_test PRIVATE -static-libstdc++ -static-libgcc)
     endif()
     if(MSVC_FRONTEND)
-        target_compile_options(scr_music_manifest_test PRIVATE /EHsc /std:c++latest /utf-8)
+        target_compile_options(scr_music_manifest_test PRIVATE /EHsc /utf-8)
     endif()
-    set_target_properties(scr_music_manifest_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/out
-                                                             RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${CMAKE_SOURCE_DIR}/out
-                                                             RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_SOURCE_DIR}/out)
+    set_target_properties(scr_music_manifest_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${SCR_OUT_DIR}
+                                                             RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
+                                                             RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
+
+    add_executable(scr_nand_fs_test EXCLUDE_FROM_ALL tools/nand_fs_test/main.cpp runtime/ios/fs_atomic.cpp)
+    target_include_directories(scr_nand_fs_test PRIVATE runtime)
+    if(LINUX)
+        target_compile_options(scr_nand_fs_test PRIVATE -include ${CMAKE_SOURCE_DIR}/runtime/platform/compat.h)
+        target_link_options(scr_nand_fs_test PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
+    if(MSVC_FRONTEND)
+        target_compile_options(scr_nand_fs_test PRIVATE /EHsc /utf-8)
+    endif()
+    set_target_properties(scr_nand_fs_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${SCR_OUT_DIR}
+                                                      RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
+                                                      RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
+
+    # Header-only nand_paths backup/restore (tests use rootOverride; no IOS/platform link)
+    add_executable(scr_nand_backup_test EXCLUDE_FROM_ALL tools/nand_backup_test/main.cpp)
+    target_include_directories(scr_nand_backup_test PRIVATE runtime)
+    if(LINUX)
+        target_compile_options(scr_nand_backup_test PRIVATE -include ${CMAKE_SOURCE_DIR}/runtime/platform/compat.h -std=c++20)
+        target_link_options(scr_nand_backup_test PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
+    if(MSVC_FRONTEND)
+        target_compile_options(scr_nand_backup_test PRIVATE /EHsc /utf-8)
+    endif()
+    set_target_properties(scr_nand_backup_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${SCR_OUT_DIR}
+                                                          RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
+                                                          RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
+
+    # music_asset host launcher (Windows redistributable; optional on Linux — bash wrapper remains default)
+    add_executable(music_asset tools/music_asset_launcher.cpp)
+    target_compile_features(music_asset PRIVATE cxx_std_20)
+    if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Windows")
+        target_compile_definitions(music_asset PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+        if(MINGW)
+            target_compile_options(music_asset PRIVATE -include ${CMAKE_SOURCE_DIR}/runtime/platform/compat.h)
+            target_link_options(music_asset PRIVATE -static-libstdc++ -static-libgcc)
+        endif()
+    else()
+        target_compile_options(music_asset PRIVATE -include ${CMAKE_SOURCE_DIR}/runtime/platform/compat.h)
+        target_link_options(music_asset PRIVATE -static-libstdc++ -static-libgcc)
+        # Avoid clobbering the POSIX tools/music_asset bash script in the source tree.
+        set_target_properties(music_asset PROPERTIES OUTPUT_NAME music_asset_launcher)
+    endif()
+    set_target_properties(music_asset PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${SCR_OUT_DIR}
+                                                 RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
+                                                 RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
+
+    # Platform stubs live in the test; only music_tool.cpp is linked from the runtime.
+    add_executable(scr_platform_test EXCLUDE_FROM_ALL tools/platform_test/main.cpp
+                                       runtime/audio/music_tool.cpp)
+    target_include_directories(scr_platform_test PRIVATE runtime)
+    if(LINUX OR MINGW)
+        target_compile_options(scr_platform_test PRIVATE -include ${CMAKE_SOURCE_DIR}/runtime/platform/compat.h)
+        target_link_options(scr_platform_test PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
+    if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Windows")
+        target_compile_definitions(scr_platform_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    endif()
+    if(MSVC_FRONTEND)
+        target_compile_options(scr_platform_test PRIVATE /EHsc /utf-8)
+    endif()
+    set_target_properties(scr_platform_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${SCR_OUT_DIR}
+                                                        RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
+                                                        RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
+
+    add_executable(scr_config_test EXCLUDE_FROM_ALL tools/config_test/main.cpp runtime/config.cpp)
+    target_include_directories(scr_config_test PRIVATE runtime)
+    if(LINUX)
+        target_compile_options(scr_config_test PRIVATE -include ${CMAKE_SOURCE_DIR}/runtime/platform/compat.h)
+        target_link_options(scr_config_test PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
+    if(MSVC_FRONTEND)
+        target_compile_options(scr_config_test PRIVATE /EHsc /utf-8)
+    endif()
+    set_target_properties(scr_config_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${SCR_OUT_DIR}
+                                                     RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
+                                                     RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
 endif()
 
 # ---------------------------------------------------------------- Linux platform libraries
@@ -235,15 +362,23 @@ include(${CMAKE_SOURCE_DIR}/generated/sources.cmake)
 add_library(ppcrecomp OBJECT ${PPC_RECOMP_SOURCES})
 target_include_directories(ppcrecomp PUBLIC runtime/cpu generated)
 if(MSVC_FRONTEND)
-    # always optimized, also in Debug: unoptimized recompiled code is far too slow
-    target_compile_options(ppcrecomp PRIVATE /O2 /Ob2 /GS- /EHs-c- /std:c++latest)
+    # Always optimized (unoptimized recomp is unusable). Avoid /Zi (shared PDB) + /Ob2 on these
+    # multi‑MB TUs — MSVC hits C1002 "out of heap space in pass 2" under parallel RelWithDebInfo.
+    # /Z7 embeds debug info per .obj; /Ob1 keeps inlining lighter. Prefer clang-cl if available.
+    target_compile_options(ppcrecomp PRIVATE /O2 /Ob1 /GS- /EHs-c- /Z7)
     if(CLANG)
         target_compile_options(ppcrecomp PRIVATE -Wno-unused-label -Wno-unused-variable)
     else()
         target_compile_options(ppcrecomp PRIVATE /bigobj /wd4102 /wd4244 /wd4146 /wd4018)
     endif()
+    # Ensure config-default /Zi does not also apply (CMake may still inject it for RelWithDebInfo).
+    set_property(TARGET ppcrecomp PROPERTY MSVC_DEBUG_INFORMATION_FORMAT Embedded)
 else()
     target_compile_options(ppcrecomp PRIVATE -O2 -fno-exceptions -fno-strict-aliasing -w)
+    if(MINGW)
+        # COFF section limit; several recomp TUs exceed the default object size.
+        target_compile_options(ppcrecomp PRIVATE -Wa,-mbig-obj)
+    endif()
 endif()
 
 if(NOT WIN32 AND NOT LINUX)
@@ -274,43 +409,76 @@ add_custom_target(scr_version
 target_sources(SonicColorsRecomp PRIVATE ${SCR_VERSION_CPP})
 add_dependencies(SonicColorsRecomp scr_version)
 if(WIN32)
-    target_link_libraries(SonicColorsRecomp PRIVATE scr_installer imgui scr_archive scr_json winhttp windowscodecs bcrypt d3d11 dxgi d3dcompiler xinput winmm ole32 uuid shell32 xaudio2 dbghelp)
+    # MinGW ships xaudio2_8/xaudio2_9 import libs, not a bare libxaudio2.a.
+    if(MINGW)
+        set(SCR_XAUDIO_LIB xaudio2_9)
+    else()
+        set(SCR_XAUDIO_LIB xaudio2)
+    endif()
+    target_link_libraries(SonicColorsRecomp PRIVATE scr_installer imgui scr_archive scr_json winhttp windowscodecs bcrypt d3d11 dxgi d3dcompiler xinput winmm ole32 uuid shell32 ${SCR_XAUDIO_LIB} dbghelp dwmapi)
 else()
     target_link_libraries(SonicColorsRecomp PRIVATE scr_installer imgui scr_archive scr_json SDL3::SDL3 dxvk vkd3d_shader pthread dl)
 endif()
-# the scripts in tools/ and the shader cache expect the game in out/
-set_target_properties(SonicColorsRecomp PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/out
-                                                   RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${CMAKE_SOURCE_DIR}/out
-                                                   RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_SOURCE_DIR}/out)
+# Linux/native Windows: out/. Cross MinGW: out-windows/ (SCR_OUT_DIR).
+set_target_properties(SonicColorsRecomp PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${SCR_OUT_DIR}
+                                                   RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
+                                                   RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
 if(SCR_CALL_COUNTS)
     set_target_properties(SonicColorsRecomp PROPERTIES OUTPUT_NAME SonicColorsRecomp_counts)
 endif()
-# licences of the libraries in the exe, shipped with it (tools/package.ps1 copies out/licenses)
+# licences of the libraries in the exe, shipped with it (package scripts copy licenses/)
 set(SCR_LICENSES ${CMAKE_BINARY_DIR}/licenses)
 file(DOWNLOAD https://raw.githubusercontent.com/encounter/nod/v2.0.0-alpha.12/LICENSE-MIT ${SCR_LICENSES}/nod-LICENSE-MIT.txt
      EXPECTED_HASH SHA256=544ffe9befaefa6b59ab1fdde58789069ba7c1b65432bdea273a16b2117909b7)
 file(DOWNLOAD https://raw.githubusercontent.com/nlohmann/json/v3.12.0/LICENSE.MIT ${SCR_LICENSES}/nlohmann-json-LICENSE.MIT.txt
      EXPECTED_HASH SHA256=46a65cffd1ea955132d95a8dd921640714a8d6b537d2e4e482d31145ae95b603)
 add_custom_command(TARGET SonicColorsRecomp POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_SOURCE_DIR}/out/licenses
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${SCR_OUT_DIR}/licenses
     COMMAND ${CMAKE_COMMAND} -E copy ${SCR_LICENSES}/nod-LICENSE-MIT.txt ${SCR_LICENSES}/nlohmann-json-LICENSE.MIT.txt
-            ${CMAKE_SOURCE_DIR}/out/licenses/
-    COMMAND ${CMAKE_COMMAND} -E copy ${imgui_SOURCE_DIR}/LICENSE.txt ${CMAKE_SOURCE_DIR}/out/licenses/imgui-LICENSE.txt
-    COMMAND ${CMAKE_COMMAND} -E copy ${SCR_DEPS_PREFIX}/libarchive/src/scr_libarchive/COPYING ${CMAKE_SOURCE_DIR}/out/licenses/libarchive-COPYING.txt
-    COMMAND ${CMAKE_COMMAND} -E copy ${SCR_DEPS_PREFIX}/zlib/src/scr_zlib/LICENSE ${CMAKE_SOURCE_DIR}/out/licenses/zlib-LICENSE.txt
-    COMMAND ${CMAKE_COMMAND} -E copy ${SCR_DEPS_PREFIX}/xz/src/scr_lzma/COPYING.0BSD ${CMAKE_SOURCE_DIR}/out/licenses/liblzma-COPYING.0BSD.txt
+            ${SCR_OUT_DIR}/licenses/
+    COMMAND ${CMAKE_COMMAND} -E copy ${imgui_SOURCE_DIR}/LICENSE.txt ${SCR_OUT_DIR}/licenses/imgui-LICENSE.txt
+    COMMAND ${CMAKE_COMMAND} -E copy ${SCR_DEPS_PREFIX}/libarchive/src/scr_libarchive/COPYING ${SCR_OUT_DIR}/licenses/libarchive-COPYING.txt
+    COMMAND ${CMAKE_COMMAND} -E copy ${SCR_DEPS_PREFIX}/zlib/src/scr_zlib/LICENSE ${SCR_OUT_DIR}/licenses/zlib-LICENSE.txt
+    COMMAND ${CMAKE_COMMAND} -E copy ${SCR_DEPS_PREFIX}/xz/src/scr_lzma/COPYING.0BSD ${SCR_OUT_DIR}/licenses/liblzma-COPYING.0BSD.txt
     VERBATIM)
 if(WIN32)
     target_compile_definitions(SonicColorsRecomp PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
 endif()
 if(MSVC_FRONTEND)
-    target_compile_options(SonicColorsRecomp PRIVATE /EHsc /std:c++latest /utf-8 $<$<CONFIG:RelWithDebInfo>:/Ob2>)
+    # /std comes from CMAKE_CXX_STANDARD (23) — do not also pass /std:c++latest (D9025).
+    target_compile_options(SonicColorsRecomp PRIVATE /EHsc /utf-8 $<$<CONFIG:RelWithDebInfo>:/Ob2>)
     if(CLANG)
         target_compile_options(SonicColorsRecomp PRIVATE -Wno-unused-function -Wno-unused-variable)
     else()
         target_compile_options(SonicColorsRecomp PRIVATE /wd4611)
     endif()
-    target_link_options(SonicColorsRecomp PRIVATE /STACK:268435456 /SUBSYSTEM:CONSOLE)
+    # NOICF: identical COMDAT folding can merge recomp thunks and break originals/crash maps.
+    target_link_options(SonicColorsRecomp PRIVATE /STACK:268435456 /SUBSYSTEM:CONSOLE /OPT:NOICF)
+endif()
+if(MINGW)
+    set_target_properties(SonicColorsRecomp PROPERTIES WIN32_EXECUTABLE FALSE)
+    target_compile_options(SonicColorsRecomp PRIVATE -include ${CMAKE_SOURCE_DIR}/runtime/platform/compat.h
+                           -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wa,-mbig-obj)
+    # Large guest fiber stacks; static libgcc/libstdc++ so the zip needs no MinGW DLLs.
+    # -mconsole: force console subsystem (avoid WinMain).
+    # Static libgcc/libstdc++. winpthread may still be dynamic; package_windows_cross.sh ships it.
+    target_link_options(SonicColorsRecomp PRIVATE -mconsole -Wl,--stack,268435456
+                        -static-libgcc -static-libstdc++)
+    # Prefer static winpthread when the archive is present (avoids shipping libwinpthread-1.dll).
+    if(EXISTS /usr/x86_64-w64-mingw32/lib/libwinpthread.a)
+        target_link_libraries(SonicColorsRecomp PRIVATE /usr/x86_64-w64-mingw32/lib/libwinpthread.a)
+    endif()
+    if(SCR_NOD_DLL)
+        add_custom_command(TARGET SonicColorsRecomp POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SCR_NOD_DLL}" $<TARGET_FILE_DIR:SonicColorsRecomp>
+            VERBATIM)
+    endif()
+    if(EXISTS /usr/x86_64-w64-mingw32/bin/libwinpthread-1.dll)
+        add_custom_command(TARGET SonicColorsRecomp POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    /usr/x86_64-w64-mingw32/bin/libwinpthread-1.dll $<TARGET_FILE_DIR:SonicColorsRecomp>
+            VERBATIM)
+    endif()
 endif()
 if(LINUX)
     # MSVC runtime names (compat.h) everywhere; type punning as with MSVC

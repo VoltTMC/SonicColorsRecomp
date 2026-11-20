@@ -7,14 +7,18 @@
 
 static std::mutex s_logMutex;
 static FILE* s_logFile = nullptr;
+static std::string s_logPath;
 int g_logLevel = 1;
 bool g_noMessageBox = false;
 
 void Log_Open(const char* path)
 {
+    s_logPath = path ? path : "";
     // shared so the log can be read while the game is running
     s_logFile = _fsopen(path, "w", _SH_DENYWR);
 }
+
+const std::string& Log_Path() { return s_logPath; }
 
 void Log_Write(int level, const std::string& s)
 {
@@ -23,6 +27,7 @@ void Log_Write(int level, const std::string& s)
     static const char* kTag[] = { "D", "I", "W", "E" };
     std::lock_guard<std::mutex> lk(s_logMutex);
     fprintf(stdout, "[%s] %s\n", kTag[level & 3], s.c_str());
+    fflush(stdout);
     if (s_logFile)
     {
         fprintf(s_logFile, "[%s] %s\n", kTag[level & 3], s.c_str());

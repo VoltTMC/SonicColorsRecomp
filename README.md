@@ -4,7 +4,7 @@ Native Linux static recompilation of **Sonic Colors (Wii)** — PAL `SNCP8P` rev
 
 You must own the game. No disc image or assets are shipped in this repository.
 
-## Status (2026-11-19, Phase 19)
+## Status (2026-11-19)
 
 | Area | State |
 |---|---|
@@ -12,10 +12,11 @@ You must own the game. No disc image or assets are shipped in this repository.
 | Runtime | OS / IOS / GX / AX / WPAD / PAD HLE |
 | Boot → title → Tropical Resort Act 1 | **Verified** |
 | Music Library (launcher) | Catalog, preview, WAV export, file-based replacement prep |
-| Release polish | In progress — see [`docs/QUALITY_AUDIT.md`](docs/QUALITY_AUDIT.md) |
+| PC polish | Launcher, settings, volumes, audio device (Linux), save backup picker, F12 PNG shots, toasts, diagnostics, integer scale, portable mode — see [`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md) |
+| Known deferred | H7 black-world after stomp (no GX experiments); H8 in-game music listen still open |
 | Full-game matrix | **Not** claimed — many stages / abilities `NT` |
 
-Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · Progress: [`docs/PROGRESS.md`](docs/PROGRESS.md) · Compatibility: [`docs/GAME_COMPATIBILITY.md`](docs/GAME_COMPATIBILITY.md) · Music: [`docs/MUSIC_MODDING.md`](docs/MUSIC_MODDING.md)
+Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · Progress: [`docs/PROGRESS.md`](docs/PROGRESS.md) · Compatibility: [`docs/GAME_COMPATIBILITY.md`](docs/GAME_COMPATIBILITY.md) · Frame rate: [`docs/FRAME_RATE.md`](docs/FRAME_RATE.md) · Music: [`docs/MUSIC_MODDING.md`](docs/MUSIC_MODDING.md) · Roadmap: [`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md)
 
 ## Foundation
 
@@ -44,14 +45,35 @@ wit EXTRACT "/path/to/Sonic2010 [SNCP8P].iso" --DEST game/SNCP8P/ --overwrite
 ./scripts/cmake.sh --preset linux-clang
 ./scripts/cmake.sh --build --preset linux-clang
 
-# 3. Launch (launcher → Install / locate data → Play)
+# 3. Launch the launcher (Install / locate data → Play)
 ./out/SonicColorsRecomp
-
-# Or skip the launcher once data is configured:
-./out/SonicColorsRecomp --data game/SNCP8P --skip-launcher
 ```
 
-User data (config, NAND saves, music cache) lives next to the executable for writable trees, or under `$XDG_DATA_HOME/SonicColorsRecomp` for AppImage / read-only installs.
+### Launching the launcher
+
+The same binary opens the **launcher** by default (omit `--skip-launcher`).
+
+| Platform | Command |
+|---|---|
+| Linux (dev build) | `./out/SonicColorsRecomp` |
+| Linux (staged AppDir) | `./dist/AppDir/AppRun` |
+| Linux (AppImage) | `./SonicColorsRecomp-*.AppImage` |
+| Windows (dev build) | `out\SonicColorsRecomp.exe` |
+
+Windows build presets: `windows-clang` (preferred) or `windows-msvc` (output under `out\`).
+MSVC builds use `-j 2` and target `SonicColorsRecomp` only by default — full parallel `/Zi` RelWithDebInfo OOMs `cl` (C1002) on the huge `ppc_recomp.*.cpp` TUs. If you still hit C1002, rebuild with `-j 1`.
+
+Skip the launcher once data is configured:
+
+```bash
+# Linux
+./out/SonicColorsRecomp --data game/SNCP8P --skip-launcher
+
+# Windows
+out\SonicColorsRecomp.exe --data game\SNCP8P --skip-launcher
+```
+
+User data (config, NAND saves, music cache) lives next to the executable for writable trees, or under `$XDG_DATA_HOME/SonicColorsRecomp` for AppImage / read-only installs. Force exe-local data with `--portable` or `SCR_PORTABLE=1`. On Windows, the redistributable ZIP ships `portable.txt` (exe-local data); without it, data defaults to `%APPDATA%\SonicColorsRecomp` unless a legacy exe-local `config.ini`/`userdata`/`nand` tree already exists.
 
 ## Music replacement (file-based)
 
@@ -63,13 +85,32 @@ Do **not** use host MixInto / AX mute overlays. Workflow:
 
 See [`docs/MUSIC_MODDING.md`](docs/MUSIC_MODDING.md).
 
-## Packaging (Linux AppImage)
+## Packaging (test shares / AppImage)
+
+**Linux** (this host):
 
 ```bash
 ./scripts/cmake.sh --build --preset linux-clang
 ./tools/package_linux.sh -S          # stage dist/AppDir (no game data)
 # optional: ./tools/package_linux.sh -A dist/AppDir -c /path/to/shadercache
+
+# Shareable test archive (folder + .tar.zst/.tar.gz under dist/):
+./tools/package_test_linux.sh
 ```
+
+**Windows** (must run on a Windows build machine):
+
+```powershell
+# Prefer clang-cl. For MSVC Build Tools only:
+cmake --preset windows-msvc
+cmake --build --preset windows-msvc
+# → builds SonicColorsRecomp at -j 2 (see CMakePresets.json)
+
+powershell -ExecutionPolicy Bypass -File tools/package.ps1
+# → dist\SonicColorsRecomp\  (zip that folder to share; no game data)
+```
+
+Copy-from-Linux tree: `./tools/package_windows_src.sh` → `dist/SonicColorsRecomp-windows-build-src.zip`.
 
 Redistributable builds must **not** include `game/` or copyrighted assets.
 

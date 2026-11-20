@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Fast automated regression net (no long gameplay). Requires a prior linux-clang build in out/.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+OUT="$ROOT/out"
+fail() { echo "FAIL: $*" >&2; exit 1; }
+ok() { echo "OK: $*"; }
+
+[[ -x "$OUT/SonicColorsRecomp" ]] || fail "build $OUT/SonicColorsRecomp first"
+
+run() {
+  local name=$1; shift
+  echo "== $name =="
+  "$@"
+  ok "$name"
+}
+
+run scr_nand_fs_test "$OUT/scr_nand_fs_test"
+run scr_nand_backup_test "$OUT/scr_nand_backup_test"
+run scr_config_test "$OUT/scr_config_test"
+run install_manifest_check "$ROOT/tools/install_manifest_check.sh"
+run package_smoke "$ROOT/tools/package_smoke.sh"
+
+if [[ -f "$ROOT/game/SNCP8P/files/sonic2010_0.cpk" ]]; then
+  run music_pipeline_smoke "$ROOT/tools/music_pipeline_smoke.sh"
+else
+  echo "SKIP: music_pipeline_smoke (no game CPK)"
+fi
+
+echo "regression_smoke OK"

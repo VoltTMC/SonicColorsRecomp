@@ -159,6 +159,10 @@ class TracksLayoutTests(unittest.TestCase):
         man = root / "mods" / "music" / "manifest.toml"
         if not man.is_file():
             self.skipTest("sample manifest missing")
+        # Music Library uses [assets.*] + catalog.json; legacy host mods use [tracks.*].
+        text = man.read_text(encoding="utf-8")
+        if "[tracks." not in text:
+            self.skipTest("no legacy [tracks.*] entries (assets-only Music Library manifest)")
         got = mm.parse_manifest(man)
         self.assertIn("tropical_resort_act1", got)
         self.assertEqual(got["tropical_resort_act1"]["stage"], "stg110")

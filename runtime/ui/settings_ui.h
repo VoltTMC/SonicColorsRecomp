@@ -16,7 +16,7 @@ void SettingsUI_Draw(SettingsHost host);
 void SettingsUI_DrawMods(SettingsHost host);
 // Custom stage music (WAV) replacements — launcher Music tab (also available in-game).
 void SettingsUI_DrawMusic(SettingsHost host);
-// Test aid: BKR_UI_SHOT_SUBTAB=Mods, the Mods section opens first.
+// Test aid: SCR_UI_SHOT_SUBTAB=Mods (legacy BKR_*), the Mods section opens first.
 bool SettingsUI_ShotMods();
 // Controller tab switching: LB/RB step through the top tabs (outer), LT/RT through the tabs
 // inside a page. Call before the tab bar with the tab selected last frame; returns the tab

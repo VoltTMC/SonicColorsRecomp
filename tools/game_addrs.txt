@@ -18,6 +18,20 @@ OSExceptionTable             data 808F38EC
 FrameRateWait                code 80012774
 # Whole frame-wait/update helper (for --perf guest-loop timing; PPC_ORIGINAL still runs)
 FrameLoopWait                func 800126EC
+# CObjSpring vtable collision callback (fn_80077C18) → type dispatch to activate
+ObjSpringCollide             func 80077C18
+# CObjSpring collision activate (fn_800785CC): sets +0x188 cooldown 0.5s; experimental 60fps gate
+ObjSpringActivate            func 800785CC
+# CObjSpring launch impulse / state (fn_8007883C); called from activate
+ObjSpringLaunch              func 8007883C
+# CObjSpring per-frame update (fn_80078524); vtable @ 8075D684
+ObjSpringUpdate              func 80078524
+# CObjWideSpring collide / update / activate (TR1 set also places WideSpring)
+ObjWideSpringCollide         func 800B90E0
+ObjWideSpringUpdate          func 800B9710
+ObjWideSpringActivate        func 800B9768
+# CObjSpringPole collide (TR1 set places SpringPole; update slot is blr)
+ObjSpringPoleCollide         func 800CEFFC
 # Boost plugin path that references sn_boost (0x80714bbc) at 80088B14 — Phase 9 diagnostics
 BoostPluginSnBoost           func 800888CC
 # Boost plugin per-frame/state tick (vtable @ 8075e0a8); +0x1C state → 80088D28 / 80088F0C

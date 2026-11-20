@@ -1,5 +1,6 @@
 #include "ui_shot.h"
 
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <vector>

@@ -1,6 +1,7 @@
 // Launcher window, overlay input and installer dialogs on Windows (Win32, COM dialogs and
 // ImGui's Win32 backend).
 #include "../ui.h"
+#include "../../env.h"
 #include "../../install/install.h"
 #include "../../ui/overlay.h"
 
@@ -81,7 +82,7 @@ HWND s_launcher = nullptr;
 HRESULT s_co = E_FAIL;
 bool s_quit = false;
 UINT s_resizeW = 0, s_resizeH = 0;
-const wchar_t* const kLauncherClass = L"BlackKnightRecompLauncher";
+const wchar_t* const kLauncherClass = L"SonicColorsRecompLauncher";
 
 LRESULT CALLBACK LauncherProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
@@ -117,7 +118,7 @@ void* UiWindow_Create(const char* title, int w, int h)
     wc.hIcon = LoadIconW(nullptr, MAKEINTRESOURCEW(32512));
     wc.lpszClassName = kLauncherClass;
     RegisterClassW(&wc);
-    if (const char* size = getenv("BKR_UI_SIZE"))
+    if (const char* size = EnvGet("SCR_UI_SIZE", "BKR_UI_SIZE"))
     {
         int tw = 0, th = 0;
         if (sscanf(size, "%dx%d", &tw, &th) == 2 && tw >= 320 && th >= 240)
@@ -281,7 +282,8 @@ struct ProgressImpl
 ProgressDialog::ProgressDialog(const std::string& title, const std::string& line1, const std::string& line2) : impl(new ProgressImpl())
 {
     IProgressDialog*& dlg = ((ProgressImpl*)impl)->dlg;
-    CoCreateInstance(CLSID_ProgressDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dlg));
+    // IID_PPV_ARGS needs a MinGW __uuidof specialization for IProgressDialog; use the IID.
+    CoCreateInstance(CLSID_ProgressDialog, nullptr, CLSCTX_INPROC_SERVER, IID_IProgressDialog, (void**)&dlg);
     if (dlg)
     {
         dlg->SetTitle(Widen(title).c_str());

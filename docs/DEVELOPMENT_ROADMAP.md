@@ -1,0 +1,126 @@
+# Development roadmap — SonicColorsRecomp
+
+Living backlog for ongoing PC development. Keep entries tied to real code/docs state.
+**H7 (black world after stomp) is deferred — do not schedule GX/XFB/EFB work for it.**
+
+Baseline: Phase 19 `72ae9de` (+ stability-recovery docs). Matching decomp: read-only.
+
+---
+
+## Current priorities
+
+| Pri | Item | Why | Status |
+|---|---|---|---|
+| A | Linux/Windows feature parity (honest matrix) | Equal UX | **Ongoing** — matrix refreshed 2026-11-20 |
+| B | H8 — Confirm in-game music replacement audible in TR1 | Prepare smoke PASS; playtest open | **PART** |
+| B | Stick deadzone settings | Worn pads / PC QoL | **Done** (2026-11-20) |
+| B | Independent music / SFX volume (host) | Shared Wii mix — master + speaker only | **Done** (master) |
+| D | Packaging smoke (`tools/package_smoke.sh`) | Regression net | **Done** |
+| — | H7 black-screen + soft-lock | Known unresolved | **DEFERRED** |
+| — | AP1 spiral / ForcePath | Known unresolved | **DEFERRED** |
+
+---
+
+## Completed (recent)
+
+| When | Item |
+|---|---|
+| 2026-11-19 | Phase 19 quality audit, NAND C1, branding, packaging, music paths |
+| 2026-11-19 | Stability recovery: revert Phase 20 black-screen experiments; restore `72ae9de` runtime |
+| 2026-11-19 | `music_mod` sample-manifest test skips assets-only Music Library manifests |
+| 2026-11-19 | **M7** — `Fs_WriteFileAtomic` + `scr_nand_fs_test` |
+| 2026-11-19 | CLI `-h` / `--help` (no launcher/log side effects) |
+| 2026-11-19 | `docs/DEVELOPMENT_ROADMAP.md` living backlog |
+| 2026-11-19 | Exclusive fullscreen config (Linux SDL3 mode); borderless default |
+| 2026-11-19 | First-launch / missing-data UX: Colors branding, supported release, skip-launcher checks |
+| 2026-11-19 | `tools/package_smoke.sh` — AppDir layout + `--help` + shot-abort |
+| 2026-11-19 | VRAM bounds: tex/EFB hard caps + hi-res LRU eviction; GX stats log; Win32 title M6 |
+| 2026-11-19 | Controller hotplug: compact slots on disconnect, probe at startup, settings status |
+| 2026-11-19 | GameBanana game id → Sonic Colors (6243); SCR_* env aliases; Win32 class rename |
+| 2026-11-19 | Save backup/restore in System settings; `scr_nand_backup_test`; remaining SCR_* debug envs |
+| 2026-11-19 | Host master + remote-speaker volume (`[Audio]` config + Audio settings) |
+| 2026-11-19 | Linux audio output device picker (`audio_device` + live switch) |
+| 2026-11-19 | System → Open log folder (`Log_Path`); `scr_config_test` Audio roundtrip |
+| 2026-11-19 | `tools/music_pipeline_smoke.sh` — isolated TR1 WAV→AAX→CPK prepare + proof |
+| 2026-11-19 | Optional integer scaling present; `tools/regression_smoke.sh`; desktop Keywords |
+| 2026-11-19 | F12 user screenshots → `screenshots/`; System → Open screenshots folder |
+| 2026-11-19 | Optional host FPS cap for uncapped mode (`host_fps_cap`) |
+| 2026-11-19 | `--version` / `--portable` (SCR_PORTABLE); System shows user data dir |
+| 2026-11-19 | AppStream metainfo in AppDir; System → Open user data folder |
+| 2026-11-19 | Linux SDL audio device hotplug (reopen on remove/add) |
+| 2026-11-19 | System → Reset settings to defaults (keeps Paths/Mods/Music) |
+| 2026-11-19 | System → Save diagnostic report (version/paths/config/log tail) |
+| 2026-11-19 | F12 user screenshots → full-res PNG (TAS/--shots still BMP) |
+| 2026-11-19 | In-game toasts: F12 screenshot + controller hotplug (Linux) |
+| 2026-11-19 | `--list-audio-devices`; Win32 XInput hotplug toast; audio reconnect toast |
+| 2026-11-19 | Save restore: pick any backup (newest-first); diag path → clipboard |
+| 2026-11-19 | README launch table; keyboard binding conflict warnings |
+| 2026-11-19 | `tools/package_test_linux.sh` shareable Linux test archive |
+| 2026-11-19 | `tools/package.ps1` Windows shareable pack (exe + licenses + TESTING) |
+| 2026-11-19 | Overlay Restart/Quit confirmation; package_smoke checks pack scripts |
+| 2026-11-19 | Fix ISO install “damaged”: drop wit helpers from SNCP8P file manifest |
+| 2026-11-19 | install_manifest_check + verify.cpp skip wit helpers (regression) |
+| 2026-11-19 | README launch table (Linux/Windows); keyboard binding conflict warnings |
+| 2026-11-19 | MSVC: CXX23 single /std; ppcrecomp /Z7+/Ob1; tests EXCLUDE_FROM_ALL; -j2 preset |
+| 2026-11-19 | `tools/package_windows_src.sh` refreshes Windows transfer zip |
+| 2026-11-19 | music_mod: in-process SHA-256 (no popen) — unblocks Windows clang-cl |
+| 2026-11-19 | overlay.h cstdint; perf.cpp PPC_GEN_FUNC decl (MSVC restrict mangling) |
+| 2026-11-19 | Win32: MEM1 mirror probe at init; richer AV crash dump; /OPT:NOICF; log fflush |
+| 2026-11-19 | Linux→Windows MinGW cross: `windows-mingw` preset, `out-windows/`, `docs/windows-cross.md` |
+
+---
+
+## Deferred / do-not-touch
+
+- **H7** — Black world + soft-lock after stomp (TR1/TR3). No GX/XFB/EFB experiments, framebuffer resets, or forced redraws unless explicitly requested.
+- **AP1 spiral / ForcePath / OOC tube (`stg510`)** — deferred indefinitely. No spiral gates, PathTick hacks, dt overrides, or related diagnostics unless explicitly requested.
+- Matching decomp tree `/home/volt/Decomp/sonic2010-sncp8p` — read-only.
+
+---
+
+## Session log
+
+### 2026-11-20 — Continuous improvement initiative
+
+- Removed experimental AP1 spiral gates (`spiral_60.cpp`, spiral game_addrs/overrides); docs mark **DEFERRED**.
+- Configurable left/right stick deadzone (`stick_deadzone` / `stick_deadzone_right`) + Input settings sliders.
+- Corrected `audio_device` comment (Windows WASAPI supported).
+- Launcher home shows build version.
+- Refreshed `docs/WINDOWS_FEATURE_PARITY.md` feature matrix from code audit.
+- Next: more parity/QoL (trigger threshold, graphics presets, launcher dashboard polish); H8 playtest; Win native checklist.
+
+### 2026-11-19 — Goal armed; M7 + `--help` + exclusive FS + first-launch UX
+
+- M7 `Fs_WriteFileAtomic` + `scr_nand_fs_test`; CLI `--help`; exclusive fullscreen (Linux).
+- First-launch UX: removed Black Knight install copy; launcher guidance; `--skip-launcher` validates data; `scr_install` in fatals.
+- Added `tools/package_smoke.sh` (PASS).
+- VRAM: hard-cap tex (4096) / EFB copies (256); hi-res pack LRU (age 1200 / cap 512); richer GX stats; Win32 title fixed (M6).
+- Controller hotplug: compact slots on unplug; `Input_ProbeConnectedPads`; Input settings shows live pad names.
+- GameBanana browse was still on Black Knight (6511) → Colors **6243**; Win32 classes `SonicColorsRecomp*`; UI test envs prefer `SCR_*` (BKR_* fallback).
+- System → Save data: open folder / backup / restore latest; `nand_backup.h` + `scr_nand_backup_test`.
+- Remaining debug envs also accept `SCR_*` (`SLOW_SAMPLE`, `IRQ_STALLS`, `TEST_PAUSE`, `DUMPMEM2`).
+- Host audio: `[Audio] master_volume` / `speaker_volume`; live sliders in Audio settings (music+SFX stay one Wii mix).
+- Linux: output device combo (`audio_device`); mutex around SDL reopen / PushDSP.
+- Diagnostics: System → Open log folder; `scr_config_test` covers Audio config roundtrip.
+- H8 PART: `music_pipeline_smoke.sh` prepares TR1 (stg110) diag tone + payload proof (PASS). In-game audibility still needs playtest.
+- Video: optional integer scaling (640×360/480 multiples); `regression_smoke.sh` aggregates unit/package/music smokes; desktop Keywords + PrefersNonDefaultGPU.
+- F12 saves XFB BMP under `screenshots/`; System settings opens that folder.
+- Uncapped mode: optional `host_fps_cap` (60–240) paces guest FrameLoopWait; 30/60 unchanged.
+- CLI `--version` / `--portable` (+ `SCR_PORTABLE`); System tab shows user data directory.
+- AppStream `soniccolorsrecomp.metainfo.xml` staged into AppDir; System → Open user data folder.
+- Linux: reopen audio output on SDL device remove/add (`AudioOut_HandleEvent`).
+- System → Reset settings to defaults (preserves Paths / Mods / Music folder).
+- System → Save diagnostic report → `diagnostics/scr_diag_*.txt` (config + log tail).
+- F12 screenshots → full-resolution PNG under `screenshots/` (debug/TAS BMP unchanged).
+- `Overlay_Toast`: F12 confirm + Linux controller connect/disconnect (startup probe silent).
+- `--list-audio-devices` CLI; package_smoke checks it; Win32 `Input_PollHotplug` toasts; Linux audio reconnect toast.
+- Save restore combo (any `save_backups/*`); diagnostic report copies path to clipboard.
+- README launch table (Linux/Windows); Input settings warn on shared keyboard bindings.
+- `tools/package_test_linux.sh` → `dist/SonicColorsRecomp-<ver>-linux-x86_64.tar.zst` (+ TESTING.txt).
+- `tools/package.ps1` → `dist/SonicColorsRecomp/` on Windows (exe + licenses; optional shader precompile).
+- Overlay Restart/Quit ask for confirmation; `package_smoke` asserts pack scripts exist.
+- ISO install false “damaged”: `files_sncp8p.inc` no longer requires wit `align-files.txt` / `setup.*` / `include.fst`.
+- `install_manifest_check` in regression_smoke; `Install_QuickCheck` skips wit helpers if reintroduced.
+- Windows transfer zip refreshed under `dist/SonicColorsRecomp-windows-build-src.zip`.
+- Next: H8 in-game TR1 listen; Win32 WASAPI/XAudio device enum if needed.
+- Note: git commits blocked (no `user.email` in this environment).

@@ -2,17 +2,32 @@
 #include "music_ui.h"
 #include "../platform/platform.h"
 #include "../config.h"
+#include "../audio/audio_out.h"
+#include "../env.h"
 #include "../gx/video.h"
+#include "../perf.h"
 #include "../input/gamepad.h"
+#include "../ios/nand_paths.h"
+#include "../log.h"
 #include "mods_ui.h"
 #include "../version.h"
 #include "../platform/input.h"
+#include "../platform/ui.h"
+
+#include <chrono>
+#include <deque>
+#include <fstream>
 
 #include <imgui.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <format>
 #include <string>
+#include <unordered_map>
+#include <vector>
+
+namespace fs = std::filesystem;
 
 extern bool g_asyncShaders;
 void Renderer_ResetSamplers();
@@ -31,11 +46,16 @@ const char* s_help = nullptr;      // description of the hovered setting
 void ApplyLive()
 {
     g_videoConfig.vsync = g_config.vsync;
+    g_videoConfig.widescreen = g_config.widescreen;
+    g_videoConfig.integerScale = g_config.integerScale;
     g_asyncShaders = g_config.asyncShaders;
+    // Re-apply fullscreen so exclusive↔borderless mode changes take effect live.
     Video_SetFullscreen(g_config.fullscreen);
     Video_SetWindowSize(g_config.windowWidth, g_config.windowHeight);
     Renderer_ResetSamplers();      // anisotropy
     Gamepad_ReloadBindings();
+    AudioOut_ApplyVolumes(g_config.masterVolume, g_config.speakerVolume);
+    AudioOut_SetDevice(g_config.audioDevice);
     // rumble, remote speaker and pause-on-focus-loss read g_config directly
 }
 
@@ -95,9 +115,13 @@ void VideoTab(SettingsHost host)
 {
     Config& c = g_config;
     ImGui::SeparatorText("Display");
-    Check(host, "Fullscreen", c.fullscreen, false, "Borderless fullscreen. F11 or Alt+Enter also toggle it.");
+    Check(host, "Fullscreen", c.fullscreen, false, "Enter fullscreen. F11 or Alt+Enter also toggle it.");
+    Check(host, "Exclusive fullscreen", c.exclusiveFullscreen, false,
+          "Linux: change the monitor mode (lower latency on some setups). Off = borderless desktop fullscreen. Windows stays borderless.");
     Check(host, "VSync", c.vsync, false, "Wait for the monitor's refresh. The game paces itself, so this is only needed against tearing.");
     Check(host, "Widescreen (16:9)", c.widescreen, true, "16:9 like the Wii's widescreen setting. Off: 4:3.");
+    Check(host, "Integer scaling", c.integerScale, false,
+          "Present at the largest whole-number multiple of 640×360 (16:9) or 640×480 (4:3) that fits; letterbox the rest. Off = fill the window while keeping aspect.");
     static const int sizes[][2] = { { 1280, 720 }, { 1600, 900 }, { 1920, 1080 }, { 2560, 1440 }, { 3840, 2160 } };
     int sizeIdx = 0;
     const int sizeIds[] = { 0, 1, 2, 3, 4 };
@@ -115,8 +139,19 @@ void VideoTab(SettingsHost host)
     const int fps[] = { 30, 60, 0 };
     const char* fpsNames[] = { "30 (original)", "60", "Uncapped" };
     if (Combo(host, "Frame rate", c.frameRate, fps, fpsNames, 3, true,
-              "VI retraces per game frame: 2≈30 Hz, 1≈60 Hz, 0=no wait. Simulation uses wall-clock delta; speed stays correct."))
+              "30 = native wait=2. 60 = true 60 Hz guest (wait=1) with spring cooldown gate. "
+              "0 = uncapped VI wait."))
         Changed(host, true);
+    {
+        const int caps[] = { 0, 60, 120, 144, 165, 240 };
+        const char* capNames[] = { "Off (unlimited)", "60", "120", "144", "165", "240" };
+        if (Combo(host, "Uncapped host FPS limit", c.hostFpsCap, caps, capNames, 6, false,
+                  "Only when Frame rate is Uncapped: caps how fast the guest loop runs so the GPU/CPU are not maxed. Off = as fast as the host allows. 30/60 modes ignore this."))
+        {
+            Perf_SetHostFpsCap(c.hostFpsCap);
+            Changed(host, false);
+        }
+    }
     const int scales[] = { 1, 2, 3, 4, 5, 6 };
     const char* scaleNames[] = { "1x (640 x 528)", "2x (1280 x 1056)", "3x (1920 x 1584)", "4x (2560 x 2112)", "5x (3200 x 2640)", "6x (3840 x 3168)" };
     if (Combo(host, "Internal resolution", c.internalScale, scales, scaleNames, 6, true, "Resolution the game is rendered at."))
@@ -138,6 +173,47 @@ void InputTab(SettingsHost host)
     ImGui::SeparatorText("Controller");
     Check(host, "Rumble", c.rumble, false, "Vibrate the controller where the Wii Remote would rumble.");
     ImGui::TextDisabled("View (Back) opens these settings. View + Start is the Wii HOME button.");
+
+    ImGui::SeparatorText("Stick dead zones");
+    float lDz = c.stickDeadzone * 100.0f;
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14);
+    if (ImGui::SliderFloat("Left stick dead zone", &lDz, 0.0f, 50.0f, "%.0f%%"))
+    {
+        c.stickDeadzone = lDz / 100.0f;
+        Changed(host, false);
+    }
+    Help("Ignores small left-stick motion. ~24% matches the XInput default.");
+    float rDz = c.stickDeadzoneRight * 100.0f;
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14);
+    if (ImGui::SliderFloat("Right stick dead zone", &rDz, 0.0f, 50.0f, "%.0f%%"))
+    {
+        c.stickDeadzoneRight = rDz / 100.0f;
+        Changed(host, false);
+    }
+    Help("Ignores small right-stick motion (pointer / tilt / slash flicks). ~26% ≈ XInput default.");
+    if (ImGui::Button("Reset stick dead zones"))
+    {
+        Config defaults;
+        c.stickDeadzone = defaults.stickDeadzone;
+        c.stickDeadzoneRight = defaults.stickDeadzoneRight;
+        Changed(host, false);
+    }
+
+    // Live hotplug status (updates every frame while this tab is open).
+    const int pads = Pad_Count();
+    ImGui::Text("Connected controllers: %d / 4", pads);
+    for (int i = 0; i < 4; i++)
+    {
+        const char* name = Pad_Name(i);
+        if (name)
+            ImGui::BulletText("Player %d: %s", i + 1, name);
+        else if (i == 0)
+            ImGui::BulletText("Player 1: keyboard / mouse (no pad in this slot)");
+    }
+    if (pads == 0)
+        ImGui::TextDisabled("Plug in a controller any time — it is picked up automatically.");
+    else
+        ImGui::TextDisabled("Unplugging packs remaining pads into the lowest player slots.");
 
     ImGui::SeparatorText("Button bindings");
     static const char* actions[12] = { "Jump / homing attack (Wii A)", "Slash (swing the Remote)", "Soul Surge (Wii B)",
@@ -231,14 +307,148 @@ void InputTab(SettingsHost host)
         for (int i = 0; i < 21; i++) c.keys[i] = defaults.keys[i];
         Changed(host, false);
     }
-    ImGui::TextDisabled("F1 opens the settings, F11 toggles fullscreen; the mouse also moves the Wii Remote pointer.");
+    // Warn when the same key/mouse button is bound to more than one action.
+    {
+        std::unordered_map<int, std::vector<int>> owners;
+        for (int i = 0; i < 21; i++)
+            for (int vk : Gamepad_ParseKeys(c.keys[i]))
+                if (vk) owners[vk].push_back(i);
+        int shown = 0;
+        for (auto& [vk, acts] : owners)
+        {
+            if (acts.size() < 2 || shown >= 4) continue;
+            std::string msg = Gamepad_KeyName(vk) + " is used by: ";
+            for (size_t n = 0; n < acts.size(); n++)
+            {
+                if (n) msg += ", ";
+                msg += keyActions[acts[n]];
+            }
+            ImGui::TextColored(ImVec4(1.f, 0.75f, 0.35f, 1.f), "%s", msg.c_str());
+            shown++;
+        }
+        if (shown)
+            Help("Shared keys fire every matching action together. Clear or rebind if that is not intended.");
+    }
+    ImGui::TextDisabled("F1 opens the settings, F11 toggles fullscreen, F12 saves a screenshot; the mouse also moves the Wii Remote pointer.");
 }
 
 void AudioTab(SettingsHost host)
 {
-    ImGui::SeparatorText("Audio");
-    Check(host, "Wii Remote speaker sounds", g_config.remoteSpeaker, false,
+    Config& c = g_config;
+    ImGui::SeparatorText("Volume");
+    ImGui::TextDisabled("Music and sound effects share the original Wii mix — only a master scale is applied.");
+    float masterPct = c.masterVolume * 100.0f;
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14);
+    if (ImGui::SliderFloat("Master volume", &masterPct, 0.0f, 100.0f, "%.0f%%"))
+    {
+        c.masterVolume = masterPct / 100.0f;
+        Changed(host, false);
+    }
+    Help("Scales the whole game mix (music + SFX) on the PC. Does not change in-game mixing.");
+    float spkPct = c.speakerVolume * 100.0f;
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14);
+    if (ImGui::SliderFloat("Remote speaker level", &spkPct, 0.0f, 100.0f, "%.0f%%"))
+    {
+        c.speakerVolume = spkPct / 100.0f;
+        Changed(host, false);
+    }
+    Help("Relative loudness of Wii Remote speaker sounds (still multiplied by master volume).");
+
+    ImGui::SeparatorText("Devices");
+    {
+        auto devices = AudioOut_ListDevices();
+        int cur = 0;
+        for (int i = 0; i < (int)devices.size(); i++)
+            if (devices[i].name == c.audioDevice) cur = i;
+        std::vector<std::string> labels;
+        labels.reserve(devices.size());
+        for (auto& d : devices)
+            labels.push_back(d.name.empty() ? "System default" : d.name);
+        const char* preview = labels.empty() ? "System default" : labels[cur].c_str();
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 18);
+        if (ImGui::BeginCombo("Output device", preview))
+        {
+            for (int i = 0; i < (int)devices.size(); i++)
+            {
+                bool selected = i == cur;
+                if (ImGui::Selectable(labels[i].c_str(), selected) && !selected)
+                {
+                    c.audioDevice = devices[i].name;
+                    Changed(host, false);
+                }
+                if (selected) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        Help("Linux: pick a playback device (SDL). Windows uses the system default output.");
+    }
+    Check(host, "Wii Remote speaker sounds", c.remoteSpeaker, false,
           "Play the sounds the game sends to the Wii Remote speaker through the PC.");
+}
+
+std::string WriteDiagnosticReport(std::string& error)
+{
+    fs::path dir = Platform_UserDir() / "diagnostics";
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    if (ec)
+    {
+        error = "Cannot create diagnostics folder: " + ec.message();
+        return {};
+    }
+    using clock = std::chrono::system_clock;
+    auto t = clock::to_time_t(clock::now());
+    std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &t);
+#else
+    localtime_r(&t, &tm);
+#endif
+    fs::path path = dir / std::format("scr_diag_{:04d}{:02d}{:02d}_{:02d}{:02d}{:02d}.txt", tm.tm_year + 1900,
+                                      tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+    std::ofstream out(path);
+    if (!out)
+    {
+        error = "Cannot write " + path.string();
+        return {};
+    }
+    out << "Sonic Colors Recomp — diagnostic report\n";
+    out << "version: " << g_version << "\n";
+    out << "user_dir: " << Platform_UserDir().string() << "\n";
+    out << "config: " << Config_Path() << "\n";
+    out << "log: " << Log_Path() << "\n";
+    out << "nand: " << nand_paths::ActiveRoot().string() << "\n";
+    out << "pads: " << Pad_Count() << "\n";
+    {
+        const std::string& dev = AudioOut_CurrentDeviceName();
+        out << "audio_device: " << (dev.empty() ? "(default)" : dev) << "\n";
+    }
+    out << "master_volume: " << g_config.masterVolume << "\n";
+    out << "frame_rate: " << g_config.frameRate << " host_fps_cap: " << g_config.hostFpsCap << "\n";
+    out << "\n--- config.ini ---\n";
+    out << Config_Text(g_config);
+    out << "\n--- log (last 200 lines) ---\n";
+    if (!Log_Path().empty())
+    {
+        std::ifstream in(Log_Path());
+        std::deque<std::string> tail;
+        std::string line;
+        while (std::getline(in, line))
+        {
+            tail.push_back(line);
+            if (tail.size() > 200) tail.pop_front();
+        }
+        for (auto& l : tail) out << l << "\n";
+    }
+    else
+        out << "(log not open)\n";
+    out.close();
+    if (!out)
+    {
+        error = "Write failed for " + path.string();
+        return {};
+    }
+    return path.string();
 }
 
 void SystemTab(SettingsHost host)
@@ -252,7 +462,158 @@ void SystemTab(SettingsHost host)
     Check(host, "Pause when the window is in the background", c.pauseOnFocusLoss, false,
           "Freeze the game while another window has focus.");
     ImGui::Spacing();
+    ImGui::TextWrapped("User data: %s", Platform_UserDir().string().c_str());
+    Help("Config, log, screenshots and default saves. AppImage uses ~/.local/share/SonicColorsRecomp unless --portable / SCR_PORTABLE=1.");
+    if (ImGui::Button("Open user data folder"))
+        Shell_OpenFolder(Platform_UserDir());
+    Help("Opens the folder that holds config.ini, the log, screenshots, and (by default) save backups.");
     ImGui::TextDisabled("Settings file: %s", Config_Path().c_str());
+
+    ImGui::SeparatorText("Reset");
+    if (ImGui::Button("Reset settings to defaults…"))
+        ImGui::OpenPopup("Reset settings");
+    Help("Restores Video, Audio, Input and System defaults. Keeps Paths, the Mods list, and Music Library folder settings.");
+    if (ImGui::BeginPopupModal("Reset settings", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::TextWrapped("Reset Video, Audio, Input and System options to their built-in defaults?\n\n"
+                           "Paths, installed-mod order, and Music Library folder settings are kept. "
+                           "Some options (frame rate, resolution, language) need a restart.");
+        if (ImGui::Button("Reset", ImVec2(120, 0)))
+        {
+            Config keepPaths = c;
+            Config defaults;
+            defaults.dataDir = keepPaths.dataDir;
+            defaults.isoPath = keepPaths.isoPath;
+            defaults.modsDir = keepPaths.modsDir;
+            defaults.mods = keepPaths.mods;
+            defaults.musicModsEnabled = keepPaths.musicModsEnabled;
+            defaults.musicModsDir = keepPaths.musicModsDir;
+            defaults.texturePackDir = keepPaths.texturePackDir;
+            c = defaults;
+            AudioOut_ApplyVolumes(c.masterVolume, c.speakerVolume);
+            AudioOut_SetDevice(c.audioDevice);
+            Perf_SetHostFpsCap(c.hostFpsCap);
+            Changed(host, true);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    ImGui::SeparatorText("Diagnostics");
+    {
+        static std::string diagMsg;
+        const std::string& logPath = Log_Path();
+        if (!logPath.empty())
+        {
+            ImGui::TextWrapped("%s", logPath.c_str());
+            if (ImGui::Button("Open log folder"))
+            {
+                fs::path p(logPath);
+                Shell_OpenFolder(p.has_parent_path() ? p.parent_path() : p);
+            }
+            Help("Opens the folder that contains SonicColorsRecomp.log (crash and runtime details).");
+        }
+        else
+            ImGui::TextDisabled("Log path not available yet.");
+        ImGui::SameLine();
+        if (ImGui::Button("Open screenshots folder"))
+        {
+            fs::path shots = Platform_UserDir() / "screenshots";
+            std::error_code ec;
+            fs::create_directories(shots, ec);
+            Shell_OpenFolder(shots);
+        }
+        Help("F12 saves a full-resolution PNG of the game image into this folder.");
+        if (ImGui::Button("Save diagnostic report"))
+        {
+            std::string err;
+            std::string path = WriteDiagnosticReport(err);
+            diagMsg = path.empty() ? err : ("Wrote " + path);
+            if (!path.empty())
+            {
+                ImGui::SetClipboardText(path.c_str());
+                fs::path p(path);
+                Shell_OpenFolder(p.has_parent_path() ? p.parent_path() : p);
+                diagMsg += " (path copied to clipboard)";
+            }
+        }
+        Help("Writes version, paths, config.ini and the last 200 log lines to diagnostics/ for bug reports. Copies the file path to the clipboard.");
+        if (!diagMsg.empty()) ImGui::TextWrapped("%s", diagMsg.c_str());
+    }
+
+    ImGui::SeparatorText("Save data");
+    const auto nandRoot = nand_paths::ActiveRoot();
+    ImGui::TextWrapped("%s", nandRoot.string().c_str());
+    static std::string saveMsg;
+    if (ImGui::Button("Open save folder"))
+    {
+        std::error_code ec;
+        fs::create_directories(nandRoot, ec);
+        Shell_OpenFolder(nandRoot);
+        saveMsg = "Opened save folder";
+    }
+    Help("Opens the host NAND folder (save files live under title/…).");
+    ImGui::SameLine();
+    if (ImGui::Button("Backup now"))
+    {
+        fs::path dest;
+        std::string err;
+        if (nand_paths::BackupNow(dest, err))
+            saveMsg = "Backup saved to " + dest.string();
+        else
+            saveMsg = err;
+    }
+    Help("Copies the current save tree into save_backups/<timestamp>/ next to your saves.");
+    auto backups = nand_paths::ListBackups();
+    static int restoreIdx = 0;
+    if (restoreIdx >= (int)backups.size()) restoreIdx = 0;
+    ImGui::BeginDisabled(backups.empty());
+    if (!backups.empty())
+    {
+        // Newest-first labels for the combo.
+        std::vector<std::string> labels;
+        labels.reserve(backups.size());
+        for (auto& p : backups) labels.push_back(p.filename().string());
+        std::vector<const char*> items;
+        items.reserve(labels.size());
+        for (auto& s : labels) items.push_back(s.c_str());
+        ImGui::SetNextItemWidth(220);
+        ImGui::Combo("##restore_backup", &restoreIdx, items.data(), (int)items.size());
+        Help("Pick which timestamped backup to restore.");
+        ImGui::SameLine();
+    }
+    if (ImGui::Button("Restore backup…"))
+        ImGui::OpenPopup("Restore save backup");
+    ImGui::EndDisabled();
+    static std::string restoreHelp;
+    restoreHelp = backups.empty() ? "No backups yet — use Backup now first."
+                                  : "Replace current saves with the selected backup.";
+    Help(restoreHelp.c_str());
+    if (ImGui::BeginPopupModal("Restore save backup", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        fs::path chosen = (!backups.empty() && restoreIdx >= 0 && restoreIdx < (int)backups.size())
+                              ? backups[(size_t)restoreIdx]
+                              : fs::path{};
+        ImGui::TextWrapped("Replace all current save data with backup %s?\n\n"
+                           "This cannot be undone except by making another backup first. "
+                           "If the game is running, restart afterward so it reloads the files.",
+                           chosen.empty() ? "?" : chosen.filename().string().c_str());
+        if (ImGui::Button("Restore", ImVec2(120, 0)))
+        {
+            std::string err;
+            if (!chosen.empty() && nand_paths::RestoreFrom(chosen, err))
+                saveMsg = "Restored from " + chosen.string() + " — restart the game to reload";
+            else
+                saveMsg = err.empty() ? "No backup selected" : err;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+    if (!saveMsg.empty()) ImGui::TextWrapped("%s", saveMsg.c_str());
 }
 
 void ModsTab(SettingsHost host)
@@ -281,7 +642,7 @@ void Page(SettingsHost host, void (*draw)(SettingsHost), float helpH)
     // flattened: Down from the tabs goes straight to the first setting
     ImGui::BeginChild("page", ImVec2(0, -helpH), ImGuiChildFlags_NavFlattened);
     draw(host);
-    static const bool shotBottom = getenv("BKR_UI_SHOT_BOTTOM") != nullptr;   // test aid
+    static const bool shotBottom = EnvHas("SCR_UI_SHOT_BOTTOM", "BKR_UI_SHOT_BOTTOM");
     if (shotBottom) ImGui::SetScrollY(ImGui::GetScrollMaxY());
     ImGui::EndChild();
 }
@@ -323,8 +684,8 @@ void SettingsUI_Draw(SettingsHost host)
     {
         struct Tab { const char* name; void (*draw)(SettingsHost); };
         static const Tab tabs[] = { { "Video", VideoTab }, { "Input", InputTab }, { "Audio", AudioTab }, { "System", SystemTab } };
-        // test aid: BKR_UI_SHOT_SUBTAB=<tab name> opens that tab first (UI screenshots)
-        static const char* shotTab = getenv("BKR_UI_SHOT_SUBTAB");
+        // test aid: SCR_UI_SHOT_SUBTAB=<tab name> (legacy BKR_*) opens that tab first
+        static const char* shotTab = EnvGet("SCR_UI_SHOT_SUBTAB", "BKR_UI_SHOT_SUBTAB");
         static int shotFrames = 0;
         bool shot = shotTab && shotFrames++ < 2;
         static int selected = 0;
@@ -381,7 +742,7 @@ bool SettingsUI_TabItem(const char* name, int index, int pick, bool select)
 
 bool SettingsUI_ShotMods()
 {
-    const char* tab = getenv("BKR_UI_SHOT_SUBTAB");
+    const char* tab = EnvGet("SCR_UI_SHOT_SUBTAB", "BKR_UI_SHOT_SUBTAB");
     return tab && !_stricmp(tab, "Mods");
 }
 

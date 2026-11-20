@@ -60,8 +60,8 @@ Reasons:
 
 1. HOME menu RSO still not recompiled (optional polish).
 2. Full-game stage/ability matrix incomplete — see `docs/GAME_COMPATIBILITY.md`.
-3. Intermittent black-world after stomp→spring — RCA open (`SCR_GX_XFB_DIAG=1`).
-4. Residual BKR identifiers remain in some Win32 class names / comments.
+3. Intermittent black-world after stomp (TR acts) — **known deferred** (H7); Phase 20 experiments reverted. Optional diag: `SCR_GX_XFB_DIAG=1`.
+4. Some legacy `BKR_*` debug env names remain (UI/test aids also accept `SCR_*`).
 5. Cursor AppImage can break stock `CMAKE_ROOT`; use `./scripts/cmake.sh`.
 
 Quality inventory: `docs/QUALITY_AUDIT.md`.

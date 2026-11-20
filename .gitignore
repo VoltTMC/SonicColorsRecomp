@@ -1,6 +1,7 @@
 # Build
 /build/
 /out/
+/out-windows/
 /dist/
 compile_commands.json
 .ninja_*

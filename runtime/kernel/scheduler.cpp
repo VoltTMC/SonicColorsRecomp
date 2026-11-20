@@ -1,6 +1,7 @@
 #include "scheduler.h"
 #include "threads.h"
 #include "../cpu/cpu.h"
+#include "../env.h"
 #include "../log.h"
 #include "../platform/platform.h"
 
@@ -135,8 +136,8 @@ static void TimerThread()
         uint64_t now = Timebase_Now();
         if (next <= now)
         {
-            // BKR_SLOW_SAMPLE diagnostics: the game thread has not taken a due event for >3 ms
-            static const bool sample = getenv("BKR_SLOW_SAMPLE") != nullptr;
+            // SCR_SLOW_SAMPLE (legacy BKR_*): game thread has not taken a due event for >3 ms
+            static const bool sample = EnvHas("SCR_SLOW_SAMPLE", "BKR_SLOW_SAMPLE");
             if (sample)
             {
                 static uint64_t sampledFor = 0;

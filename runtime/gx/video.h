@@ -9,6 +9,7 @@ struct VideoConfig
     int internalScale = 3;     // EFB resolution multiplier
     bool vsync = false;        // the game paces itself from VI interrupts
     bool widescreen = true;    // present 16:9
+    bool integerScale = false; // present at integer multiples of 640×(360|480); letterbox remainder
     bool fullscreen = false;
 };
 

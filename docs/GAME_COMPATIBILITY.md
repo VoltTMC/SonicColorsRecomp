@@ -27,8 +27,9 @@ Stage IDs come from extracted set archives (`stg*_obj_*.orc` in the game CPK) an
 | Language select | `OK` | |
 | Pause menu (in-stage) | `OK` | Phase 5 |
 | HOME / RSO | `NT` / `BLOCKED` | Deferred (needs RSO) |
-| 30 FPS default | `OK` | Guest ~30 Hz |
-| 60 FPS (`--60fps`) | `OK` | Guest ~60 Hz |
+| 30 FPS default | `OK` | Guest wait=2 ≈ 30 Hz (native) |
+| 60 FPS (`--60fps` / `frame_rate=60`) | `OK` (TR1 + AP1 spiral code) | True wait=1 + spring gate + SpiralPipe input/collide gates. See `docs/FRAME_RATE.md`. |
+| Guest-60 without gate (`SCR_SPRING_CD_GATE=0`) | `BROKEN` | Wait=1 without gate soft-locks WideSpring. |
 | Uncapped (`--frame-rate 0`) | `PART` | VI EQ-spin bypassed (0 spins). `--perf` shows ~6 ms in-wait + ~11 ms gap ≈ 16.7 ms (host frame cost / unidentified gap time — not a second frame-loop VI spin). See PROGRESS Phase 8 |
 
 ---
@@ -55,7 +56,10 @@ Stage IDs come from extracted set archives (`stg*_obj_*.orc` in the game CPK) an
 | Boost (hold Wii B) | `PART` | WPAD B + `CPluginStateBoost` enter (`800888CC`/`sn_boost`) confirmed. Upright+gauge before `DashPanel #1` OK (Phase 9g). Clean run-boost + gauge drain **not yet verified** (needs forward stick + B; plugin `+0x14/+0x18` are scratch, not gauge). See `docs/PROGRESS.md` Phase 9 |
 | Cyan Laser | `NT` | Assets / phantom collisions in TR1 later; not routed |
 | Yellow Drill | `NT` | Later worlds |
-| Intermittent black world (HUD stays) | `BROKEN` | Manual: stomp Dest/Iron box → spring on lower path (Y≈-50). Scripted repro failed (Phase 8). RCA open — set names + `ClearEFB` noted; no framebuffer-reset workaround. Diagnostics: `SCR_GX_XFB_DIAG=1` logs XFB presents with zero draws since previous XFB. Restart recovers |
+| Intermittent black world (HUD stays) + soft-lock | `KNOWN DEFERRED` | Stomp-triggered (TR1/TR3; not spring-specific). Restart recovers. Phase 20 fix/diag attempts reverted for stability. Optional Phase 19 diag only: `SCR_GX_XFB_DIAG=1`. **Do not treat as an active fix target.** |
+| Spring infinite re-trigger at guest-60 | `FIXED` (TR1 WideSpring) | WideSpring collide had no activate cooldown; `frame_rate=60` uses wait=1 + 0.5s activate hold. See `docs/FRAME_RATE.md`. |
+| Aquarium Park Act 1 opening spiral (wait=1) | `DEFERRED` | **`stg510`**. Experimental spiral gates removed. Do not resume without an explicit new plan. |
+| Other Dolphin/DX 60fps issues (AP1 loop, AC2/AC4, TV S-rank boost, …) | `AUDIT` | See `docs/FRAME_RATE_60FPS_COMPATIBILITY_AUDIT.md` — mostly POTENTIAL/UNVERIFIED (stages NT). |
 
 ### Sweet Mountain
 
@@ -68,7 +72,7 @@ Stage IDs come from extracted set archives (`stg*_obj_*.orc` in the game CPK) an
 | World | Typical IDs | Status |
 |---|---|---|
 | Starlight Carnival | `stg3xx` (e.g. `stg320` set seen) | `NT` |
-| Aquarium Park | `stg4xx` | `NT` |
+| Aquarium Park | `stg5xx` (`stg510` Act 1) | `PART` | Act 1 = stg510 (`qua` BGM). Opening spiral at wait=1 deferred. |
 | Asteroid Coaster | `stg5xx` | `NT` |
 | Planet Wisp | `stg6xx` | `NT` |
 | Terminal Velocity | `stg7xx` / `stg720`, `stg790` | `NT` |
@@ -136,7 +140,6 @@ Evidence: `out/shots/phase8_capsule_before.png`, `phase8_wisps_released.png`, `p
 ## Next testing order
 
 1. **One** forward+B boost capture before `DashPanel #1` with `--boost-debug` (or locate gauge via component `0x19` / `fn_80088D28` in code).
-2. Black-screen RCA: SOBJ Dest/Iron/Spring instances + draw/`ClearEFB` counters — avoid exploratory stomping.
-3. Act 2 (`stg120`) only with a saved clear or short end-of-act script.
+2. Act 2 (`stg120`) only with a saved clear or short end-of-act script. (Black-screen H7 is deferred — do not prioritise RCA.)
 4. First Cyan Laser spawn when routed.
 5. Expand matrix world-by-world; never mark `OK` from asset presence alone.

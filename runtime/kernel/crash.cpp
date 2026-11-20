@@ -3,9 +3,11 @@
 #include "crash.h"
 #include "threads.h"
 #include "memory.h"
+#include "../env.h"
 #include "../log.h"
 #include "../cpu/cpu.h"
 #include "../platform/platform.h"
+#include "../perf.h"
 #include "../region.h"
 
 #include <algorithm>
@@ -73,7 +75,8 @@ static void WatchdogThread()
             extern int g_audioUnderruns, g_audioDrops, g_audioRepeats;
             extern uint64_t g_audioFrames;
             static uint64_t lastAudio = 0;
-            const char* tgt = g_cfgFrameRate == 0 ? "uncapped" : (g_cfgFrameRate >= 60 ? "60" : "30");
+            const char* tgt = g_cfgFrameRate == 0 ? "uncapped"
+                              : (g_cfgFrameRate >= 60 || Perf_Guest60Forced() ? "60/guest" : "30");
             LOG_INFO("status: {:.1f} fps (target {}), VI {:.2f} Hz, audio peak {} underruns {} drops {} repeats {} rate {:.0f} Hz",
                      (g_framesPresented - lastFrames) / secs, tgt,
                      (g_viFieldCount - lastFields) / secs, g_audioPeak, g_audioUnderruns, g_audioDrops, g_audioRepeats,
@@ -117,9 +120,8 @@ void Crash_StartWatchdog()
 {
     Crash_StartSamplers();
     std::thread(WatchdogThread).detach();
-    // BKR_TEST_PAUSE=start,end (seconds): exercises the focus-loss pause without
-    // touching window focus
-    if (const char* tp = getenv("BKR_TEST_PAUSE"))
+    // SCR_TEST_PAUSE=start,end (seconds) (legacy BKR_*): focus-loss pause without touching focus
+    if (const char* tp = EnvGet("SCR_TEST_PAUSE", "BKR_TEST_PAUSE"))
     {
         int a = 0, b = 0;
         if (sscanf(tp, "%d,%d", &a, &b) == 2 && b > a)

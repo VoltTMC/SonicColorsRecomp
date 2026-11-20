@@ -89,6 +89,11 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         }
         else if (wp == VK_F1)
             Overlay_Toggle();
+        else if (wp == VK_F12)
+        {
+            extern void Renderer_RequestScreenshot();
+            Renderer_RequestScreenshot();
+        }
         break;
     case WM_SYSKEYDOWN:
         if (wp == VK_RETURN) { SendMessageW(hwnd, WM_KEYDOWN, VK_RETURN, lp); return 0; }
@@ -106,11 +111,12 @@ static void WindowThread(WindowParams* p)
     wc.hInstance = GetModuleHandleW(nullptr);
     wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
     wc.hIcon = LoadIconW(nullptr, MAKEINTRESOURCEW(32512));
-    wc.lpszClassName = L"BlackKnightRecomp";
+    wc.lpszClassName = L"SonicColorsRecomp";
     RegisterClassW(&wc);
     RECT r{ 0, 0, p->width, p->height };
     AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
-    s_hwnd = CreateWindowW(L"BlackKnightRecomp", L"Sonic and the Black Knight - Recompiled", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+    // Window class keeps the legacy name for ABI; the title is user-visible branding.
+    s_hwnd = CreateWindowW(L"SonicColorsRecomp", L"Sonic Colors - Recompiled", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
                            CW_USEDEFAULT, CW_USEDEFAULT, r.right - r.left, r.bottom - r.top, nullptr, nullptr, wc.hInstance, nullptr);
     if (s_hwnd && p->fullscreen) SetFullscreen(s_hwnd, true);
     p->ready = s_hwnd ? 1 : -1;

@@ -29,6 +29,8 @@ stage() {   # stage <AppDir>: everything except the shader cache
     chmod +x "$appdir/AppRun"
     cp "$root/data/linux/soniccolorsrecomp.desktop" "$appdir/"
     cp "$root/data/linux/soniccolorsrecomp.desktop" "$appdir/usr/share/applications/"
+    mkdir -p "$appdir/usr/share/metainfo"
+    cp "$root/data/linux/soniccolorsrecomp.metainfo.xml" "$appdir/usr/share/metainfo/"
     cp "$root/data/linux/soniccolorsrecomp.svg" "$appdir/soniccolorsrecomp.svg"
     cp "$root/data/linux/soniccolorsrecomp.svg" "$appdir/usr/share/icons/hicolor/scalable/apps/"
     # AppImage convention: .DirIcon next to AppRun

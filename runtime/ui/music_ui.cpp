@@ -1,8 +1,10 @@
 #include "music_ui.h"
 #include "../audio/music_catalog.h"
 #include "../audio/music_manifest.h"
+#include "../audio/music_tool.h"
 #include "../audio/wav_file.h"
 #include "../config.h"
+#include "../env.h"
 #include "../log.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
@@ -25,6 +27,9 @@
 
 #ifndef _WIN32
 #include <SDL3/SDL.h>
+#else
+#include <windows.h>
+#include <xaudio2.h>
 #endif
 
 namespace fs = std::filesystem;
@@ -51,10 +56,6 @@ const char* kWorlds[] = {
 
 enum class PreviewKind { None, Original, Replacement };
 PreviewKind s_prevKind = PreviewKind::None;
-#ifndef _WIN32
-SDL_AudioStream* s_prevStream = nullptr;
-SDL_AudioDeviceID s_prevDev = 0;
-#endif
 WavData s_prevWav;
 std::mutex s_prevMu;
 size_t s_prevCursor = 0;
@@ -64,6 +65,17 @@ float s_prevVolume = 0.8f;
 bool s_prevLoop = true;
 std::string s_prevLabel;
 std::string s_prevPath;
+#ifndef _WIN32
+SDL_AudioStream* s_prevStream = nullptr;
+SDL_AudioDeviceID s_prevDev = 0;
+#else
+IXAudio2* s_prevXa = nullptr;
+IXAudio2MasteringVoice* s_prevMaster = nullptr;
+IXAudio2SourceVoice* s_prevVoice = nullptr;
+constexpr int kPrevRing = 8;
+std::vector<int16_t> s_prevRing[kPrevRing];
+int s_prevRingWrite = 0;
+#endif
 
 // Async original decode — never block the ImGui thread on vgmstream/CPK extract.
 std::atomic<bool> s_decodeRunning{false};
@@ -104,22 +116,7 @@ fs::path MusicDir()
     return MusicManifest_DefaultDir();
 }
 
-fs::path FindMusicAssetTool()
-{
-    if (const char* env = getenv("SCR_MUSIC_ASSET"))
-    {
-        fs::path p(env);
-        if (fs::exists(p)) return p;
-    }
-    const fs::path root = Platform_ExeDir();
-    for (const fs::path& base : { fs::current_path(), root, root / "..", root / "../.." })
-    {
-        fs::path p = base / "tools" / "music_asset";
-        std::error_code ec;
-        if (fs::exists(p, ec)) return fs::weakly_canonical(p, ec);
-    }
-    return {};
-}
+fs::path FindMusicAssetTool() { return MusicTool_Find(); }
 
 fs::path OriginalCpk()
 {
@@ -170,6 +167,27 @@ MusicAssetMapping* FindMapping(const std::string& path)
 
 void StopPreview()
 {
+#ifdef _WIN32
+    if (s_prevVoice)
+    {
+        s_prevVoice->Stop(0);
+        s_prevVoice->FlushSourceBuffers();
+        s_prevVoice->DestroyVoice();
+        s_prevVoice = nullptr;
+    }
+    if (s_prevMaster)
+    {
+        s_prevMaster->DestroyVoice();
+        s_prevMaster = nullptr;
+    }
+    if (s_prevXa)
+    {
+        s_prevXa->Release();
+        s_prevXa = nullptr;
+    }
+    for (auto& b : s_prevRing) b.clear();
+    s_prevRingWrite = 0;
+#endif
     std::lock_guard lk(s_prevMu);
     s_prevPlaying = false;
     s_prevPaused = false;
@@ -193,9 +211,9 @@ void StopPreview()
     s_prevLabel.clear();
 }
 
-#ifndef _WIN32
 void PumpPreview()
 {
+#ifndef _WIN32
     std::lock_guard lk(s_prevMu);
     if (!s_prevPlaying || s_prevPaused || !s_prevStream || s_prevWav.samples.empty()) return;
     const int rate = s_prevWav.sampleRate > 0 ? s_prevWav.sampleRate : 44100;
@@ -217,23 +235,62 @@ void PumpPreview()
     }
     SDL_PutAudioStreamData(s_prevStream, buf.data(), (int)(buf.size() * sizeof(float)));
     s_prevCursor += n;
-}
+#else
+    if (!s_prevVoice) return;
+    XAUDIO2_VOICE_STATE st{};
+    s_prevVoice->GetState(&st);
+    while (st.BuffersQueued < 3)
+    {
+        std::vector<int16_t> pcm;
+        {
+            std::lock_guard lk(s_prevMu);
+            if (!s_prevPlaying || s_prevPaused || s_prevWav.samples.empty()) return;
+            const int rate = s_prevWav.sampleRate > 0 ? s_prevWav.sampleRate : 44100;
+            const size_t want = (size_t)std::max(256, rate / 10);
+            const size_t frames = s_prevWav.samples.size() / 2;
+            if (s_prevCursor >= frames)
+            {
+                if (s_prevLoop) s_prevCursor = 0;
+                else { s_prevPlaying = false; return; }
+            }
+            const size_t n = std::min(want, frames - s_prevCursor);
+            pcm.resize(n * 2);
+            const float vol = s_prevVolume;
+            for (size_t i = 0; i < n; i++)
+            {
+                float L = s_prevWav.samples[(s_prevCursor + i) * 2] * vol;
+                float R = s_prevWav.samples[(s_prevCursor + i) * 2 + 1] * vol;
+                if (L > 1.f) L = 1.f; if (L < -1.f) L = -1.f;
+                if (R > 1.f) R = 1.f; if (R < -1.f) R = -1.f;
+                pcm[i * 2] = (int16_t)(L * 32767.f);
+                pcm[i * 2 + 1] = (int16_t)(R * 32767.f);
+            }
+            s_prevCursor += n;
+        }
+        if (pcm.empty()) break;
+        auto& slot = s_prevRing[s_prevRingWrite % kPrevRing];
+        slot = std::move(pcm);
+        XAUDIO2_BUFFER xb{};
+        xb.AudioBytes = (UINT32)(slot.size() * sizeof(int16_t));
+        xb.pAudioData = (const BYTE*)slot.data();
+        if (FAILED(s_prevVoice->SubmitSourceBuffer(&xb)))
+            break;
+        s_prevRingWrite++;
+        s_prevVoice->GetState(&st);
+    }
 #endif
+}
 
 bool StartPreviewWav(const fs::path& path, PreviewKind kind, const std::string& label)
 {
     StopPreview();
-#ifdef _WIN32
-    s_statusMsg = "Opening with system player…";
-    Shell_OpenUrl(path.string());
-    return false;
-#else
     WavData w;
     if (!Wav_Load(path.string(), w))
     {
         s_statusMsg = "Preview failed: " + w.error;
         return false;
     }
+#ifndef _WIN32
     if (!SDL_InitSubSystem(SDL_INIT_AUDIO))
     {
         s_statusMsg = std::string("SDL audio: ") + SDL_GetError();
@@ -253,6 +310,35 @@ bool StartPreviewWav(const fs::path& path, PreviewKind kind, const std::string& 
         StopPreview();
         return false;
     }
+#else
+    HRESULT hr = XAudio2Create(&s_prevXa, 0, XAUDIO2_DEFAULT_PROCESSOR);
+    if (FAILED(hr) || !s_prevXa)
+    {
+        s_statusMsg = "Preview failed: XAudio2Create";
+        return false;
+    }
+    hr = s_prevXa->CreateMasteringVoice(&s_prevMaster);
+    if (FAILED(hr) || !s_prevMaster)
+    {
+        s_statusMsg = "Preview failed: CreateMasteringVoice";
+        StopPreview();
+        return false;
+    }
+    WAVEFORMATEX wfx{};
+    wfx.wFormatTag = WAVE_FORMAT_PCM;
+    wfx.nChannels = 2;
+    wfx.nSamplesPerSec = (DWORD)(w.sampleRate > 0 ? w.sampleRate : 44100);
+    wfx.wBitsPerSample = 16;
+    wfx.nBlockAlign = 4;
+    wfx.nAvgBytesPerSec = wfx.nSamplesPerSec * wfx.nBlockAlign;
+    hr = s_prevXa->CreateSourceVoice(&s_prevVoice, &wfx);
+    if (FAILED(hr) || !s_prevVoice)
+    {
+        s_statusMsg = "Preview failed: CreateSourceVoice";
+        StopPreview();
+        return false;
+    }
+#endif
     {
         std::lock_guard lk(s_prevMu);
         s_prevWav = std::move(w);
@@ -263,11 +349,14 @@ bool StartPreviewWav(const fs::path& path, PreviewKind kind, const std::string& 
         s_prevLabel = label;
         s_prevKind = kind;
     }
+#ifdef _WIN32
+    s_prevVoice->SetVolume(1.f);
+    s_prevVoice->Start(0);
+#endif
     PumpPreview();
     s_statusMsg = kind == PreviewKind::Original ? "Playing original preview"
                                                 : "Playing replacement preview";
     return true;
-#endif
 }
 
 void TogglePause(PreviewKind kind)
@@ -277,6 +366,17 @@ void TogglePause(PreviewKind kind)
     s_prevPaused = !s_prevPaused;
 #ifndef _WIN32
     if (s_prevPaused && s_prevStream) SDL_ClearAudioStream(s_prevStream);
+#else
+    if (s_prevVoice)
+    {
+        if (s_prevPaused)
+        {
+            s_prevVoice->Stop(0);
+            s_prevVoice->FlushSourceBuffers();
+        }
+        else
+            s_prevVoice->Start(0);
+    }
 #endif
 }
 
@@ -310,12 +410,11 @@ void RequestOriginalPreview(const MusicCatalogAsset& asset)
         fs::create_directories(cache);
         const fs::path outJson = cache / "last_preview.json";
         const fs::path outErr = cache / "last_preview.err";
-        std::string cmd = "\"" + tool.string() + "\" preview-original"
-                          " --cpk \"" + cpk.string() + "\""
-                          " --path \"" + path + "\""
-                          " --cache \"" + cache.string() + "\""
-                          " > \"" + outJson.string() + "\" 2> \"" + outErr.string() + "\"";
-        const int rc = std::system(cmd.c_str());
+        (void)tool;
+        int rc = -1;
+        MusicTool_Run({ "preview-original", "--cpk", cpk.string(), "--path", path,
+                        "--cache", cache.string() },
+                      outJson, outErr, rc);
         std::ifstream in(outJson);
         std::string js((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
         auto get = [&](const char* key) -> std::string {
@@ -387,9 +486,11 @@ void Reload()
         const fs::path tool = FindMusicAssetTool();
         if (!tool.empty() && fs::exists(OriginalCpk()))
         {
-            std::string cmd = "\"" + tool.string() + "\" catalog --cpk \"" + OriginalCpk().string()
-                              + "\" --out \"" + MusicCatalog_DefaultPath(s_dir).string() + "\"";
-            std::system(cmd.c_str());
+            int rc = -1;
+            MusicTool_Run({ "catalog", "--cpk", OriginalCpk().string(),
+                            "--out", MusicCatalog_DefaultPath(s_dir).string() },
+                          {}, {}, rc);
+            (void)rc;
             err.clear();
             MusicCatalog_Load(MusicCatalog_DefaultPath(s_dir), s_catalog, err);
         }
@@ -471,13 +572,10 @@ void StartPrepareAsync()
         else if (!fs::exists(cpk)) log = "sonic2010_0.cpk not found";
         else
         {
-            std::string cmd = "\"" + tool.string() + "\" prepare"
-                              " --manifest \"" + manifest.string() + "\""
-                              " --music-dir \"" + musicDir.string() + "\""
-                              " --cpk \"" + cpk.string() + "\""
-                              " --cache \"" + cache.string() + "\""
-                              " > \"" + outJson.string() + "\" 2> \"" + outErr.string() + "\"";
-            rc = std::system(cmd.c_str());
+            (void)tool;
+            MusicTool_Run({ "prepare", "--manifest", manifest.string(), "--music-dir", musicDir.string(),
+                            "--cpk", cpk.string(), "--cache", cache.string() },
+                          outJson, outErr, rc);
             std::ifstream ej(outJson), er(outErr);
             std::string js((std::istreambuf_iterator<char>(ej)), std::istreambuf_iterator<char>());
             std::string es((std::istreambuf_iterator<char>(er)), std::istreambuf_iterator<char>());
@@ -526,9 +624,7 @@ bool PassesFilters(const MusicCatalogAsset& a, const MusicAssetMapping* map)
 
 void DrawPreviewTransport()
 {
-#ifndef _WIN32
     PumpPreview();
-#endif
     bool wantStop = false;
     PreviewKind kind = PreviewKind::None;
     std::string label;
@@ -564,16 +660,34 @@ void DrawPreviewTransport()
         s_prevCursor = (size_t)(frac * (double)frames);
 #ifndef _WIN32
         if (s_prevStream) SDL_ClearAudioStream(s_prevStream);
+#else
+        if (s_prevVoice) s_prevVoice->FlushSourceBuffers();
 #endif
     }
     Hover("Seek within the active preview.");
     if (ImGui::Button(paused || !playing ? "Resume" : "Pause"))
     {
-        std::lock_guard lk(s_prevMu);
-        if (!s_prevPlaying) { s_prevPlaying = true; s_prevPaused = false; }
-        else s_prevPaused = !s_prevPaused;
+        bool nowPaused = false;
+        {
+            std::lock_guard lk(s_prevMu);
+            if (!s_prevPlaying) { s_prevPlaying = true; s_prevPaused = false; }
+            else s_prevPaused = !s_prevPaused;
+            nowPaused = s_prevPaused;
 #ifndef _WIN32
-        if (s_prevPaused && s_prevStream) SDL_ClearAudioStream(s_prevStream);
+            if (s_prevPaused && s_prevStream) SDL_ClearAudioStream(s_prevStream);
+#endif
+        }
+#ifdef _WIN32
+        if (s_prevVoice)
+        {
+            if (nowPaused)
+            {
+                s_prevVoice->Stop(0);
+                s_prevVoice->FlushSourceBuffers();
+            }
+            else
+                s_prevVoice->Start(0);
+        }
 #endif
     }
     ImGui::SameLine();
@@ -667,17 +781,13 @@ void RequestExportOriginal(const MusicCatalogAsset& asset)
         const fs::path outJson = PreviewCache() / "last_export.json";
         const fs::path outErr = PreviewCache() / "last_export.err";
         fs::create_directories(PreviewCache());
-        std::string cmd = "\"" + tool.string() + "\" export-original"
-                          " --cpk \"" + cpk.string() + "\""
-                          " --path \"" + path + "\""
-                          " --out \"" + dest.string() + "\""
-                          " --mode " + mode
-                          + " --loops " + std::to_string(loops)
-                          + " --bits " + std::to_string(bits)
-                          + " --label \"" + label + "\""
-                          + " --variant \"" + variant + "\""
-                          " > \"" + outJson.string() + "\" 2> \"" + outErr.string() + "\"";
-        const int rc = std::system(cmd.c_str());
+        (void)tool;
+        int rc = -1;
+        MusicTool_Run({ "export-original", "--cpk", cpk.string(), "--path", path,
+                        "--out", dest.string(), "--mode", mode,
+                        "--loops", std::to_string(loops), "--bits", std::to_string(bits),
+                        "--label", label, "--variant", variant },
+                      outJson, outErr, rc);
         std::ifstream in(outJson);
         std::string js((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
         const bool ok = rc == 0 && (js.find("\"ok\": true") != std::string::npos
@@ -844,8 +954,8 @@ void MusicUI_Draw(SettingsHost host, const char*& help)
 #endif
     PollAsyncDecode();
 
-    // Test aid: BKR_UI_SHOT_MUSIC_SELECT=<asset id|first> selects a row for layout shots.
-    if (const char* sel = getenv("BKR_UI_SHOT_MUSIC_SELECT"))
+    // Test aid: SCR_UI_SHOT_MUSIC_SELECT=<asset id|first> (legacy BKR_*)
+    if (const char* sel = EnvGet("SCR_UI_SHOT_MUSIC_SELECT", "BKR_UI_SHOT_MUSIC_SELECT"))
     {
         static bool applied = false;
         if (!applied && !s_catalog.assets.empty())
@@ -1113,9 +1223,9 @@ void MusicUI_Draw(SettingsHost host, const char*& help)
         ImGui::EndChild();
     }
 
-    if (const char* check = getenv("BKR_UI_LAYOUT_CHECK"))
+    if (const char* check = EnvGet("SCR_UI_LAYOUT_CHECK", "BKR_UI_LAYOUT_CHECK"))
     {
-        if (check[0] && availW > 0 && getenv("BKR_UI_LAYOUT_CHECK_LOG"))
+        if (check[0] && availW > 0 && EnvHas("SCR_UI_LAYOUT_CHECK_LOG", "BKR_UI_LAYOUT_CHECK_LOG"))
             LOG_INFO("[UI] layout check ok availW={:.0f} remainH={:.0f} sideBySide={} compact={}",
                      availW, remainH, sideBySide, compact);
     }

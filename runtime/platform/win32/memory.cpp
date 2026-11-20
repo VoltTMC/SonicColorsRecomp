@@ -64,5 +64,33 @@ bool Memory_Init()
     }
     g_base = base;
     LOG_INFO("guest memory at {}", (void*)base);
+
+    // Prove mirrors share pages and the guest stack / SDA range is writable.
+    // Failures here mean placeholder split/map went wrong (otherwise we AV later in recomp).
+    auto probe = [&](uint32_t a) -> bool {
+        volatile uint8_t* p = base + a;
+        uint8_t old = *p;
+        *p = 0xA5;
+        bool ok = *p == 0xA5;
+        *p = old;
+        return ok;
+    };
+    if (!probe(0x80000000) || !probe(0x00000000) || !probe(0xC0000000))
+    {
+        LOG_ERROR("guest MEM1 mirror probe failed (Win32 placeholder map)");
+        return false;
+    }
+    base[0x80000000] = 0x5A;
+    if (base[0x00000000] != 0x5A || base[0xC0000000] != 0x5A)
+    {
+        LOG_ERROR("guest MEM1 aliases are not backed by the same pages");
+        return false;
+    }
+    base[0x80000000] = 0;
+    if (!probe(0x816FFFF0) || !probe(0x90000000))
+    {
+        LOG_ERROR("guest stack/MEM2 probe failed");
+        return false;
+    }
     return true;
 }

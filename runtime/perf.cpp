@@ -8,23 +8,69 @@
 #include <atomic>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 
 extern "C" uint32_t g_cfgFrameRate;
 // Recompiled SDK helper: publishes VI wait interval + derived delta (SDA globals).
-namespace ppc { void fn_803E19B0(PPCContext& ctx, uint8_t* base); }
+// Must match PPC_GEN_FUNC (__restrict) — MSVC/clang-cl ABI mangles restrict into the symbol.
+namespace ppc { PPC_GEN_FUNC(fn_803E19B0); }
 
 // Set while FrameLoopWait runs under --frame-rate 0 so VIGetRetraceCount can
 // satisfy the EQ spin immediately (see hle_os.cpp).
 static thread_local bool s_uncappedFrameWait = false;
 bool Perf_UncappedFrameWaitActive() { return s_uncappedFrameWait; }
 
-static uint32_t WaitFields()
+static std::atomic<int> s_hostFpsCap{ 0 };
+static uint64_t s_lastUncappedPace = 0;
+
+void Perf_SetHostFpsCap(int cap) { s_hostFpsCap.store(std::clamp(cap, 0, 1000), std::memory_order_relaxed); }
+int Perf_HostFpsCap() { return s_hostFpsCap.load(std::memory_order_relaxed); }
+
+static void PaceUncappedHost()
 {
-    return g_cfgFrameRate == 0 ? 0u : (g_cfgFrameRate >= 60 ? 1u : 2u);
+    const int cap = s_hostFpsCap.load(std::memory_order_relaxed);
+    if (cap <= 0 || g_cfgFrameRate != 0) return;
+    const uint64_t freq = Platform_PerfFrequency();
+    if (!freq) return;
+    const uint64_t minDelta = freq / (uint64_t)cap;
+    const uint64_t now = Platform_PerfCounter();
+    if (s_lastUncappedPace && now - s_lastUncappedPace < minDelta)
+    {
+        const uint64_t wait = minDelta - (now - s_lastUncappedPace);
+        const uint32_t ms = (uint32_t)(wait * 1000ull / freq);
+        if (ms > 0) Platform_SleepMs(ms);
+        while (Platform_PerfCounter() - s_lastUncappedPace < minDelta) {}
+    }
+    s_lastUncappedPace = Platform_PerfCounter();
 }
 
+// True guest-60 (wait=1). Frame rate 60 uses wait=1 with spring CD gate
+// (runtime/debug/spring_60.cpp). SCR_GUEST_60 / --guest-60 still forces wait=1
+// even if frame_rate is left at 30.
+static bool Guest60Forced()
+{
+    static int cached = -1;
+    if (cached < 0) cached = std::getenv("SCR_GUEST_60") ? 1 : 0;
+    return cached != 0;
+}
+
+static uint32_t WaitFields()
+{
+    if (g_cfgFrameRate == 0) return 0u;
+    if (g_cfgFrameRate >= 60 || Guest60Forced()) return 1u;
+    return 2u;
+}
+
+extern "C" uint32_t Perf_WaitFields() { return WaitFields(); }
+extern "C" uint32_t Perf_DtFields()
+{
+    const uint32_t w = WaitFields();
+    return w == 0 ? 1u : w;
+}
+extern "C" bool Perf_Guest60Forced() { return Guest60Forced(); }
+
 // Guest frame-loop helper (fn_800126EC): one call ≈ one paced game update.
-// Republish wait every frame so --60fps stays effective (obj+0xC / PAL force-1).
+// Republish wait every frame so obj+0xC / PAL force-1 stay in sync with WaitFields().
 //
 // Uncapped (--frame-rate 0): keep a 1-field float dt via E19B0(1), and mark the
 // VI EQ spin so VIGetRetraceCount returns a value that ends it immediately.
@@ -33,11 +79,12 @@ static uint32_t WaitFields()
 PPC_OVERRIDE(FrameLoopWait)
 {
     const uint32_t w = WaitFields();
+    const uint32_t dt = Perf_DtFields();
     const uint32_t obj = ctx.r[3];
     if (obj) Write32(obj + 8, w == 0 ? 1u : w);
     {
         const uint32_t s0 = ctx.r[0], s3 = ctx.r[3], s4 = ctx.r[4], s5 = ctx.r[5], s6 = ctx.r[6];
-        ctx.r[3] = w == 0 ? 1u : w;
+        ctx.r[3] = dt == 0 ? 1u : dt;
         ppc::fn_803E19B0(ctx, base);
         ctx.r[0] = s0; ctx.r[3] = s3; ctx.r[4] = s4; ctx.r[5] = s5; ctx.r[6] = s6;
     }
@@ -46,11 +93,13 @@ PPC_OVERRIDE(FrameLoopWait)
     PPC_ORIGINAL(FrameLoopWait);
     s_uncappedFrameWait = false;
     MusicMod_Tick();
+    PaceUncappedHost();
     Perf_OnGuestFrameEnd();
 }
 
 static bool s_on = false;
 
+static std::atomic<uint64_t> s_guestFrameIndex{ 0 };
 static std::atomic<uint64_t> s_guestN{ 0 }, s_presentN{ 0 }, s_xfbN{ 0 };
 static std::atomic<uint64_t> s_guestNs{ 0 }, s_presentNs{ 0 }, s_gxSyncNs{ 0 }, s_viWaitNs{ 0 };
 static std::atomic<uint64_t> s_gapNs{ 0 };   // wall time between FrameLoopWait exit → next enter
@@ -79,12 +128,18 @@ void Perf_OnGuestFrameBegin()
 
 void Perf_OnGuestFrameEnd()
 {
+    s_guestFrameIndex.fetch_add(1, std::memory_order_relaxed);
     if (!s_on || !t_guest0) return;
     const uint64_t now = Now();
     s_guestNs.fetch_add(now - t_guest0, std::memory_order_relaxed);
     s_guestN.fetch_add(1, std::memory_order_relaxed);
     t_guest0 = 0;
     t_guestEnd = now;
+}
+
+uint64_t Perf_GuestFrameIndex()
+{
+    return s_guestFrameIndex.load(std::memory_order_relaxed);
 }
 
 void Perf_OnViSpinSample(bool spinning)

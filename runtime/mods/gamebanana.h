@@ -3,10 +3,10 @@
 #include <string>
 #include <vector>
 
-// The game's mods on GameBanana (gamebanana.com/games/6511), read from its public API
+// The game's mods on GameBanana (gamebanana.com/games/6243), read from its public API
 // (apiv11). Blocking calls: use them from a worker thread.
 
-constexpr uint32_t kGameBananaGameId = 6511;   // Sonic and the Black Knight
+constexpr uint32_t kGameBananaGameId = 6243;   // Sonic Colors (Wii)
 
 struct GbFile
 {

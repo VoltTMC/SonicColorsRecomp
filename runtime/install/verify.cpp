@@ -65,6 +65,14 @@ const GameRelease* Installed(const fs::path& data, std::string& problem)
 }
 }   // namespace
 
+// Wiimms `wit EXTRACT` helpers — not on the disc and not written by Install_Run.
+// Skip if an old manifest still lists them (ISO installs would otherwise look "damaged").
+static bool IsWitExtractHelper(const char* path)
+{
+    return strcmp(path, "align-files.txt") == 0 || strcmp(path, "include.fst") == 0 ||
+           strcmp(path, "setup.bat") == 0 || strcmp(path, "setup.sh") == 0 || strcmp(path, "setup.txt") == 0;
+}
+
 DataStatus Install_QuickCheck(const fs::path& data, std::string& problem)
 {
     std::error_code ec;
@@ -78,6 +86,7 @@ DataStatus Install_QuickCheck(const fs::path& data, std::string& problem)
     int bad = 0;
     for (auto& k : std::span(rel->files, rel->fileCount))
     {
+        if (IsWitExtractHelper(k.path)) continue;
         uint64_t size = fs::file_size(data / fs::path(std::u8string((const char8_t*)k.path)), ec);
         if (ec || size != k.size)
         {
@@ -104,12 +113,14 @@ DataStatus Install_FullCheck(const fs::path& data, VerifyProgress& progress, std
     const GameRelease* rel = Installed(data, problem);
     auto files = std::span(rel->files, rel->fileCount);
     uint64_t total = 0;
-    for (auto& k : files) total += k.size;
+    for (auto& k : files)
+        if (!IsWitExtractHelper(k.path)) total += k.size;
     progress.total = total;
     progress.done = 0;
     int bad = 0;
     for (auto& k : files)
     {
+        if (IsWitExtractHelper(k.path)) continue;
         std::string hex;
         if (!HashFile(data / fs::path(std::u8string((const char8_t*)k.path)), hex, &progress))
         {

@@ -19,6 +19,15 @@ for d, _, fs in os.walk(data):
         rel = os.path.relpath(p, data).replace('\\', '/')
         if rel.startswith('disc/'):
             continue   # written by the installer only, not part of a DolphinTool extraction
+        # Wiimms `wit EXTRACT` helpers — not on the disc and not written by Install_Run (nod).
+        if rel in (
+            'align-files.txt',
+            'include.fst',
+            'setup.bat',
+            'setup.sh',
+            'setup.txt',
+        ):
+            continue
         h = hashlib.sha1()
         with open(p, 'rb') as fp:
             for chunk in iter(lambda: fp.read(1 << 20), b''):

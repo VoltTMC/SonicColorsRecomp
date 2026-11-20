@@ -1,5 +1,167 @@
 # Progress log
 
+## 2026-11-20 — Continuous improvement (parity + QoL)
+
+- Fresh audit → `docs/WINDOWS_FEATURE_PARITY.md` matrix (FULL/PARTIAL/MISSING/UNVERIFIED/PLATFORM LIMITATION).
+- Removed experimental AP1 spiral gates; issue **DEFERRED** in FRAME_RATE / audit / roadmap.
+- Stick deadzone L/R in config + Input settings; `scr_config_test` covers roundtrip.
+- Launcher home shows build version; `audio_device` docs corrected for Windows WASAPI.
+- Validated: linux-clang build, MinGW `out-windows/SonicColorsRecomp.exe`, `regression_smoke` OK.
+
+## 2026-11-20 — 60 FPS compatibility audit (no code fixes)
+
+Wrote `docs/FRAME_RATE_60FPS_COMPATIBILITY_AUDIT.md`: Dolphin wiki + Colors DX
+issues A–G classified (WideSpring soft-lock **ALREADY FIXED**; flicker leans
+**DOLPHIN-SPECIFIC**). **Issue B CONFIRMED** in recomp: Aquarium Park Act 1
+(`stg410`) opening loop — stuck and/or shot into void/death at wait=1. Fix not
+AP1 spiral (`stg510`): **DEFERRED indefinitely**. Experimental spiral gates removed
+from the tree. Do not resume without an explicit new plan.
+
+---
+
+## 2026-11-20 — Spring soft-lock second RCA (gate audit)
+
+### Why first `--spring-cd-gate` (early-return) was insufficient
+
+- Boot log ≠ in-stage proof the override ran during the bounce.
+- Pointer filter was MEM1-only (`>>28 == 0x8`); MEM2 springs would bypass.
+- Early-return ≡ native cooldown epilogue, yet soft-lock persisted → either gate
+  never engaged, or **repeated `ObjSpringActivate` is not the sole cause**.
+
+### Changes
+
+- Gate now **ORs bit15 into `+0xF0`** then calls original (native `+0x188` path).
+- MEM1+MEM2 EA check; `--spring-diag` event log; `ObjSpringLaunch` hook;
+  `Perf_GuestFrameIndex()`.
+- Default 30/60 unchanged. True-60 fix **not claimed** until diag capture.
+
+### Diag sessions (`spring_diag_guest60.log` / `guest60b.log`)
+
+stg110 guest60c: soft-lock = **WideSpring** (`wact` every frame, `col=act=0`).
+Cause: collide→activate has no cooldown. Gate early-returns WideSpring activate for
+~0.5s guest time. **Verified:** soft-lock gone with gate. **Launcher:** `frame_rate=60`
+now defaults to wait=1 + spring gate (no separate `--guest-60` / `--spring-cd-gate`).
+
+### Dolphin AR (unchanged conclusion)
+
+`008F2D97` / `0090DB0B` = force wait=1 only; same as `--guest-60`.
+
+---
+
+## 2026-11-20 — 60 FPS spring soft-lock (wait-field policy)
+
+### Root cause
+
+`--60fps` / `frame_rate=60` previously set VI wait fields to **1** (true 60 Hz
+guest). Float dt from `fn_803E19B0` scales with N, but spring object state at
+`CObjSpring+0xE0` / `+0xF0` (`fn_80078C24`, `fn_80078524`) advances once per
+guest update. At wait=1 the spring re-arms while Sonic still overlaps →
+infinite activation loop. Same class as Dolphin AR 60fps / Ultimate spring bugs.
+
+### Fix
+
+`Perf_WaitFields()`: `frame_rate=60` → **wait=2** (native sim, spring-safe).
+Opt-in true guest-60 via `SCR_GUEST_60=1` / `--guest-60` (wait=1, known broken).
+Status text: `60/sim30` vs `60/guest`. Docs: `docs/FRAME_RATE.md`.
+
+### Verify
+
+- Build: `linux-clang` link OK after `crash.cpp` includes `perf.h` (C linkage).
+- Boot log: `--60fps` → `wait=2`; `--60fps --guest-60` → wait=1 warn.
+- Matching decomp untouched. H7 black-screen still deferred.
+
+---
+
+## 2026-11-19 — Ongoing development (M7 + `--help` + exclusive FS + first-launch UX)
+
+- Extracted `Fs_WriteFileAtomic`; NAND `Flush` uses it (C1 behaviour unchanged).
+- Added `scr_nand_fs_test` (create / replace / read-only parent / rename-onto-dir).
+- CLI `-h` / `--help` prints usage and exits before launcher/log.
+- Added `docs/DEVELOPMENT_ROADMAP.md`.
+- Config/settings: `exclusive_fullscreen` (Linux exclusive mode; default borderless).
+- First-launch / missing-data: install dialogs say Sonic Colors (not Black Knight); launcher shows supported release + Play disabled reason; `--skip-launcher` / empty data fatals mention `scr_install` + `kReleaseNames`; quick-check before boot.
+- `tools/package_smoke.sh`: stages AppDir, checks libs/desktop/icon, `--help`, `BKR_UI_SHOT` abort.
+- Long-session VRAM: tex/EFB age+hard-cap eviction; hi-res texture LRU; GX log includes efbCopies/hires.
+- Win32 window title → “Sonic Colors - Recompiled” (class name unchanged).
+- Controller hotplug: pack slots on disconnect; probe already-connected pads at event-loop start; Input settings shows live controller list (`Pad_Count` / `Pad_Name`).
+- GameBanana game id **6243** (Sonic Colors; was Black Knight 6511).
+- Win32 window/launcher classes renamed to `SonicColorsRecomp` / `SonicColorsRecompLauncher`.
+- UI/test env vars prefer `SCR_*` with `BKR_*` fallback (`runtime/env.h`); smoke/layout scripts updated.
+- System settings: save folder open / backup / restore latest (`nand_paths` + `nand_backup`); `scr_nand_backup_test`.
+- Debug envs (`SLOW_SAMPLE`, `IRQ_STALLS`, `TEST_PAUSE`, `DUMPMEM2`) accept `SCR_*`.
+- Host volume: `master_volume` / `speaker_volume` in config + Audio settings (live via `AudioOut_ApplyVolumes`).
+- Linux audio device picker (`audio_device`); Windows remains system default.
+- System → Diagnostics: show log path + Open log folder (`Log_Path`).
+- `scr_config_test`: Audio/Video config load/save roundtrip.
+- H8 PART: `tools/music_pipeline_smoke.sh` — isolated TR1 prepare → patched CPK + payload proof (PASS). In-game audibility still open.
+- Optional integer scaling (`integer_scale`); `tools/regression_smoke.sh`; desktop Keywords / PrefersNonDefaultGPU.
+- F12 screenshot to `screenshots/scr_*.bmp`; System → Open screenshots folder.
+- Uncapped host FPS limit (`host_fps_cap`); live Video setting.
+- `--version`, `--portable` / `SCR_PORTABLE`; System shows user data path + Open user data folder.
+- AppStream metainfo packaged into AppDir (`usr/share/metainfo/`).
+- Linux audio hotplug: reopen preferred/default device on SDL remove/add.
+- System → Reset settings to defaults (keeps Paths/Mods/Music); README status updated.
+- System → Save diagnostic report (`diagnostics/scr_diag_*.txt`).
+- F12 user screenshots → full-res PNG (`screenshots/scr_*.png`).
+- In-game toasts for F12 + Linux controller hotplug.
+- `--list-audio-devices`; Win32 XInput hotplug toast; Linux audio reconnect toast.
+- Save restore: pick any backup; diagnostic path copied to clipboard.
+- `tools/package_test_linux.sh`; `tools/package.ps1` (Windows share pack).
+- Overlay Restart/Quit confirmation; package_smoke checks pack scripts.
+
+Verification: build PASS; `package_smoke` OK.
+
+---
+
+## 2026-11-19 — Stability recovery (Phase 20 black-screen work reverted)
+
+### Goal
+
+Stop black-screen experimentation. Restore the Phase 19 (`72ae9de`) runtime/presentation baseline and treat H7 as a known deferred bug.
+
+### Reverted (black-screen only)
+
+| Ref | What |
+|---|---|
+| `388ee48` | Phase 20 XFB centre/HUD luminance + world/hud counters |
+| `509781e` | EFB-copy `ramHash` / keep-GPU-snapshot “fix” |
+| `0f8bc9c` | EFB copy-clear always-clear-depth change |
+| `de7a72e` | Expanded BLACK-WORLD dumps / `SCR_GX_NO_DEPTH` probe |
+| Uncommitted WIP | Richer latch (`efbC`/`efbD`/frustum/`mtxNan`), PE token `GX_SyncGPU`, guest-60 gate, indexed-XF gather expand + 256KiB lag cap, NaN XF skip |
+
+### Preserved
+
+Music, launcher, NAND C1, input, packaging. Frame-rate: default 60 now wait=2 (spring-safe; see 2026-11-20). Matching decomp untouched.
+
+### Recovery points
+
+- Branch: `backup/pre-stability-recovery-de7a72e` (= `de7a72e`)
+- Stash: `WIP black-screen investigation before stability recovery …` (post-`de7a72e` WIP)
+
+### Baseline
+
+`main` → `72ae9de` (Phase 19).
+
+### Stability notes this pass
+
+- No new runtime crash/leak fixes beyond restoring Phase 19 (NAND C1 already present).
+- `tools/music_mod_pkg/test_music_mod.py::test_sample_repo_manifest` was failing on assets-only `manifest.toml`; skip when no legacy `[tracks.*]` (Music Library format).
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `runtime/` vs `72ae9de` | **identical** |
+| Build `SonicColorsRecomp` (linux-clang) | **PASS** |
+| `scr_music_manifest_test` | **PASS** |
+| `music_asset` unit tests | **8/8 PASS** |
+| `music_mod` unit tests | **PASS** (1 skipped) |
+| `package_linux.sh -S` | **PASS** → `dist/AppDir` (AppRun + `usr/bin/SonicColorsRecomp`) |
+| Binary start (no display) | Process starts; launcher falls through without window (expected headless) |
+| Manual TR1 / black-screen | **Not** re-run (deferred bug; no BS code path left) |
+
+---
+
 ## 2026-11-19 (Phase 19) — Quality audit, critical save fix, release polish
 
 ### Inventory
@@ -18,7 +180,7 @@ Full severity table: [`docs/QUALITY_AUDIT.md`](QUALITY_AUDIT.md).
 
 ### Still open
 
-- Intermittent black world after stomp→spring (HUD OK) — no RCA.
+- Intermittent black world after stomp (HUD OK) — **DEFERRED** (see stability recovery above); not an active RCA.
 - TR1 in-game music replacement audibility confirmation.
 - Full-game compatibility matrix beyond TR1.
 
@@ -768,7 +930,7 @@ Present time ≪ 0.1 ms; stage guest work sits outside the VI spin and clears 
 | Value | Meaning |
 |---|---|
 | `frame_rate = 30` (default) | Wait 2 VI fields |
-| `frame_rate = 60` / `--60fps` | Wait 1 VI field (same sim/frame; not 2× speed) |
+| `frame_rate = 60` / `--60fps` | **Superseded 2026-11-20:** wait=2 (spring-safe). Wait=1 only with `--guest-60`. |
 | `frame_rate = 0` / `--frame-rate 0` | Wait 0 (uncapped VI spin) |
 
 Patch: `FrameRateWait` in `tools/recomp.py` + `tools/game_addrs.txt` (`code 80012774`); publishes via `fn_803E19B0`. Status overlay: `status: N fps (target 30|60|uncapped), VI …`.
