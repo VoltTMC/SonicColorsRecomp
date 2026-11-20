@@ -35,7 +35,7 @@ You must own Sonic Colors (Wii) Europe / PAL SNCP8P (USA/Japan discs are not sup
 3. Play
 
 Config, saves, and logs are written next to the executable (portable.txt).
-Useful: --help, --check-updates, --save-diagnostics
+Useful: --help, --check-updates, --save-diagnostics, --list-gamepads
 See docs\windows-native-checklist.md
 
 Do not redistribute copyrighted game files with this package.

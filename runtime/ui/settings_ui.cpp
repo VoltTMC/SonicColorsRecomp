@@ -648,6 +648,46 @@ void SystemTab(SettingsHost host)
         Shell_OpenFolder(dir);
     }
     Help("Compiled host shaders. Safe to delete if a graphics update leaves the game black or crashing on boot.");
+    ImGui::SameLine();
+    if (ImGui::Button("Clear shader cache…"))
+        ImGui::OpenPopup("Clear shader cache?");
+    {
+        static std::string clearMsg;
+        if (ImGui::BeginPopupModal("Clear shader cache?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::TextWrapped(
+                "Delete compiled shaders under your user data shadercache folder?\n\n"
+                "The next run (or new areas) will recompile them — first visits may hitch briefly. "
+                "Shipped AppImage/package keys are not touched.");
+            if (ImGui::Button("Clear", ImVec2(120, 0)))
+            {
+                fs::path dir = Platform_UserDir() / "shadercache";
+                std::error_code ec;
+                size_t removed = 0;
+                if (fs::is_directory(dir, ec))
+                {
+                    for (auto it = fs::directory_iterator(dir, ec); it != fs::directory_iterator(); it.increment(ec))
+                    {
+                        fs::remove_all(it->path(), ec);
+                        if (!ec) ++removed;
+                    }
+                }
+                fs::create_directories(dir, ec);
+                clearMsg = removed ? std::format("Removed {} item(s) from shadercache.", removed)
+                                   : "Shader cache was already empty.";
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0)))
+            {
+                clearMsg.clear();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+        if (!clearMsg.empty())
+            ImGui::TextDisabled("%s", clearMsg.c_str());
+    }
     ImGui::TextDisabled("Settings file: %s", Config_Path().c_str());
 
     ImGui::SeparatorText("Reset");

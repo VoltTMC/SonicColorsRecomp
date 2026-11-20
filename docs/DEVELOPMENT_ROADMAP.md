@@ -109,6 +109,11 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — Clear shader cache
+
+- Confirmed clear of user shadercache; Windows package.ps1 / README mention.
+- Next: Win native checklist; Recomp Achievements; signed builds.
+
 ### 2026-11-20 — list-gamepads + shader cache folder
 
 - Support CLI for pads; Open shader cache; diag pad names.

@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — Clear shader cache
+
+- System → Clear shader cache… (user folder only); package.ps1 TESTING + README sync.
+
 ## 2026-11-20 — list-gamepads + shader cache folder
 
 - CLI `--list-gamepads`; System → Open shader cache; diagnostic reports list pad names.

@@ -57,7 +57,7 @@ what you can prove — note that in any report.
 - [ ] Quit during Verify files → confirm dialog
 - [ ] Resize game window, quit, relaunch → size restored; maximize restores; minimize with pause-on-focus-loss pauses
 - [ ] System → Save diagnostic report (includes `.1.log` / free space / pad names); or `--save-diagnostics`
-- [ ] `--list-gamepads`; System → Open shader cache
+- [ ] `--list-gamepads`; System → Open shader cache / Clear shader cache…
 - [ ] System → Copy log path / Copy user data path; after a forced crash, Play banner → Save diagnostic report
 - [ ] FPS overlay shows guest Hz + memory; input hints for Jump/Slash/Pause
 - [ ] Save/load a **video profile** (Settings → Video)
