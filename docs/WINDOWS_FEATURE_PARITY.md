@@ -6,7 +6,7 @@ Statuses: **FULL** · **PARTIAL** · **MISSING** · **UNVERIFIED** · **PLATFORM
 
 Evidence tags: `[native]` `[wine]` `[auto]` `[source]`
 
-Last updated: 2026-11-20 (continuous improvement audit; stick deadzone; spiral gates removed).
+Last updated: 2026-11-20 (cross-platform audit; see also `CROSS_PLATFORM_COMPATIBILITY.md`).
 
 ---
 
@@ -24,9 +24,9 @@ Last updated: 2026-11-20 (continuous improvement audit; stick deadzone; spiral g
 | Audio hot-plug remaster | FULL | FULL `[source]` | UNVERIFIED | Win: IMMNotificationClient + toast; `[native]` listen |
 | Input + remapping | FULL | FULL `[source]` | UNVERIFIED | `[native]` pad |
 | Stick deadzone settings | FULL | FULL `[source]` | FULL `[source]` | Added 2026-11-20 |
-| Launcher + Music Library UI | FULL | FULL `[source]` / Wine boot | UNVERIFIED | Interactive `[native]` |
-| music_asset prepare pipeline | FULL | PARTIAL | PARTIAL | Host Python/cricodecs/vgmstream/ffmpeg |
-| Packaging | FULL AppDir | FULL ZIP | FULL `[auto]` | — |
+| Launcher + Music Library UI | FULL | FULL `[source]` / Wine boot | UNVERIFIED | Interactive `[native]`; catalog packaged both OS |
+| music_asset prepare pipeline | PARTIAL | PARTIAL | PARTIAL | Host Python/cricodecs/vgmstream/ffmpeg; helper shipped both packages |
+| Packaging | FULL AppDir | FULL ZIP | FULL `[auto]` | `package_cross_check.sh` |
 | Crash / diagnostics | FULL | FULL `[source]` | UNVERIFIED | `[native]` crash dump |
 
 \* Wine boot exercised; full stage play and audible audio need a real Windows host (`docs/windows-native-checklist.md`).
@@ -97,9 +97,10 @@ Last updated: 2026-11-20 (continuous improvement audit; stick deadzone; spiral g
 | Hot-plug toasts | yes | yes | FULL `[source]` | — |
 | Launcher home / Play | yes | yes | FULL `[source]` | Version on home (2026-11-20) |
 | Launcher settings tabs | yes | yes | FULL `[source]` | — |
-| Music Library browse / filter | yes | yes | FULL `[source]` | — |
-| Music preview A/B | yes | yes | UNVERIFIED | `[native]` |
-| music_asset inventory | yes | PE + launcher | PARTIAL | Needs Python stack on Win host |
+| Music Library browse / filter | yes | yes | FULL `[auto]` package | `catalog.json` in ZIP/AppDir; `[native]` UI still |
+| Music CPK / cache paths | yes | yes | FULL `[auto]` | `MusicPaths_*` / `scr_music_paths_test` |
+| Music preview A/B | yes | yes | UNVERIFIED | `[native]`; originals need vgmstream |
+| music_asset inventory | yes | PE + launcher | PARTIAL | Needs Python stack on host (both OS) |
 | Original CPK untouched design | yes | yes | FULL `[source]` | — |
 | Mods browser / GameBanana | yes | yes | FULL `[source]` | — |
 | F12 screenshots | yes | yes | FULL `[source]` | — |
@@ -120,7 +121,10 @@ Last updated: 2026-11-20 (continuous improvement audit; stick deadzone; spiral g
 | `scr_nand_fs_test` | PASS | — |
 | `scr_nand_backup_test` | PASS | — |
 | `scr_music_manifest_test` | PASS | — |
+| `scr_music_paths_test` | PASS | — |
+| `scr_update_apply_test` | PASS | PASS (MinGW) |
 | `music_asset` inventory | PASS | PE starts (deps may be missing) |
+| `tools/package_cross_check.sh` | PASS | PASS ZIP layout |
 | `tools/regression_smoke.sh` | target | — |
 
 ---

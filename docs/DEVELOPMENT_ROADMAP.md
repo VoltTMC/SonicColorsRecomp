@@ -159,6 +159,10 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 - Last windowed size saved on quit; minimize pauses with focus-loss option.
 - Next: Win native checklist; Recomp Achievements; signed builds.
 
+### 2026-11-20 — Cross-platform compatibility audit
+
+- Compatibility matrix doc; AppImage music_asset packaging; package_cross_check.
+
 ### 2026-11-20 — Windows Music CPK / cache path fix
 
 - Shared MusicPaths for original CPK + music_mods cache; UI no longer treats “cache not built” as blocking originals.

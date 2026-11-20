@@ -48,6 +48,26 @@ stage() {   # stage <AppDir>: everything except the shader cache
     cp -f "$root/mods/music/catalog.json" "$bin/mods/music/"
     cp -f "$root/mods/music/README.md" "$bin/mods/music/" 2>/dev/null || true
 
+    # music_asset helper (parity with Windows ZIP). Host still needs Python +
+    # cricodecs/vgmstream/ffmpeg for prepare/preview/export.
+    mkdir -p "$bin/tools"
+    if [ -x "$out/music_asset_launcher" ]; then
+        cp -f "$out/music_asset_launcher" "$bin/tools/music_asset"
+        chmod +x "$bin/tools/music_asset"
+    elif [ -x "$out/music_asset" ]; then
+        cp -f "$out/music_asset" "$bin/tools/music_asset"
+        chmod +x "$bin/tools/music_asset"
+    else
+        echo "error: build music_asset (out/music_asset_launcher) before packaging" >&2
+        exit 1
+    fi
+    if [ -d "$root/tools/music_asset_pkg" ]; then
+        mkdir -p "$bin/tools/music_asset_pkg"
+        cp -a "$root/tools/music_asset_pkg/." "$bin/tools/music_asset_pkg/"
+        rm -f "$bin/tools/music_asset_pkg/test_music_asset.py"
+        rm -rf "$bin/tools/music_asset_pkg/__pycache__"
+    fi
+
     cp "$root/licenses/BlackKnightRecomp-GPL-2.0.txt" "$lic/LICENSE"
     cp "$root/README.md" "$lic/README.md"
     [ -f "$build/_deps/sdl3-src/LICENSE.txt" ] && cp "$build/_deps/sdl3-src/LICENSE.txt" "$lic/SDL3.txt"

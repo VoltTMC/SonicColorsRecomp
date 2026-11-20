@@ -1,5 +1,11 @@
 # Progress log
 
+## 2026-11-20 — Cross-platform compatibility audit pass
+
+- Added `docs/CROSS_PLATFORM_COMPATIBILITY.md` (honest PASS/PARTIAL/UNVERIFIED matrix).
+- AppImage now ships `tools/music_asset` + `music_asset_pkg` (parity with Windows ZIP).
+- `MusicTool_Find` prefers exe dir over cwd; `tools/package_cross_check.sh` covers both packages.
+
 ## 2026-11-20 — Fix Windows Music CPK path + cache status
 
 - Root cause (cache message): UI treated missing `current.json` as a hard failure; that file is only written after Prepare with replacements. Original preview/export never needed it.

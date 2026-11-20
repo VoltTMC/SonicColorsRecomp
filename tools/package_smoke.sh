@@ -35,6 +35,16 @@ fi
 [ -f "$appdir/usr/bin/libdxvk_d3d11.so.0" ] || fail "libdxvk_d3d11.so.0 missing"
 [ -f "$appdir/usr/bin/libdxvk_dxgi.so.0" ] || fail "libdxvk_dxgi.so.0 missing"
 [ -f "$appdir/usr/bin/mods/music/catalog.json" ] || fail "mods/music/catalog.json missing from AppDir"
+[ -x "$appdir/usr/bin/tools/music_asset" ] || fail "tools/music_asset missing/not executable in AppDir"
+[ -f "$appdir/usr/bin/tools/music_asset_pkg/cli.py" ] || fail "music_asset_pkg missing from AppDir"
+python3 - <<PY || fail "catalog.json incomplete"
+import json, sys
+p = "$appdir/usr/bin/mods/music/catalog.json"
+d = json.load(open(p, encoding="utf-8"))
+n = len(d.get("assets") or [])
+print(f"catalog assets={n}")
+sys.exit(0 if n >= 100 else 1)
+PY
 ok "AppDir layout"
 
 # Prefer AppRun so LD_LIBRARY_PATH includes bundled libs.

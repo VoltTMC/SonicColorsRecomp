@@ -16,11 +16,13 @@ std::filesystem::path MusicTool_Find()
         if (fs::exists(p, ec)) return fs::weakly_canonical(p, ec);
     }
 
+    // Prefer the install tree over cwd so packaged tools/music_asset is found when
+    // the launcher is started from a different working directory (common on Windows).
     const fs::path roots[] = {
-        fs::current_path(),
         Platform_ExeDir(),
         Platform_ExeDir() / "..",
         Platform_ExeDir() / "../..",
+        fs::current_path(),
     };
 
 #ifdef _WIN32
