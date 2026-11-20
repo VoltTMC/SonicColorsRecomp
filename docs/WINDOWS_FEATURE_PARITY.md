@@ -83,6 +83,7 @@ Last updated: 2026-11-20 (continuous improvement audit; stick deadzone; spiral g
 | Play portable / user-data status | yes | yes | FULL `[source]` | Path line + Open screenshots |
 | Persist Music Library filters | yes | yes | FULL `[source]` | Category/Variant/Replaced/World |
 | FPS overlay GPU blit ms | yes | yes | FULL `[source]` | D3D11 timestamp queries (when FPS on) |
+| Screenshot retention | yes | yes | FULL `[source]` | `screenshot_keep` prunes oldest PNGs |
 | Auto save backup on write | yes | yes | FULL `[source]` | Debounced NAND flush; keep N backups |
 | Persist launcher window size | yes | yes | FULL `[source]` | `launcher_width` / `launcher_height` |
 | FPS overlay (ms / 1% / guest / RSS) | yes | yes | FULL `[source]` | Host present + process RSS |

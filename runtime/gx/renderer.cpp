@@ -2004,6 +2004,24 @@ static void DoEFBCopy()
             {
                 LOG_INFO("screenshot saved to {}", path.string());
                 Overlay_Toast(("Screenshot saved: " + path.filename().string()).c_str());
+                if (g_config.screenshotKeep > 0)
+                {
+                    std::vector<fs::path> pngs;
+                    for (const auto& e : fs::directory_iterator(dir, ec))
+                    {
+                        if (ec || !e.is_regular_file()) continue;
+                        if (e.path().extension() != ".png") continue;
+                        pngs.push_back(e.path());
+                    }
+                    std::sort(pngs.begin(), pngs.end(), [](const fs::path& a, const fs::path& b) {
+                        return a.filename() > b.filename();
+                    });
+                    for (size_t i = (size_t)g_config.screenshotKeep; i < pngs.size(); i++)
+                    {
+                        fs::remove(pngs[i], ec);
+                        ec.clear();
+                    }
+                }
             }
             else
             {

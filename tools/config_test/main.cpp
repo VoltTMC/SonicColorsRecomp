@@ -119,6 +119,7 @@ int main()
     g_config.autoBackupSavesOnLaunch = true;
     g_config.autoBackupSavesOnWrite = true;
     g_config.saveBackupKeep = 12;
+    g_config.screenshotKeep = 40;
     g_config.uiScale = 1.25f;
     g_config.hotkeySettings = "F2";
     g_config.hotkeyScreenshot = "F8";
@@ -131,6 +132,7 @@ int main()
     CHECK(g_config.autoBackupSavesOnLaunch);
     CHECK(g_config.autoBackupSavesOnWrite);
     CHECK(g_config.saveBackupKeep == 12);
+    CHECK(g_config.screenshotKeep == 40);
     CHECK(Config_Text(g_config).find("show_input_hints") != std::string::npos);
     CHECK(std::fabs(g_config.uiScale - 1.25f) < 0.001f);
     CHECK(g_config.hotkeySettings == "F2");
@@ -141,6 +143,7 @@ int main()
     CHECK(Config_Text(g_config).find("auto_backup_saves_on_launch") != std::string::npos);
     CHECK(Config_Text(g_config).find("auto_backup_saves_on_write") != std::string::npos);
     CHECK(Config_Text(g_config).find("save_backup_keep") != std::string::npos);
+    CHECK(Config_Text(g_config).find("screenshot_keep") != std::string::npos);
     CHECK(Config_Text(g_config).find("ui_scale") != std::string::npos);
     CHECK(Config_Text(g_config).find("hotkey_settings") != std::string::npos);
 

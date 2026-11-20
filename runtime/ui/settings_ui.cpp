@@ -745,6 +745,7 @@ void SystemTab(SettingsHost host)
             defaults.autoBackupSavesOnLaunch = keepPaths.autoBackupSavesOnLaunch;
             defaults.autoBackupSavesOnWrite = keepPaths.autoBackupSavesOnWrite;
             defaults.saveBackupKeep = keepPaths.saveBackupKeep;
+            defaults.screenshotKeep = keepPaths.screenshotKeep;
             defaults.launcherTab = keepPaths.launcherTab;
             defaults.settingsTab = keepPaths.settingsTab;
             defaults.launcherWidth = keepPaths.launcherWidth;
@@ -856,6 +857,12 @@ void SystemTab(SettingsHost host)
             Shell_OpenFolder(shots);
         }
         Help("Host screenshot hotkey (default F12) saves a full-resolution PNG into this folder.");
+        {
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12);
+            if (ImGui::SliderInt("Keep screenshots", &c.screenshotKeep, 0, 200, "%d (0 = all)"))
+                Changed(host, false);
+            Help("Oldest screenshots/*.png are removed after each new shot. 0 = keep all.");
+        }
         if (ImGui::Button("Save diagnostic report"))
         {
             std::string err;

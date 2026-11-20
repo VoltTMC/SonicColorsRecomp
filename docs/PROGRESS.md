@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — Screenshot retention
+
+- `[System] screenshot_keep` (default 100) prunes oldest PNGs after F12.
+
 ## 2026-11-20 — Config backups folder + save backup count
 
 - System → Open config backups; Save data shows backup count vs keep limit.
