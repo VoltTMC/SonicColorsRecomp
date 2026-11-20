@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Play portable status + config backup prune
+
+- Play tab shows portable vs user-data path; Quick folders → Open screenshots.
+- `config_backups/` keeps the newest 20 after each settings-reset backup.
+
 ## 2026-11-20 — Input hint glyphs
 
 - On-screen Jump/Slash/Pause hints draw coloured pad chips + keyboard key glyphs (first bind).

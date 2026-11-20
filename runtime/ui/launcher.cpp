@@ -186,6 +186,14 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
     }
     if (!st.releaseError.empty()) ImGui::TextColored(red, "%s", st.releaseError.c_str());
     ImGui::TextDisabled("%s", st.data.string().c_str());
+    {
+        const fs::path user = Platform_UserDir();
+        const bool portable = user == Platform_ExeDir() || EnvHas("SCR_PORTABLE", "BKR_PORTABLE");
+        if (portable)
+            ImGui::TextDisabled("Portable mode · user data next to the executable");
+        else
+            ImGui::TextDisabled("User data: %s", user.string().c_str());
+    }
     if (st.status == DataStatus::Missing)
     {
         ImGui::TextWrapped("Install Sonic Colors from your own Wii disc image to play. "
@@ -323,7 +331,15 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
         fs::create_directories(mods, ec);
         Shell_OpenFolder(mods);
     }
-    ImGui::TextDisabled("Game data, config/saves/logs, and file-replacement mods.");
+    ImGui::SameLine();
+    if (ImGui::Button("Open screenshots"))
+    {
+        fs::path shots = Platform_UserDir() / "screenshots";
+        std::error_code ec;
+        fs::create_directories(shots, ec);
+        Shell_OpenFolder(shots);
+    }
+    ImGui::TextDisabled("Game data, config/saves/logs, mods, and F12 screenshots.");
 
     ImGui::Spacing();
     ImGui::SeparatorText("Controls");

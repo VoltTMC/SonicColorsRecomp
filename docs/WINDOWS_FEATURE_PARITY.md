@@ -80,6 +80,7 @@ Last updated: 2026-11-20 (continuous improvement audit; stick deadzone; spiral g
 | Persist launcher tab | yes | yes | FULL `[source]` | `launcher_tab` in config.ini |
 | Persist settings sub-tab | yes | yes | FULL `[source]` | `settings_tab` Video/Input/Audio/System |
 | Input hint glyphs | yes | yes | FULL `[source]` | Pad colour chips + key glyphs on overlay |
+| Play portable / user-data status | yes | yes | FULL `[source]` | Path line + Open screenshots |
 | Auto save backup on write | yes | yes | FULL `[source]` | Debounced NAND flush; keep N backups |
 | Persist launcher window size | yes | yes | FULL `[source]` | `launcher_width` / `launcher_height` |
 | FPS overlay (ms / 1% / guest / RSS) | yes | yes | FULL `[source]` | Host present + process RSS |

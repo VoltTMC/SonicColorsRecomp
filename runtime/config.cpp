@@ -184,6 +184,24 @@ bool Config_BackupCurrent(std::string* outPath)
     if (ec) { LOG_WARN("config: backup failed: {}", ec.message()); return false; }
     if (outPath) *outPath = dest.string();
     LOG_INFO("config: backed up to {}", dest.string());
+    // Keep the newest 20 config_*.ini files (timestamp names sort lexicographically).
+    {
+        std::vector<fs::path> files;
+        for (const auto& e : fs::directory_iterator(dir, ec))
+        {
+            if (ec || !e.is_regular_file()) continue;
+            if (e.path().extension() != ".ini") continue;
+            files.push_back(e.path());
+        }
+        std::sort(files.begin(), files.end(), [](const fs::path& a, const fs::path& b) {
+            return a.filename() > b.filename();
+        });
+        for (size_t i = 20; i < files.size(); i++)
+        {
+            fs::remove(files[i], ec);
+            ec.clear();
+        }
+    }
     return true;
 }
 
