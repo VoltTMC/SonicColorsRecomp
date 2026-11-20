@@ -416,6 +416,31 @@ def doctor() -> dict:
     cr = cricodecs_status()
     tool_bin = [str(d) for d in _bin_dirs()]
 
+    managed_bin = os.environ.get("SCR_MUSIC_MANAGED_BIN")
+    localapp = os.environ.get("LOCALAPPDATA")
+    managed_root = (
+        str(Path(localapp) / "SonicColorsRecomp" / "dependencies") if localapp else None
+    )
+    managed_diag = {
+        "root": managed_root,
+        "bin": managed_bin
+        or (str(Path(managed_root) / "current" / "bin") if managed_root else None),
+        "python": os.environ.get("SCR_MUSIC_PYTHON")
+        or (
+            str(Path(managed_root) / "python" / "3.12.8" / "python.exe") if managed_root else None
+        ),
+        "vgmstream": None,
+        "ffmpeg": None,
+    }
+    if managed_diag["bin"]:
+        mb = Path(managed_diag["bin"])
+        for name, key in (("vgmstream-cli.exe", "vgmstream"), ("ffmpeg.exe", "ffmpeg")):
+            p = mb / name
+            managed_diag[key] = {
+                "path": str(p),
+                "present": p.is_file(),
+            }
+
     deps = {
         "python": py,
         "cricodecs": cr,
@@ -426,6 +451,9 @@ def doctor() -> dict:
         "tools_dir": str(_TOOLS),
         "root": str(_ROOT),
         "scr_music_bin": os.environ.get("SCR_MUSIC_BIN"),
+        "scr_music_managed_bin": managed_bin,
+        "scr_music_python": os.environ.get("SCR_MUSIC_PYTHON"),
+        "managed": managed_diag,
     }
 
     have = {

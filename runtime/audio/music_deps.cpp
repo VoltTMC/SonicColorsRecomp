@@ -114,8 +114,7 @@ std::string Sha256File(const fs::path& path)
     for (int i = 0; i < 8; i++) block[63 - i] = (uint8_t)(bits >> (8 * i));
     compress(block);
     char out[65];
-    for (int i = 0; i < 8; i++)
-        std::snprintf(out + i * 8, 9, "%08x", h[i]);
+    for (int i = 0; i < 8; i++) std::snprintf(out + i * 8, 9, "%08x", h[i]);
     return out;
 }
 
@@ -135,6 +134,20 @@ bool MatchGlob(const std::string& name, const std::string& glob)
         return IeEq(name.substr(name.size() - 4), ".dll");
     }
     return IeEq(name, glob);
+}
+
+bool FileOk(const fs::path& p)
+{
+    std::error_code ec;
+    return fs::is_regular_file(p, ec) && fs::file_size(p, ec) > 0;
+}
+
+bool CopyFileOverwrite(const fs::path& from, const fs::path& to)
+{
+    std::error_code ec;
+    fs::create_directories(to.parent_path(), ec);
+    fs::copy_file(from, to, fs::copy_options::overwrite_existing, ec);
+    return !ec && FileOk(to);
 }
 
 fs::path LocalAppData()
@@ -182,6 +195,43 @@ json LoadManifest(std::string& err)
         err = e.what();
         return {};
     }
+}
+
+fs::path ExtractDir(const fs::path& root, const json& pkg)
+{
+    const std::string rel = pkg.value("extract_to", pkg.value("id", "") + "/" + pkg.value("version", ""));
+    return root / rel;
+}
+
+// Primary on-disk artifact from the extracted package (authoritative for "installed").
+fs::path PrimaryArtifact(const fs::path& root, const json& pkg)
+{
+    const std::string id = pkg.value("id", "");
+    const fs::path dir = ExtractDir(root, pkg);
+    if (id == "cricodecs") return dir / "cricodecs" / "__init__.py";
+    const std::string rel = pkg.value("exe_relative", "");
+    if (!rel.empty()) return dir / rel;
+    return {};
+}
+
+// Published path for Music Library / doctor (managed bin for CLI tools).
+fs::path LinkedArtifact(const fs::path& root, const json& pkg)
+{
+    const std::string id = pkg.value("id", "");
+    if (id == "vgmstream") return root / "current" / "bin" / "vgmstream-cli.exe";
+    if (id == "ffmpeg_lgpl") return root / "current" / "bin" / "ffmpeg.exe";
+    if (id == "python_embed") return PrimaryArtifact(root, pkg);
+    if (id == "cricodecs") return PrimaryArtifact(root, pkg);
+    return {};
+}
+
+void WriteReadyMarker(const fs::path& extractDir, const json& pkg)
+{
+    std::error_code ec;
+    fs::create_directories(extractDir, ec);
+    std::ofstream m(extractDir / ".ready");
+    m << "ok\nid=" << pkg.value("id", "") << "\nversion=" << pkg.value("version", "")
+      << "\nsha256=" << pkg.value("sha256", "") << "\n";
 }
 
 bool ExtractZip(const fs::path& zip, const fs::path& dest, std::string& error, std::atomic<bool>* cancel)
@@ -265,106 +315,186 @@ bool ExtractZip(const fs::path& zip, const fs::path& dest, std::string& error, s
     return true;
 }
 
-bool CopyFileOverwrite(const fs::path& from, const fs::path& to)
-{
-    std::error_code ec;
-    fs::create_directories(to.parent_path(), ec);
-    fs::copy_file(from, to, fs::copy_options::overwrite_existing, ec);
-    return !ec;
-}
-
 void EnableEmbedSite(const fs::path& pyDir)
 {
-    // python3xx._pth — enable site-packages for cricodecs wheel.
     std::error_code ec;
     for (auto& ent : fs::directory_iterator(pyDir, ec))
     {
         if (!ent.is_regular_file()) continue;
         const auto name = ent.path().filename().string();
         if (name.size() < 5 || name.substr(name.size() - 4) != "._pth") continue;
+        // One backslash: Lib\site-packages (C++ "Lib\\site-packages").
         std::ofstream out(ent.path(), std::ios::binary | std::ios::trunc);
-        out << "python312.zip\n.\nLib\\\\site-packages\nimport site\n";
+        out << "python312.zip\n.\nLib\\site-packages\nimport site\n";
+        LOG_INFO("[Dependency] python_embed: enabled site-packages in {}", name);
         break;
     }
     fs::create_directories(pyDir / "Lib" / "site-packages", ec);
 }
 
-bool PackageInstalled(const json& pkg, const fs::path& root)
-{
-    const std::string id = pkg.value("id", "");
-    const std::string ver = pkg.value("version", "");
-    const fs::path marker = root / id / ver / ".ready";
-    std::error_code ec;
-    return fs::is_regular_file(marker, ec);
-}
-
-bool ProbeExe(const fs::path& exe)
+fs::path FindNamedUnder(const fs::path& root, const std::string& fileName)
 {
     std::error_code ec;
-    return fs::is_regular_file(exe, ec) && fs::file_size(exe, ec) > 0;
-}
-
-void WriteState(const fs::path& root, const json& state)
-{
-    std::error_code ec;
-    fs::create_directories(root, ec);
-    const fs::path tmp = root / "state.json.part";
-    const fs::path out = root / "state.json";
-    std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
-    f << state.dump(2) << "\n";
-    f.close();
-    fs::rename(tmp, out, ec);
-    if (ec)
+    if (!fs::is_directory(root, ec)) return {};
+    for (auto it = fs::recursive_directory_iterator(root, ec); it != fs::recursive_directory_iterator(); ++it)
     {
-        fs::remove(out, ec);
-        fs::rename(tmp, out, ec);
+        if (!it->is_regular_file()) continue;
+        if (IeEq(it->path().filename().string(), fileName)) return it->path();
     }
+    return {};
 }
 
-void LinkBins(const fs::path& root)
+int CopyGlobFromDir(const fs::path& srcBin, const fs::path& destBin, const std::vector<std::string>& globs,
+                    std::string& err)
+{
+    std::error_code ec;
+    int copied = 0;
+    for (auto& ent : fs::directory_iterator(srcBin, ec))
+    {
+        if (!ent.is_regular_file()) continue;
+        const auto n = ent.path().filename().string();
+        bool match = false;
+        for (const auto& g : globs)
+            if (MatchGlob(n, g))
+            {
+                match = true;
+                break;
+            }
+        if (!match) continue;
+        if (!CopyFileOverwrite(ent.path(), destBin / n))
+        {
+            err = "failed to copy " + n + " → " + (destBin / n).string();
+            return -1;
+        }
+        ++copied;
+    }
+    return copied;
+}
+
+// Copy CLI tools + DLLs into current/bin from extract trees (manifest-driven).
+bool LinkBins(const fs::path& root, const json& man, std::string& err)
 {
     const fs::path bin = root / "current" / "bin";
     std::error_code ec;
     fs::create_directories(bin, ec);
+    bool ok = true;
 
-    // vgmstream
-    const fs::path vg = root / "vgmstream" / "r2168";
-    if (fs::is_directory(vg, ec))
+    for (const auto& pkg : man["packages"])
     {
-        for (auto& ent : fs::directory_iterator(vg, ec))
+        const std::string id = pkg.value("id", "");
+        if (id != "vgmstream" && id != "ffmpeg_lgpl") continue;
+
+        const fs::path extract = ExtractDir(root, pkg);
+        if (!fs::is_directory(extract, ec))
         {
-            if (!ent.is_regular_file()) continue;
-            const auto n = ent.path().filename().string();
-            if (MatchGlob(n, "vgmstream-cli.exe") || MatchGlob(n, "*.dll"))
-                CopyFileOverwrite(ent.path(), bin / n);
+            LOG_WARN("[Dependency] {} LinkBins: extract dir missing {}", id, extract.string());
+            continue;
         }
-    }
 
-    // ffmpeg bin subtree
-    const fs::path ffRoot = root / "ffmpeg" / "n8.1.3-39-g660b5aa7db";
-    fs::path ffBin;
-    if (fs::is_directory(ffRoot, ec))
-    {
-        for (auto it = fs::recursive_directory_iterator(ffRoot, ec); it != fs::recursive_directory_iterator(); ++it)
+        const std::string primaryName = id == "ffmpeg_lgpl" ? "ffmpeg.exe" : "vgmstream-cli.exe";
+        std::vector<std::string> globs;
+        if (pkg.contains("bin_glob") && pkg["bin_glob"].is_array())
+            for (auto& g : pkg["bin_glob"]) globs.push_back(g.get<std::string>());
+        if (globs.empty())
         {
-            if (!it->is_regular_file()) continue;
-            if (IeEq(it->path().filename().string(), "ffmpeg.exe"))
+            globs.push_back(primaryName);
+            globs.emplace_back("*.dll");
+        }
+
+        fs::path srcBin = extract;
+        if (pkg.contains("bin_subdir"))
+            srcBin = extract / pkg.value("bin_subdir", "");
+
+        auto tryCopy = [&](const fs::path& dir) -> int {
+            if (!fs::is_directory(dir, ec)) return 0;
+            std::string copyErr;
+            const int n = CopyGlobFromDir(dir, bin, globs, copyErr);
+            if (n < 0)
             {
-                ffBin = it->path().parent_path();
-                break;
+                err = id + ": " + copyErr;
+                return -1;
+            }
+            return n;
+        };
+
+        int copied = tryCopy(srcBin);
+        if (copied == 0)
+        {
+            // Nested / unexpected archive layout: locate the primary exe and use its directory.
+            const fs::path found = FindNamedUnder(extract, primaryName);
+            if (!found.empty())
+            {
+                LOG_INFO("[Dependency] {} LinkBins: found {} under {}", id, primaryName, found.parent_path().string());
+                copied = tryCopy(found.parent_path());
+            }
+        }
+        if (copied < 0)
+        {
+            ok = false;
+            continue;
+        }
+
+        LOG_INFO("[Dependency] {} LinkBins: copied {} file(s) → {}", id, copied, bin.string());
+        if (copied == 0)
+        {
+            // Last resort: copy the primary artifact alone if FindNamedUnder found nothing usable.
+            const fs::path primary = PrimaryArtifact(root, pkg);
+            if (FileOk(primary) && CopyFileOverwrite(primary, bin / primaryName))
+            {
+                LOG_INFO("[Dependency] {} LinkBins: published primary only → {}", id, (bin / primaryName).string());
+                // Sibling DLLs next to the primary.
+                std::string copyErr;
+                CopyGlobFromDir(primary.parent_path(), bin, {"*.dll"}, copyErr);
+                copied = 1;
+            }
+            else
+            {
+                err = id + ": LinkBins found no matching files under " + extract.string();
+                ok = false;
             }
         }
     }
-    if (!ffBin.empty())
-    {
-        for (auto& ent : fs::directory_iterator(ffBin, ec))
-        {
-            if (!ent.is_regular_file()) continue;
-            const auto n = ent.path().filename().string();
-            if (MatchGlob(n, "ffmpeg.exe") || MatchGlob(n, "*.dll"))
-                CopyFileOverwrite(ent.path(), bin / n);
-        }
-    }
+    return ok;
+}
+
+struct Resolve
+{
+    bool filesPresent = false;
+    bool linkedPresent = false;
+    bool usable = false;
+    fs::path primary;
+    fs::path linked;
+    fs::path installDir;
+    std::string state;
+    std::string detail;
+};
+
+Resolve ResolvePackage(const fs::path& root, const json& pkg)
+{
+    Resolve r;
+    r.installDir = ExtractDir(root, pkg);
+    r.primary = PrimaryArtifact(root, pkg);
+    r.linked = LinkedArtifact(root, pkg);
+    r.filesPresent = !r.primary.empty() && FileOk(r.primary);
+    r.linkedPresent = !r.linked.empty() && FileOk(r.linked);
+    // Tools are usable from extract dir OR managed bin; python/cricodecs need primary files.
+    const std::string id = pkg.value("id", "");
+    if (id == "vgmstream" || id == "ffmpeg_lgpl")
+        r.usable = r.filesPresent || r.linkedPresent;
+    else
+        r.usable = r.filesPresent;
+
+    if (r.usable && r.linkedPresent)
+        r.state = "ready";
+    else if (r.usable && r.filesPresent)
+        r.state = "files_present"; // needs LinkBins for CLI tools
+    else if (r.filesPresent)
+        r.state = "repair";
+    else
+        r.state = "not_installed";
+
+    r.detail = "primary=" + r.primary.string() + " linked=" + r.linked.string();
+    return r;
 }
 
 bool InstallOne(const json& pkg, const fs::path& root, std::string& err)
@@ -379,24 +509,24 @@ bool InstallOne(const json& pkg, const fs::path& root, std::string& err)
     const std::string url = pkg.value("url", "");
     const std::string wantSha = pkg.value("sha256", "");
     const std::string archive = pkg.value("archive", "zip");
-    const std::string extractTo = pkg.value("extract_to", id + "/" + ver);
     if (id.empty() || url.empty() || wantSha.size() != 64)
     {
         err = "invalid package entry: " + id;
         return false;
     }
 
-    const fs::path destDir = root / extractTo;
+    const fs::path destDir = ExtractDir(root, pkg);
     const fs::path dlDir = root / ".download";
     std::error_code ec;
     fs::create_directories(dlDir, ec);
     const fs::path archivePath = dlDir / (id + "-" + ver + (archive == "wheel" ? ".whl" : ".zip"));
 
+    LOG_INFO("[Dependency] {}", id);
+    LOG_INFO("[Dependency] Download: starting {}", url);
     g_progress.phase = 1;
     g_progress.bytesDone = 0;
     g_progress.bytesTotal = 0;
     HttpProgress httpProg;
-    // Mirror cancel
     std::thread cancelPump([&] {
         while (g_progress.running.load() && g_progress.phase.load() == 1)
         {
@@ -414,42 +544,86 @@ bool InstallOne(const json& pkg, const fs::path& root, std::string& err)
     if (!dlOk)
     {
         err = id + ": download failed: " + dlErr;
+        LOG_WARN("[Dependency] Download: failed — {}", dlErr);
         return false;
     }
+    LOG_INFO("[Dependency] Download: passed");
 
     const std::string got = Sha256File(archivePath);
     if (!IeEq(got, wantSha))
     {
         err = id + ": SHA-256 mismatch (got " + got + ")";
+        LOG_WARN("[Dependency] SHA-256: failed (got {})", got);
         fs::remove(archivePath, ec);
         return false;
     }
+    LOG_INFO("[Dependency] SHA-256: passed");
 
     g_progress.phase = 3;
-    // Fresh extract dir
-    fs::remove_all(destDir, ec);
-    fs::create_directories(destDir, ec);
+    // For cricodecs, only clear the package dir under site-packages, not the whole tree.
     if (id == "cricodecs")
     {
-        // Wheel → site-packages (destDir is already .../Lib/site-packages)
-        if (!ExtractZip(archivePath, destDir, err, &g_progress.cancel)) return false;
+        fs::remove_all(destDir / "cricodecs", ec);
+        fs::remove_all(destDir / "cricodecs-1.2.0.dist-info", ec);
+        // Also remove any dist-info matching the wheel
+        if (fs::is_directory(destDir, ec))
+        {
+            for (auto& ent : fs::directory_iterator(destDir, ec))
+            {
+                const auto n = ent.path().filename().string();
+                if (n.find("cricodecs") == 0 && n.find("dist-info") != std::string::npos)
+                    fs::remove_all(ent.path(), ec);
+            }
+        }
+        fs::create_directories(destDir, ec);
     }
     else
     {
-        if (!ExtractZip(archivePath, destDir, err, &g_progress.cancel)) return false;
+        fs::remove_all(destDir, ec);
+        fs::create_directories(destDir, ec);
     }
+
+    if (!ExtractZip(archivePath, destDir, err, &g_progress.cancel))
+    {
+        LOG_WARN("[Dependency] Extraction: failed — {}", err);
+        return false;
+    }
+    LOG_INFO("[Dependency] Extraction: passed → {}", destDir.string());
 
     g_progress.phase = 4;
     if (id == "python_embed") EnableEmbedSite(destDir);
 
-    const fs::path markerDir = root / id / ver;
-    fs::create_directories(markerDir, ec);
+    const fs::path primary = PrimaryArtifact(root, pkg);
+    if (!FileOk(primary))
     {
-        std::ofstream m(markerDir / ".ready");
-        m << "ok\nsha256=" << wantSha << "\n";
+        err = id + ": expected executable/module missing after extract: " + primary.string();
+        LOG_WARN("[Dependency] Expected artifact: {}", primary.string());
+        LOG_WARN("[Dependency] Verification: failed — artifact missing after extraction");
+        return false;
     }
+    LOG_INFO("[Dependency] Expected artifact: {}", primary.string());
+    LOG_INFO("[Dependency] Verification: passed");
+
+    WriteReadyMarker(destDir, pkg);
     fs::remove(archivePath, ec);
     return true;
+}
+
+void WriteState(const fs::path& root, const json& state)
+{
+    std::error_code ec;
+    fs::create_directories(root, ec);
+    const fs::path tmp = root / "state.json.part";
+    const fs::path out = root / "state.json";
+    std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+    f << state.dump(2) << "\n";
+    f.close();
+    fs::rename(tmp, out, ec);
+    if (ec)
+    {
+        fs::remove(out, ec);
+        fs::rename(tmp, out, ec);
+    }
 }
 
 void RefreshStatusLocked()
@@ -478,46 +652,68 @@ void RefreshStatusLocked()
         return;
     }
 
+    // One-shot LinkBins repair when extracts exist but current/bin is stale (no download).
+    // Avoid running on every UI poll — only when something looks incomplete.
+    {
+        bool needLink = false;
+        for (const auto& pkg : man["packages"])
+        {
+            const std::string id = pkg.value("id", "");
+            if (id != "vgmstream" && id != "ffmpeg_lgpl") continue;
+            const Resolve r = ResolvePackage(MusicDeps_Root(), pkg);
+            if (r.filesPresent && !r.linkedPresent) needLink = true;
+        }
+        if (needLink && !g_threadRunning)
+        {
+            std::string linkErr;
+            LinkBins(MusicDeps_Root(), man, linkErr);
+            if (!linkErr.empty()) LOG_WARN("[Dependency] LinkBins repair: {}", linkErr);
+        }
+    }
+
     bool allOk = true;
     for (const auto& pkg : man["packages"])
     {
+        const Resolve r = ResolvePackage(MusicDeps_Root(), pkg);
         MusicDepsPackageStatus st;
         st.id = pkg.value("id", "");
         st.version = pkg.value("version", "");
         st.purpose = pkg.value("purpose", "");
-        const fs::path root = MusicDeps_Root();
-        st.installed = PackageInstalled(pkg, root);
-        if (st.id == "python_embed")
+        st.installDir = r.installDir.string();
+        st.installed = r.filesPresent;
+
+        if ((st.id == "vgmstream" || st.id == "ffmpeg_lgpl") && r.linkedPresent)
         {
-            const fs::path py = root / "python" / "3.12.8" / "python.exe";
-            st.path = py.string();
-            st.usable = ProbeExe(py);
+            st.path = r.linked.string();
+            st.usable = true;
+            st.state = "ready";
         }
-        else if (st.id == "cricodecs")
+        else if ((st.id == "vgmstream" || st.id == "ffmpeg_lgpl") && r.filesPresent)
         {
-            const fs::path tip =
-                root / "python" / "3.12.8" / "Lib" / "site-packages" / "cricodecs" / "__init__.py";
-            st.path = tip.string();
-            st.usable = ProbeExe(tip) || fs::is_regular_file(tip);
+            st.path = r.primary.string();
+            st.usable = false;
+            st.state = "repair";
+            st.error = "extracted but not published to managed bin";
         }
-        else if (st.id == "vgmstream")
+        else if (r.filesPresent && (st.id == "python_embed" || st.id == "cricodecs"))
         {
-            const fs::path exe = MusicDeps_ManagedBin() / "vgmstream-cli.exe";
-            st.path = exe.string();
-            st.usable = ProbeExe(exe);
+            st.path = r.primary.string();
+            st.usable = true;
+            st.state = "ready";
         }
-        else if (st.id == "ffmpeg_lgpl")
+        else
         {
-            const fs::path exe = MusicDeps_ManagedBin() / "ffmpeg.exe";
-            st.path = exe.string();
-            st.usable = ProbeExe(exe);
+            st.path = r.primary.string();
+            st.usable = false;
+            st.state = "not_installed";
+            st.error = "primary artifact missing";
         }
+
         if (!st.usable) allOk = false;
-        if (!st.usable && st.installed) st.error = "installed but not usable";
-        if (!st.installed) st.error = "not installed";
         g_status.packages.push_back(std::move(st));
     }
     g_status.ready = allOk;
+    g_status.python = MusicDeps_Python().string();
     g_status.message = allOk ? "Music host tools ready" : "Music host tools need install or repair";
 }
 
@@ -529,7 +725,7 @@ void EnsureWorker(bool force)
     {
         std::lock_guard lk(g_mu);
         g_lastError = err;
-        g_progress.phase = 6;
+        g_progress.phase = 7;
         g_progress.running = false;
         g_threadRunning = false;
         RefreshStatusLocked();
@@ -540,7 +736,12 @@ void EnsureWorker(bool force)
     std::error_code ec;
     fs::create_directories(root, ec);
 
-    // Install order: python → cricodecs → vgmstream → ffmpeg
+    // Always try to publish existing extracts into current/bin before downloading.
+    {
+        std::string linkErr;
+        LinkBins(root, man, linkErr);
+    }
+
     for (const auto& pkg : man["packages"])
     {
         if (g_progress.cancel.load())
@@ -548,37 +749,96 @@ void EnsureWorker(bool force)
             err = "canceled";
             break;
         }
-        const bool have = PackageInstalled(pkg, root);
-        bool usable = false;
         const std::string id = pkg.value("id", "");
-        if (id == "python_embed") usable = ProbeExe(root / "python" / "3.12.8" / "python.exe");
-        else if (id == "cricodecs")
-            usable = fs::is_regular_file(root / "python" / "3.12.8" / "Lib" / "site-packages" / "cricodecs" / "__init__.py",
-                                         ec);
-        else if (id == "vgmstream") usable = ProbeExe(MusicDeps_ManagedBin() / "vgmstream-cli.exe");
-        else if (id == "ffmpeg_lgpl") usable = ProbeExe(MusicDeps_ManagedBin() / "ffmpeg.exe");
+        Resolve r = ResolvePackage(root, pkg);
+        LOG_INFO("[Dependency] {}", id);
+        LOG_INFO("[Dependency] Existing installation: {}", r.filesPresent ? "found" : "missing");
+        LOG_INFO("[Dependency] Resolved path: {}", r.primary.string());
 
-        if (!force && have && usable) continue;
+        if (!force && r.filesPresent)
+        {
+            // Authoritative: on-disk primary artifact exists → never redownload.
+            WriteReadyMarker(r.installDir, pkg);
+            std::string linkErr;
+            LinkBins(root, man, linkErr);
+            r = ResolvePackage(root, pkg);
+            LOG_INFO("[Dependency] Version check: skipped redownload (files present)");
+            if ((id == "vgmstream" || id == "ffmpeg_lgpl") && !r.linkedPresent)
+            {
+                LOG_WARN("[Dependency] Repair: LinkBins did not publish {}", id);
+                if (!linkErr.empty()) LOG_WARN("[Dependency] Failure reason: {}", linkErr);
+                LOG_WARN("[Dependency] Final status: REPAIR_REQUIRED");
+            }
+            else
+                LOG_INFO("[Dependency] Final status: READY");
+            continue;
+        }
+
         if (!InstallOne(pkg, root, err)) break;
-        LinkBins(root);
+        std::string linkErr;
+        LinkBins(root, man, linkErr);
+        g_progress.phase = 5;
+        r = ResolvePackage(root, pkg);
+        const bool ok =
+            (id == "python_embed" || id == "cricodecs") ? r.filesPresent : (r.linkedPresent || r.filesPresent);
+        if (!ok)
+        {
+            err = id + ": post-install verification failed; expected " + r.primary.string();
+            LOG_WARN("[Dependency] Verification: failed — {}", err);
+            break;
+        }
+        if ((id == "vgmstream" || id == "ffmpeg_lgpl") && !r.linkedPresent)
+            LOG_WARN("[Dependency] {} installed but managed bin link incomplete: {}", id, linkErr);
+        LOG_INFO("[Dependency] Final status: READY");
     }
 
-    LinkBins(root);
+    {
+        std::string linkErr;
+        LinkBins(root, man, linkErr);
+    }
     MusicDeps_ApplyEnv();
 
-    json state = {{"schema", 1}, {"ready", err.empty()}, {"error", err}};
+    // Final readiness: python/cricodecs need extract files; CLI tools need managed bin publish.
+    bool ready = true;
+    json pkgs = json::array();
+    for (const auto& pkg : man["packages"])
+    {
+        Resolve r = ResolvePackage(root, pkg);
+        const std::string id = pkg.value("id", "");
+        const bool ok =
+            (id == "python_embed" || id == "cricodecs") ? r.filesPresent : r.linkedPresent;
+        if (!ok)
+        {
+            ready = false;
+            if (err.empty())
+            {
+                if (r.filesPresent && !r.linkedPresent)
+                    err = id + ": installed under " + r.installDir.string() +
+                          " but not published to " + (root / "current" / "bin").string();
+                else
+                    err = id + ": missing " + r.primary.string();
+            }
+        }
+        pkgs.push_back({{"id", id},
+                        {"version", pkg.value("version", "")},
+                        {"usable", ok},
+                        {"path", r.linkedPresent ? r.linked.string() : r.primary.string()}});
+    }
+    if (ready) err.clear();
+
+    json state = {{"schema", 2}, {"ready", ready}, {"error", err}, {"packages", pkgs}};
     WriteState(root, state);
 
     std::lock_guard lk(g_mu);
     g_lastError = err;
-    g_progress.phase = err.empty() ? 5 : 6;
+    g_progress.phase = ready ? 6 : 7;
     g_progress.running = false;
     g_threadRunning = false;
     RefreshStatusLocked();
-    if (err.empty())
+    if (ready)
         LOG_INFO("[MUSIC] Managed dependencies ready under {}", root.string());
     else
-        LOG_WARN("[MUSIC] Managed dependency setup failed: {}", err);
+        LOG_WARN("[MUSIC] Managed dependency setup incomplete: {}", err);
 }
 
 } // namespace
@@ -609,7 +869,7 @@ void MusicDeps_ApplyEnv()
     const fs::path bin = MusicDeps_ManagedBin();
     const fs::path py = MusicDeps_Python();
     if (!bin.empty()) SetEnvironmentVariableW(L"SCR_MUSIC_MANAGED_BIN", bin.wstring().c_str());
-    if (!py.empty() && ProbeExe(py)) SetEnvironmentVariableW(L"SCR_MUSIC_PYTHON", py.wstring().c_str());
+    if (!py.empty() && FileOk(py)) SetEnvironmentVariableW(L"SCR_MUSIC_PYTHON", py.wstring().c_str());
 #endif
 }
 
@@ -631,6 +891,15 @@ bool MusicDeps_EnsureAsync(bool force)
     {
         RefreshStatusLocked();
         if (g_status.ready) return false;
+        // After a finished attempt, do not auto-restart when files are already on disk
+        // (avoids download/repair loops). User can force via "Install Music tools".
+        if (g_progress.phase.load() == 7 && !g_status.packages.empty())
+        {
+            bool allInstalled = true;
+            for (const auto& p : g_status.packages)
+                if (!p.installed) allInstalled = false;
+            if (allInstalled) return false;
+        }
     }
     g_threadRunning = true;
     g_progress.running = true;
@@ -647,8 +916,6 @@ void MusicDeps_Cancel() { g_progress.cancel = true; }
 
 bool MusicDeps_BlocksHostOps()
 {
-    // Soft signal for UI: managed tools not ready. Do not hard-block preview/prepare —
-    // user drop-ins / PATH may already satisfy doctor.
     if (!kWinMusicDeps) return false;
     std::lock_guard lk(g_mu);
     RefreshStatusLocked();

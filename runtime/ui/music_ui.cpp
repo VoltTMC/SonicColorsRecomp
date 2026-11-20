@@ -1176,6 +1176,17 @@ void MusicUI_Draw(SettingsHost host, const char*& help)
                 ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.35f, 1.f), "%s",
                                    st.message.empty() ? "Music host tools not ready" : st.message.c_str());
                 if (!st.lastError.empty()) ImGui::TextWrapped("%s", st.lastError.c_str());
+                for (const auto& p : st.packages)
+                {
+                    const char* mark = p.usable ? "ready" : (p.installed ? "repair" : "missing");
+                    ImGui::BulletText("%s %s [%s]", p.id.c_str(), p.version.c_str(), mark);
+                    if (!p.usable && !p.error.empty())
+                    {
+                        ImGui::Indent();
+                        ImGui::TextWrapped("%s", p.error.c_str());
+                        ImGui::Unindent();
+                    }
+                }
                 if (ImGui::Button("Install Music tools")) MusicDeps_EnsureAsync(true);
                 Hover("Downloads pinned Python, cricodecs, vgmstream, and LGPL FFmpeg into "
                       "%LOCALAPPDATA%\\SonicColorsRecomp\\dependencies (no admin / no PATH edits).");

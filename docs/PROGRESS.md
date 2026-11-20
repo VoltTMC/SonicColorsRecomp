@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Fix Windows managed Music deps persistence
+
+- Root cause: install markers/usable checks disagreed with `extract_to`; CLI readiness only looked at `current/bin`, so a failed LinkBins left packages “missing” and triggered redownload loops.
+- Fix: files under manifest `extract_to` are authoritative (no redownload when present); LinkBins recursive + primary publish into `current/bin`; doctor/manager share that path; detailed `[Dependency]` logs; path-contract tests in `music_deps_test.sh`. Native Windows relaunch E2E still UNVERIFIED.
+
 ## 2026-11-20 — Release v0.3.6 (hotfix)
 
 - Windows Music tab **Install Music tools** (auto deps manager) + vgmstream discovery + CreateProcess 87 lineage from 0.3.5.

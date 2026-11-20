@@ -8,7 +8,7 @@ Evidence: `[auto]` automated · `[source]` code review · `[wine]` Wine · `[nat
 
 Companion docs: `WINDOWS_FEATURE_PARITY.md`, `windows-native-checklist.md`, `MUSIC_MODDING.md`.
 
-Last updated: 2026-11-20 (doctor exec validation + clean-env music_deps_test).
+Last updated: 2026-11-20 (Windows managed-deps persistence: files authoritative, LinkBins repair).
 
 ---
 
@@ -27,6 +27,8 @@ Last updated: 2026-11-20 (doctor exec validation + clean-env music_deps_test).
 
 Discovery: `SCR_MUSIC_BIN` → user `tools/bin` → managed `%LOCALAPPDATA%\…\dependencies\current\bin` → packaged `tools/bin` → `PATH`. Doctor **runs** each binary (`ok` / `missing` / `unusable`) and lists `searched` dirs. Windows: Music tab **Install Music tools** downloads pinned Python/cricodecs/vgmstream/LGPL FFmpeg (`data/music_deps_manifest.json`) into LOCALAPPDATA (not shipped in Setup/ZIP). `SetEnvironmentVariableW` for `SCR_MUSIC_BIN` / `SCR_MUSIC_MANAGED_BIN` / `SCR_MUSIC_PYTHON`. Isolation: `SCR_MUSIC_APP_BIN_ONLY=1`.
 
+**Managed install persistence (Windows):** On-disk artifacts under `extract_to` + published `current/bin` are authoritative. Missing/corrupt `state.json` must not force a redownload when files verify. CLI tools are ready only after LinkBins publishes into `current/bin` (same path doctor/ops resolve). Logs use `[Dependency] <id>` with step/result. Auto-Ensure skips redownload when primaries exist; force reinstall is the Music tab button.
+
 **Bundling policy:** no GPL FFmpeg / Python / cricodecs in ZIP/AppImage.
 
 | Check | Linux | Windows | Evidence |
@@ -34,6 +36,8 @@ Discovery: `SCR_MUSIC_BIN` → user `tools/bin` → managed `%LOCALAPPDATA%\…\
 | Clean env: browse ready, prepare blocked | PASS `[auto]` | PASS `[source]` | `music_deps_test.sh` |
 | Invalid drop-in → unusable | PASS `[auto]` | PASS `[source]` | `music_deps_test.sh` |
 | Paths with spaces / Unicode | PASS `[auto]` | UNVERIFIED `[native]` | `music_deps_test.sh` |
+| Managed persist without state.json | PASS `[auto]` path contract | PASS `[source]` / UNVERIFIED `[native]` E2E | `music_deps_test.sh`; native relaunch still required |
+| Incomplete managed bin ≠ ready | PASS `[auto]` | PASS `[source]` | `music_deps_test.sh` |
 | Prepare + payload proof | PASS `[auto]` | UNVERIFIED `[native]` | `SCR_MUSIC_PIPELINE=1`; Wine ≠ native |
 | Wine `music_asset.exe` loads | N/A | PASS `[wine]` | `package_cross_check.sh` |
 
@@ -195,6 +199,7 @@ Follow `docs/windows-native-checklist.md`. Items marked UNVERIFIED above stay UN
 
 | Date | Change |
 |------|--------|
+| 2026-11-20 | Fix managed-deps persistence: files authoritative (not markers alone), LinkBins recursive/publish, no redownload when extracts exist; doctor managed diag; path-contract tests |
 | 2026-11-20 | Windows Music auto deps manager: pinned manifest → LOCALAPPDATA downloads (Python/cricodecs/vgmstream/LGPL FFmpeg); Music tab Install UI; native E2E UNVERIFIED |
 | 2026-11-20 | Fix Windows vgmstream discovery: Win32 `SCR_MUSIC_BIN` env, `.exe` names, searched-path errors; CreateProcess 87 fix remains in v0.3.5 |
 | 2026-11-20 | Fix Windows Music `CreateProcess` 87: Unicode env flag in `music_asset` + NUL std handles in `Platform_RunProcess`; `scr_run_process_test` (Linux + Wine) |

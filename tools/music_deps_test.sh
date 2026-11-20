@@ -249,9 +249,98 @@ assert ids=={"python_embed","cricodecs","vgmstream","ffmpeg_lgpl"}, ids
 for p in m["packages"]:
     assert len(p["sha256"])==64 and p["url"].startswith("https://"), p["id"]
     assert "lgpl" in p["url"].lower() or p["id"]!="ffmpeg_lgpl"
+    assert p.get("extract_to"), p["id"]
+    if p["id"] in ("vgmstream", "ffmpeg_lgpl", "python_embed"):
+        assert p.get("exe_relative"), p["id"]
 print("manifest packages", sorted(ids))
 ' "$manf" || fail "music_deps_manifest invalid"
 ok "music_deps_manifest.json pinned + https"
+
+# --- persistence path contract (files authoritative; no state.json required) ---
+# Mirrors music_deps.cpp: extract_to + exe_relative → current/bin publish for CLI tools.
+persist="$tmpdir/Local AppData/SonicColorsRecomp/dependencies"
+python3 -c '
+import json, os, sys
+from pathlib import Path
+man = json.loads(Path(sys.argv[1]).read_text())
+root = Path(sys.argv[2])
+root.mkdir(parents=True, exist_ok=True)
+# Deliberately omit state.json — detection must use files, not metadata.
+for p in man["packages"]:
+    d = root / p["extract_to"]
+    d.mkdir(parents=True, exist_ok=True)
+    if p["id"] == "cricodecs":
+        (d / "cricodecs").mkdir(exist_ok=True)
+        (d / "cricodecs" / "__init__.py").write_text("# test\n")
+    else:
+        art = d / p["exe_relative"]
+        art.parent.mkdir(parents=True, exist_ok=True)
+        art.write_bytes(b"MZ-fake-exe\n")
+        if p["id"] in ("vgmstream", "ffmpeg_lgpl"):
+            (art.parent / "libtest.dll").write_bytes(b"DLL\n")
+bin = root / "current" / "bin"
+bin.mkdir(parents=True, exist_ok=True)
+# Simulate LinkBins publish (manager copies into current/bin).
+for name in ("vgmstream-cli.exe", "ffmpeg.exe", "libtest.dll"):
+    src = None
+    for p in root.rglob(name):
+        src = p
+        break
+    assert src and src.is_file(), name
+    (bin / name).write_bytes(src.read_bytes())
+# Corrupt/missing metadata must not matter:
+(root / "state.json").write_text("{not valid json")
+print("layout-ok", bin)
+' "$manf" "$persist" || fail "persist layout setup"
+set +e
+persist_out=$(
+  unset SCR_MUSIC_BIN
+  SCR_MUSIC_APP_BIN_ONLY=1 \
+  SCR_MUSIC_MANAGED_BIN="$persist/current/bin" \
+  LOCALAPPDATA="$(dirname "$(dirname "$persist")")" \
+  PYTHONPATH="$root/tools" \
+    "$PY" -c '
+import json, os
+from pathlib import Path
+from music_asset_pkg.doctor import find_in_app, doctor
+vg, s1 = find_in_app(["vgmstream-cli", "vgmstream-cli.exe"])
+ff, s2 = find_in_app(["ffmpeg", "ffmpeg.exe"])
+assert vg and vg.endswith("vgmstream-cli.exe"), (vg, s1)
+assert ff and ff.endswith("ffmpeg.exe"), (ff, s2)
+assert "current/bin" in vg.replace("\\\\", "/"), vg
+rep = doctor()
+assert "managed" in rep["deps"], rep["deps"].keys()
+m = rep["deps"]["managed"]
+assert m.get("bin"), m
+assert Path(vg).is_file() and Path(ff).is_file()
+# Corrupt state.json must not hide tools when files exist.
+st = Path(os.environ["SCR_MUSIC_MANAGED_BIN"]).parent.parent / "state.json"
+assert st.is_file() and "not valid" in st.read_text()
+print("persist-detect-ok")
+' 2>&1
+)
+set -e
+echo "$persist_out" | grep -Fq persist-detect-ok || fail "persist detect: $persist_out"
+ok "managed deps persist without state.json (path contract)"
+
+# Incomplete install: extract exists, managed bin empty → discovery must miss (LinkBins required)
+incomplete="$tmpdir/incomplete deps"
+mkdir -p "$incomplete/vgmstream/r2168" "$incomplete/current/bin"
+printf 'MZ\n' > "$incomplete/vgmstream/r2168/vgmstream-cli.exe"
+set +e
+inc_out=$(
+  SCR_MUSIC_APP_BIN_ONLY=1 SCR_MUSIC_MANAGED_BIN="$incomplete/current/bin" PYTHONPATH="$root/tools" \
+    "$PY" -c '
+from music_asset_pkg.doctor import find_in_app
+path, searched = find_in_app(["vgmstream-cli.exe"])
+assert path is None, path
+assert any("current/bin" in s.replace("\\\\", "/") for s in searched), searched
+print("incomplete-ok")
+' 2>&1
+)
+set -e
+echo "$inc_out" | grep -Fq incomplete-ok || fail "incomplete: $inc_out"
+ok "incomplete managed bin not false-positive ready"
 
 if [ "${SCR_MUSIC_PIPELINE:-0}" = 1 ]; then
     if [ -f "$root/game/SNCP8P/files/sonic2010_0.cpk" ] && command -v vgmstream-cli >/dev/null \
