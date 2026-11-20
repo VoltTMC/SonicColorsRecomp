@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Nearby disc formats + last ISO
+
+- Nearby/`game/` discovery accepts ISO/RVZ/WIA/WBFS/GCZ/CISO/NFS (not only `.iso`).
+- Remembers last successful install path; Play missing-data shows free space.
+
 ## 2026-11-20 — Release-notes softener fix + AppStream
 
 - SoftenReleaseBody only strips line-leading markdown (keeps mid-line hyphens).

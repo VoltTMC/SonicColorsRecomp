@@ -1,6 +1,7 @@
 // First-run installer: asks for the disc image and installs the game data from it
 #include "install/install.h"
 #include "install/releases.h"
+#include "config.h"
 #include "log.h"
 #include "platform/platform.h"
 #include "platform/ui.h"
@@ -80,12 +81,18 @@ bool InstallUI_Run(const fs::path& dest, const std::string& foundImage, const st
         freeHint;
     bool installed = false;
     fs::path image;
-    if (!foundImage.empty() && Release_Find(Install_GameId(foundImage)))
+    std::string offer = foundImage;
+    // Fall back to the last successfully used disc path from config.ini.
+    if (offer.empty() && !g_config.isoPath.empty() && fs::exists(g_config.isoPath) &&
+        Install_LooksLikeDiscImage(g_config.isoPath) && Release_Find(Install_GameId(g_config.isoPath)))
+        offer = g_config.isoPath;
+    if (!offer.empty() && Release_Find(Install_GameId(offer)))
     {
-        std::string msg = why + "\n\nInstall from the disc image found next to the game?\n\n" + foundImage +
+        const char* kind = (offer == foundImage) ? "found next to the game" : "used last time";
+        std::string msg = why + "\n\nInstall from the disc image " + kind + "?\n\n" + offer +
                           "\n\nChoose No to pick a different image.";
         MsgResult r = Platform_MessageBox(kTitle, msg, MsgButtons::YesNoCancel, MsgIcon::Question);
-        if (r == MsgResult::Yes) image = foundImage;
+        if (r == MsgResult::Yes) image = offer;
         else if (r == MsgResult::Cancel) return false;
     }
     else
@@ -108,6 +115,8 @@ bool InstallUI_Run(const fs::path& dest, const std::string& foundImage, const st
         if (r == InstallResult::Ok)
         {
             LOG_INFO("game data installed");
+            g_config.isoPath = image.string();
+            Config_Save();
             installed = true;
             break;
         }

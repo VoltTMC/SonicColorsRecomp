@@ -335,14 +335,25 @@ int main(int argc, char** argv)
     pick(dataDir, "game/extracted/DATA");
     if (isoPath.empty())
     {
-        // any disc image in game/ next to the exe or the repo root
+        // Prefer a remembered path from a previous install if it still exists.
+        if (!g_config.isoPath.empty() && std::filesystem::exists(g_config.isoPath) &&
+            Install_LooksLikeDiscImage(g_config.isoPath))
+            isoPath = g_config.isoPath;
+    }
+    if (isoPath.empty())
+    {
+        // Any supported disc image in game/ next to the exe or the repo root
         for (std::string b : { root, root + "/.." })
         {
             std::error_code ec;
             for (auto& e : std::filesystem::directory_iterator(std::filesystem::path(b) / "game", ec))
             {
-                auto ext = e.path().extension().string();
-                if (ext == ".iso" || ext == ".ISO") { isoPath = e.path().string(); break; }
+                if (!e.is_regular_file(ec)) continue;
+                if (Install_LooksLikeDiscImage(e.path()))
+                {
+                    isoPath = e.path().string();
+                    break;
+                }
             }
             if (!isoPath.empty()) break;
         }

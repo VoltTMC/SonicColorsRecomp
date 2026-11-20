@@ -34,6 +34,8 @@ enum class InstallResult
 
 // Game ID of the image, or an empty string if it cannot be opened
 std::string Install_GameId(const std::filesystem::path& image);
+// True for known Wii disc image extensions (.iso/.rvz/.wia/.wbfs/.ciso/.gcz/.nfs), case-insensitive.
+bool Install_LooksLikeDiscImage(const std::filesystem::path& path);
 
 InstallResult Install_Run(const std::filesystem::path& image, const std::filesystem::path& dest,
                           InstallProgress& progress, std::string& error);

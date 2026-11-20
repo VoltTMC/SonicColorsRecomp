@@ -109,6 +109,11 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — Nearby disc formats + last ISO
+
+- `Install_LooksLikeDiscImage`; persist `iso=` after install; Play shows free space when data missing.
+- Next: Win native checklist; optional auto-install / Recomp Achievements.
+
 ### 2026-11-20 — Release-notes softener fix + AppStream
 
 - Line-leading markdown only; `--check-updates` prints notes; metainfo homepage/bugtracker.

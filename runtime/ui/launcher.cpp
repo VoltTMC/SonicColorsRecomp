@@ -267,9 +267,29 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
         ImGui::BulletText("Wait for extraction to finish, then press Play.");
         ImGui::BulletText("Optional: open Settings for graphics, audio, and controller dead zones.");
         if (!isoPath.empty())
-            ImGui::TextDisabled("Disc image found nearby: %s", isoPath.c_str());
+            ImGui::TextDisabled("Disc image ready: %s", isoPath.c_str());
         else
-            ImGui::TextDisabled("No disc image found next to the game — you will be asked to pick one.");
+            ImGui::TextDisabled("No disc image found nearby — you will be asked to pick one (ISO/RVZ/WIA/WBFS/GCZ).");
+        {
+            std::error_code ec;
+            fs::path probe = installDest.has_parent_path() ? installDest.parent_path() : installDest;
+            while (!probe.empty() && !fs::exists(probe, ec))
+            {
+                if (!probe.has_parent_path() || probe.parent_path() == probe) break;
+                probe = probe.parent_path();
+            }
+            const fs::space_info si = fs::space(probe.empty() ? fs::path(".") : probe, ec);
+            if (!ec)
+            {
+                const double gb = (double)si.available / (1024.0 * 1024.0 * 1024.0);
+                if (si.available < (4ull << 30))
+                    ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.35f, 1.f),
+                                       "Free space at install location: %.1f GB (under 4 GB — install may fail).",
+                                       gb);
+                else
+                    ImGui::TextDisabled("Free space at install location: %.1f GB.", gb);
+            }
+        }
         ImGui::Spacing();
         if (ImGui::Button("Open Releases page##missing"))
             Shell_OpenUrl("https://github.com/VoltTMC/SonicColorsRecomp/releases");

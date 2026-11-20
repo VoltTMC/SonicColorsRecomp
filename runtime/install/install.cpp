@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -126,6 +127,14 @@ std::string Install_GameId(const fs::path& image)
     NodDiscHeader h{};
     if (!disc || nod_disc_header(disc.get(), &h) != NOD_RESULT_OK) return {};
     return std::string(h.game_id, 6);
+}
+
+bool Install_LooksLikeDiscImage(const fs::path& path)
+{
+    std::string ext = path.extension().string();
+    for (char& c : ext) c = (char)std::tolower((unsigned char)c);
+    return ext == ".iso" || ext == ".rvz" || ext == ".wia" || ext == ".wbfs" || ext == ".ciso" ||
+           ext == ".gcz" || ext == ".nfs";
 }
 
 InstallResult Install_Run(const fs::path& image, const fs::path& dest, InstallProgress& progress, std::string& error)
