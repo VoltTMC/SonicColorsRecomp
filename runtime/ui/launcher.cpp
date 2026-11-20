@@ -5,11 +5,13 @@
 #include "music_ui.h"
 #include "ui_image.h"
 #include "ui_shot.h"
+#include "../audio/audio_out.h"
 #include "../config.h"
 #include "../env.h"
 #include "../install/releases.h"
 #include "../install/verify.h"
 #include "../log.h"
+#include "../platform/input.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
 #include "../region.h"
@@ -211,6 +213,29 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
         for (auto& m : mods) list += (list.empty() ? "" : ", ") + m;
         if (mods.empty()) ImGui::TextDisabled("Mods: none (see the Mods tab)");
         else ImGui::TextWrapped("Mods active (%d): %s", (int)mods.size(), list.c_str());
+    }
+
+    ImGui::Spacing();
+    ImGui::SeparatorText("Current settings");
+    {
+        const char* fps =
+            g_config.frameRate == 30 ? "30 FPS" : g_config.frameRate == 60 ? "60 FPS" : "Uncapped";
+        ImGui::Text("Display: %s · internal %dx · %s", fps, g_config.internalScale,
+                    g_config.vsync ? "VSync on" : "VSync off");
+        const std::string& dev = AudioOut_CurrentDeviceName();
+        ImGui::Text("Audio: %s · master %.0f%%",
+                    dev.empty() ? "system default" : dev.c_str(), g_config.masterVolume * 100.0f);
+        const int pads = Pad_Count();
+        if (pads <= 0)
+            ImGui::TextDisabled("Controllers: none connected");
+        else
+        {
+            ImGui::Text("Controllers: %d", pads);
+            for (int i = 0; i < 4; i++)
+                if (const char* n = Pad_Name(i))
+                    ImGui::BulletText("P%d: %s", i + 1, n);
+        }
+        ImGui::TextDisabled("Change these under Settings. Dead zones and FPS overlay are there too.");
     }
     ImGui::Spacing();
 

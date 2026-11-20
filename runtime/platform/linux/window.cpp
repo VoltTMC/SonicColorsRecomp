@@ -170,6 +170,11 @@ static void HandleEvent(const SDL_Event& e)
         {
             extern std::atomic<bool> g_pauseRequested;
             g_pauseRequested = !s_focused;
+            if (!s_focused)
+            {
+                void Gamepad_StopRumble();
+                Gamepad_StopRumble();
+            }
         }
         break;
     case SDL_EVENT_MOUSE_MOTION:

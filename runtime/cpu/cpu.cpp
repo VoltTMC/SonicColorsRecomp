@@ -7,6 +7,8 @@
 #include "../kernel/memory.h"
 #include "../kernel/threads.h"
 #include "../region.h"
+#include "../audio/audio_out.h"
+#include "../input/gamepad.h"
 #include "../platform/platform.h"
 
 #include <atomic>
@@ -163,7 +165,10 @@ void Cpu_PauseIfRequested()
     if (!g_pauseRequested.load(std::memory_order_relaxed)) return;
     uint64_t tb = Timebase_Now();
     LOG_INFO("paused");
+    Gamepad_StopRumble();
+    AudioOut_SetSuspended(true);
     while (g_pauseRequested.load()) Platform_SleepMs(20);
+    AudioOut_SetSuspended(false);
     Timebase_Set(tb);
     LOG_INFO("resumed");
 }

@@ -9,12 +9,14 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <mutex>
 #include <string>
 #include <vector>
 
 static std::mutex s_audioMutex;
+static std::atomic<bool> s_suspended{false};
 static SDL_AudioDeviceID s_device = 0;
 static SDL_AudioStream* s_stream = nullptr;
 static uint32_t s_rate = 0;
@@ -123,6 +125,16 @@ void AudioOut_ApplyVolumes(float master, float speaker)
     g_speakerVolume = std::clamp(speaker, 0.0f, 1.0f);
 }
 
+void AudioOut_SetSuspended(bool suspended)
+{
+    s_suspended.store(suspended, std::memory_order_relaxed);
+    std::lock_guard lk(s_audioMutex);
+    const float gain = (suspended || g_audioMute) ? 0.0f : 1.0f;
+    if (s_stream) SDL_SetAudioStreamGain(s_stream, gain);
+    for (auto* sp : s_spkStream)
+        if (sp) SDL_SetAudioStreamGain(sp, gain);
+}
+
 void AudioOut_Init()
 {
     if (!SDL_InitSubSystem(SDL_INIT_AUDIO))
@@ -197,6 +209,7 @@ static int Batches(SDL_AudioStream* st, uint32_t batchBytes) { return SDL_GetAud
 
 void AudioOut_PushDSP(const uint8_t* data, uint32_t bytes, uint32_t sampleRate)
 {
+    if (s_suspended.load(std::memory_order_relaxed)) return;
     std::lock_guard lk(s_audioMutex);
     if (!s_device) return;
     if (!s_stream || s_rate != sampleRate)
@@ -243,6 +256,7 @@ void AudioOut_PushDSP(const uint8_t* data, uint32_t bytes, uint32_t sampleRate)
 
 void AudioOut_PushSpeaker(int chan, const int16_t* pcm, uint32_t samples)
 {
+    if (s_suspended.load(std::memory_order_relaxed)) return;
     std::lock_guard lk(s_audioMutex);
     if (!s_device || chan < 0 || chan > 3) return;
     if (!s_spkStream[chan] && !(s_spkStream[chan] = MakeStreamLocked(1, SPEAKER_RATE))) return;

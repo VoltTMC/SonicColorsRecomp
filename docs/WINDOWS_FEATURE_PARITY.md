@@ -70,6 +70,8 @@ Last updated: 2026-11-20 (continuous improvement audit; stick deadzone; spiral g
 | Graphics presets | yes | yes | FULL `[source]` | Video tab Performance/Balanced/Quality |
 | Config backup before reset | yes | yes | FULL `[source]` | `user_data/config_backups/` (2026-11-20) |
 | On-screen FPS overlay | yes | yes | FULL `[source]` | System → Show FPS overlay |
+| Pause-on-focus (mute + rumble stop) | yes | yes | FULL `[source]` | Audio suspended while guest paused |
+| Launcher settings summary | yes | yes | FULL `[source]` | Display / audio / pads on Play tab |
 | Rumble | yes | yes | UNVERIFIED | `[native]` |
 | Hot-plug toasts | yes | yes | FULL `[source]` | — |
 | Launcher home / Play | yes | yes | FULL `[source]` | Version on home (2026-11-20) |

@@ -60,6 +60,11 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         {
             extern std::atomic<bool> g_pauseRequested;
             g_pauseRequested = (wp == FALSE);
+            if (wp == FALSE)
+            {
+                void Gamepad_StopRumble();
+                Gamepad_StopRumble();
+            }
         }
         break;
     case WM_SETCURSOR:

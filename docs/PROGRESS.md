@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Focus-loss mute + launcher status
+
+- Pause-on-focus-loss mutes host audio (`AudioOut_SetSuspended`) and stops rumble immediately.
+- Launcher Play tab shows current display/audio/controller summary from config.
+
 ## 2026-11-20 — Config backup on reset + FPS overlay
 
 - `Config_BackupCurrent` writes `user_data/config_backups/config_YYYYMMDD_HHMMSS.ini` before System → Reset.

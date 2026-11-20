@@ -19,6 +19,7 @@ static std::string s_deviceName;
 static std::wstring s_deviceId;   // WASAPI endpoint id for CreateMasteringVoice
 static std::mutex s_audioMu;
 static std::atomic<bool> s_needRemaster{false};
+static std::atomic<bool> s_suspended{false};
 
 static IXAudio2* s_xa = nullptr;
 static IXAudio2MasteringVoice* s_master = nullptr;
@@ -146,6 +147,15 @@ void AudioOut_ApplyVolumes(float master, float speaker)
 {
     g_audioVolume = std::clamp(master, 0.0f, 1.0f);
     g_speakerVolume = std::clamp(speaker, 0.0f, 1.0f);
+}
+
+void AudioOut_SetSuspended(bool suspended)
+{
+    s_suspended.store(suspended, std::memory_order_relaxed);
+    std::lock_guard lk(s_audioMu);
+    if (!s_master) return;
+    extern bool g_audioMute;
+    s_master->SetVolume((suspended || g_audioMute) ? 0.0f : 1.0f);
 }
 
 std::vector<AudioDeviceInfo> AudioOut_ListDevices()
@@ -325,6 +335,7 @@ void AudioOut_Init()
 
 void AudioOut_PushDSP(const uint8_t* data, uint32_t bytes, uint32_t sampleRate)
 {
+    if (s_suspended.load(std::memory_order_relaxed)) return;
     MaybeRemaster();
     if (!s_xa) return;
     std::lock_guard lk(s_audioMu);
@@ -382,6 +393,7 @@ static std::deque<std::vector<int16_t>> s_spkInFlight[4];
 
 void AudioOut_PushSpeaker(int chan, const int16_t* pcm, uint32_t samples)
 {
+    if (s_suspended.load(std::memory_order_relaxed)) return;
     MaybeRemaster();
     if (!s_xa || chan < 0 || chan > 3) return;
     std::lock_guard lk(s_audioMu);

@@ -13,6 +13,8 @@ void AudioOut_PushSpeaker(int chan, const int16_t* pcm, uint32_t samples);
 extern float g_audioVolume;     // master (TV / main mix)
 extern float g_speakerVolume;   // relative Wii Remote speaker level (before master)
 void AudioOut_ApplyVolumes(float master, float speaker);
+// Silence host output while the guest is paused (focus-loss). Live-safe; does not change volumes.
+void AudioOut_SetSuspended(bool suspended);
 
 // Playback device selection (Linux/SDL3; Windows/WASAPI+XAudio2). Empty name = system default.
 struct AudioDeviceInfo

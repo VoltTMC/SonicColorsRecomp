@@ -81,10 +81,14 @@ Baseline: Phase 19 `72ae9de` (+ stability-recovery docs). Matching decomp: read-
 
 ## Session log
 
+### 2026-11-20 — Focus-loss mute + launcher status
+
+- `AudioOut_SetSuspended` + rumble stop on pause-on-focus; launcher Current settings strip.
+- Next: controller profile export/import; Win native WASAPI/DPI verification; more launcher polish.
+
 ### 2026-11-20 — Config backup on reset + FPS overlay
 
 - Reset settings copies `config.ini` → `config_backups/` first; System → Show FPS overlay.
-- Next: pause-on-focus polish; controller profile save/load; Win native verification of WASAPI/DPI; launcher home status cards.
 
 ### 2026-11-20 — Trigger deadzone + graphics presets
 
