@@ -104,6 +104,9 @@ static std::atomic<uint64_t> s_guestN{ 0 }, s_presentN{ 0 }, s_xfbN{ 0 };
 static std::atomic<uint64_t> s_guestNs{ 0 }, s_presentNs{ 0 }, s_gxSyncNs{ 0 }, s_viWaitNs{ 0 };
 static std::atomic<uint64_t> s_gapNs{ 0 };   // wall time between FrameLoopWait exit → next enter
 static std::atomic<uint64_t> s_gxSyncCount{ 0 }, s_viSpinIters{ 0 };
+static std::atomic<uint64_t> s_lastPresentNs{ 0 };
+static std::atomic<uint64_t> s_presentSmoothNs{ 0 };
+static std::atomic<uint32_t> s_lastXfbDraws{ 0 };
 
 // Per-thread timing (guest CPU thread / GX present path).
 static thread_local uint64_t t_guest0 = 0, t_present0 = 0, t_gx0 = 0;
@@ -178,22 +181,52 @@ void Perf_OnGxSyncEnd()
 
 void Perf_OnPresentBegin()
 {
-    if (!s_on) return;
+    // Always sample Present duration for the FPS overlay (cheap wall clock).
     t_present0 = Now();
 }
 
 void Perf_OnPresentEnd()
 {
-    if (!s_on || !t_present0) return;
-    s_presentNs.fetch_add(Now() - t_present0, std::memory_order_relaxed);
-    s_presentN.fetch_add(1, std::memory_order_relaxed);
+    if (!t_present0) return;
+    const uint64_t dt = Now() - t_present0;
     t_present0 = 0;
+    s_lastPresentNs.store(dt, std::memory_order_relaxed);
+    uint64_t prev = s_presentSmoothNs.load(std::memory_order_relaxed);
+    const uint64_t next = prev ? (prev * 7 + dt) / 8 : dt;
+    s_presentSmoothNs.store(next, std::memory_order_relaxed);
+    if (!s_on) return;
+    s_presentNs.fetch_add(dt, std::memory_order_relaxed);
+    s_presentN.fetch_add(1, std::memory_order_relaxed);
 }
 
 void Perf_OnXfbCopy()
 {
     if (!s_on) return;
     s_xfbN.fetch_add(1, std::memory_order_relaxed);
+}
+
+void Perf_NoteXfbDraws(uint32_t draws)
+{
+    s_lastXfbDraws.store(draws, std::memory_order_relaxed);
+}
+
+float Perf_LastPresentMs()
+{
+    const uint64_t freq = Freq();
+    if (!freq) return 0.0f;
+    return (float)(s_lastPresentNs.load(std::memory_order_relaxed) * 1000.0 / (double)freq);
+}
+
+float Perf_PresentMsSmooth()
+{
+    const uint64_t freq = Freq();
+    if (!freq) return 0.0f;
+    return (float)(s_presentSmoothNs.load(std::memory_order_relaxed) * 1000.0 / (double)freq);
+}
+
+uint32_t Perf_LastXfbDraws()
+{
+    return s_lastXfbDraws.load(std::memory_order_relaxed);
 }
 
 void Perf_LogStatus(double secs)

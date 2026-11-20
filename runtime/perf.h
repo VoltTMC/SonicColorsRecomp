@@ -28,6 +28,12 @@ void Perf_OnGxSyncEnd();
 void Perf_OnPresentBegin();
 void Perf_OnPresentEnd();
 void Perf_OnXfbCopy();                     // guest requested XFB present
+void Perf_NoteXfbDraws(uint32_t draws);    // 3D draw calls since previous XFB
+
+// Last Present() wall time in ms (includes VSync wait). Always sampled.
+float Perf_LastPresentMs();
+float Perf_PresentMsSmooth();
+uint32_t Perf_LastXfbDraws();
 
 // Watchdog / status line: append rates when --perf is on.
 void Perf_LogStatus(double secs);

@@ -16,6 +16,7 @@
 #include <d3d11_1.h>
 #include <filesystem>
 #include "../config.h"
+#include "../perf.h"
 #include "video.h"
 #include "../kernel/memory.h"
 #include "../log.h"
@@ -1951,6 +1952,7 @@ static void DoEFBCopy()
             s_zeroDrawXfbWarns++;
         }
         s_drawsAtLastXfb = s_drawCalls;
+        Perf_NoteXfbDraws(drawsSince);
 
         uint32_t w = sw * s_scale, h = sh * s_scale;
         D3D11_TEXTURE2D_DESC td{};

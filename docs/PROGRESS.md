@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — FPS overlay Present ms + draws/XFB
+
+- Always sample Present wall time; overlay shows smoothed Present ms and draw calls per XFB.
+
 ## 2026-11-20 — Save backup on write + retention
 
 - `[System] auto_backup_saves_on_write` — deferred backup after NAND flush (stage clear / menu save).

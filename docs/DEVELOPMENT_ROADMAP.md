@@ -45,7 +45,7 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 | 16 | Saves | Auto-backup on launch + after write + retention | **Done** (2026-11-20) |
 | 17 | Packaging | Auto-updater / version check | Check-for-updates **Done**; auto-download open |
 | 18 | Launcher | Resize / HiDPI stress-test checklist | Size persist + PERFORMANCE.md smoke **Done** |
-| 19 | Runtime | In-game performance overlay (CPU/GPU) | FPS+ms+1%+guest+RSS+audio **Done**; GPU counters open |
+| 19 | Runtime | In-game performance overlay (CPU/GPU) | FPS+ms+1%+Present+draws/XFB+guest+RSS+audio **Done**; GPU timestamp queries still open |
 | 20 | Distribution | Signed Windows builds / installer | Open |
 
 ---
@@ -108,6 +108,11 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 ---
 
 ## Session log
+
+### 2026-11-20 — FPS overlay Present ms + draws/XFB
+
+- Present wall timing always sampled; overlay + PERFORMANCE.md updated.
+- Next: Win native checklist; D3D timestamp queries; glyph art for prompts.
 
 ### 2026-11-20 — Save backup on write + retention
 

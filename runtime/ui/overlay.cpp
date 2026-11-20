@@ -163,6 +163,7 @@ void Overlay_Render(float w, float h)
         if (ImGui::Begin("##scr_fps", nullptr, flags))
         {
             ImGui::Text("%.0f FPS  ·  %.1f ms  ·  1%% ~%.0f", s_fpsSmooth, ftMs, onePct);
+            ImGui::Text("present %.1f ms  ·  draws/xfb %u", Perf_PresentMsSmooth(), Perf_LastXfbDraws());
             ImGui::Text("guest ~%.0f Hz  ·  %llu MB  ·  aud underrun %d", s_guestHz,
                         (unsigned long long)s_rssMb, g_audioUnderruns);
         }

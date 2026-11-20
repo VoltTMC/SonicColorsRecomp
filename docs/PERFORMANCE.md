@@ -6,8 +6,9 @@ Repeatable checks for Sonic Colors Recomp. Prefer frame-time consistency over pe
 
 - System → **Show FPS overlay**, or CLI `--show-fps` (this run only).
 - Shows smoothed FPS, instantaneous frame time (ms), approximate 1% low
-  (reciprocal of the slowest frame in a 120-frame window), guest FrameLoopWait Hz,
-  process RSS (MiB), and cumulative audio underruns.
+  (reciprocal of the slowest frame in a 120-frame window), smoothed Present()
+  wall time (includes VSync wait), 3D draw calls since the last XFB copy,
+  guest FrameLoopWait Hz, process RSS (MiB), and cumulative audio underruns.
 - Reports host present rate (ImGui delta), not guest VI wait alone.
 
 ## Linux (native)

@@ -638,7 +638,7 @@ void SystemTab(SettingsHost host)
     Check(host, "Pause when the window is in the background", c.pauseOnFocusLoss, false,
           "Freeze the game while another window has focus. Audio is muted and rumble stops until focus returns.");
     Check(host, "Show FPS overlay", c.showFpsOverlay, false,
-          "Draw FPS, frame time, guest Hz, memory and audio underruns while playing.");
+          "Draw FPS, frame time, Present ms, draws/XFB, guest Hz, memory and audio underruns while playing.");
     Check(host, "Show input hints", c.showInputHints, false,
           "Corner prompts for Jump / Slash / Pause (pad button + keyboard) while playing.");
     Check(host, "Backup saves when starting the game", c.autoBackupSavesOnLaunch, false,
