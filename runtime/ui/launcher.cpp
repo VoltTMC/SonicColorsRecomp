@@ -180,6 +180,32 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
     UpdateCheck_Start(false);   // one background tag check per launcher session
     ImGui::Spacing();
     {
+        static bool versionInit = false;
+        if (!versionInit)
+        {
+            versionInit = true;
+            if (g_config.lastSeenVersion.empty())
+            {
+                g_config.lastSeenVersion = g_version;
+                Config_Save();
+            }
+        }
+        if (g_config.lastSeenVersion != g_version)
+        {
+            ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.95f, 1.f), "Updated to %s", g_version);
+            ImGui::TextDisabled("Previously running %s", g_config.lastSeenVersion.c_str());
+            if (ImGui::SmallButton("Dismiss##whatsnew"))
+            {
+                g_config.lastSeenVersion = g_version;
+                Config_Save();
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Open Releases##whatsnew"))
+                UpdateCheck_OpenReleases();
+            ImGui::Spacing();
+        }
+    }
+    {
         static std::string abnormal;
         static bool abnormalChecked = false;
         if (!abnormalChecked)
@@ -244,11 +270,22 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
             if (p >= 0.f) ImGui::ProgressBar(p, ImVec2(-1, 0));
             const std::string dl = UpdateCheck_DownloadMessage();
             if (!dl.empty()) ImGui::TextWrapped("%s", dl.c_str());
-            if (UpdateCheck_DownloadOk() && ImGui::SmallButton("Open downloads folder"))
-                UpdateCheck_OpenDownloadFolder();
+            if (UpdateCheck_DownloadOk())
+            {
+                if (UpdateCheck_DownloadedPackageIsAppImage())
+                {
+                    if (ImGui::SmallButton("Open AppImage"))
+                        UpdateCheck_OpenDownloadedPackage();
+                }
+                else if (ImGui::SmallButton("Reveal package"))
+                    UpdateCheck_OpenDownloadedPackage();
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Open downloads folder"))
+                    UpdateCheck_OpenDownloadFolder();
+            }
         }
         else
-            ImGui::TextDisabled("Downloads to user_data/downloads/ — replace the install yourself, then relaunch.");
+            ImGui::TextDisabled("Downloads to user_data/downloads/ — open the package, then quit this build.");
         ImGui::Spacing();
     }
     const ImVec4 green(0.45f, 0.80f, 0.40f, 1), red(0.90f, 0.40f, 0.30f, 1);
@@ -519,11 +556,18 @@ bool Launcher_Run(std::string& dataDir, const std::string& isoPath, const fs::pa
 
     bool play = false;
     s_quit = false;
+    bool quitConfirm = false;
     int frames = 0;
+    auto requestQuit = [&] {
+        if (st.verifying)
+            quitConfirm = true;
+        else
+            s_quit = true;
+    };
     while (!s_quit && !play)
     {
         uint32_t resizeW, resizeH;
-        if (!UiWindow_Pump(resizeW, resizeH)) s_quit = true;
+        if (!UiWindow_Pump(resizeW, resizeH)) requestQuit();
         if (s_quit) break;
         // Sync every frame (Pump now reports current pixel size continuously).
         if (resizeW && resizeH)
@@ -625,8 +669,27 @@ bool Launcher_Run(std::string& dataDir, const std::string& isoPath, const fs::pa
             ImGui::EndTabBar();
         }
         ImGui::EndChild();
-        if (ImGui::Button("Quit")) s_quit = true;
+        if (ImGui::Button("Quit")) requestQuit();
         SettingsUI_DrawVersion();
+        if (quitConfirm)
+        {
+            ImGui::OpenPopup("Quit while checking?");
+            quitConfirm = false;
+        }
+        if (ImGui::BeginPopupModal("Quit while checking?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::TextWrapped("A game-file check is still running. Quit anyway?");
+            if (ImGui::Button("Quit", ImVec2(120, 0)))
+            {
+                st.verify.cancel = true;
+                s_quit = true;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Keep checking", ImVec2(140, 0)))
+                ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
         ImGui::End();
 
         ImGui::Render();

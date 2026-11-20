@@ -95,7 +95,9 @@ std::string Config_Text(const Config& c)
     s += "; last settings sub-tab: 0=Video 1=Input 2=Audio 3=System\n";
     s += std::format("settings_tab = {}\n", std::clamp(c.settingsTab, 0, 3));
     s += "; last launcher window size (logical pixels)\n";
-    s += std::format("launcher_width = {}\nlauncher_height = {}\n\n", c.launcherWidth, c.launcherHeight);
+    s += std::format("launcher_width = {}\nlauncher_height = {}\n", c.launcherWidth, c.launcherHeight);
+    s += "; last build version shown on the Play What's new banner (empty until first launch)\n";
+    s += std::format("last_seen_version = {}\n\n", c.lastSeenVersion);
     s += "[Audio]\n";
     s += "; host volume scales (0.0–1.0). Music and SFX share the Wii mix — only a master\n";
     s += "; control is available without changing original game mixing.\n";
@@ -685,6 +687,7 @@ void Config_Load(const std::string& path)
             else if (key == "settings_tab") c.settingsTab = std::clamp(atoi(val.c_str()), 0, 3);
             else if (key == "launcher_width") c.launcherWidth = std::clamp(atoi(val.c_str()), 800, 7680);
             else if (key == "launcher_height") c.launcherHeight = std::clamp(atoi(val.c_str()), 560, 4320);
+            else if (key == "last_seen_version") c.lastSeenVersion = val;
         }
         else if (section == "audio")
         {

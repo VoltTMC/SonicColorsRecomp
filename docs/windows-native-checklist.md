@@ -51,7 +51,9 @@ what you can prove — note that in any report.
 - [ ] Remap settings/screenshot/fullscreen hotkeys (System → Host hotkeys)
 - [ ] Resize launcher; quit and reopen — size restored
 - [ ] System → Check for updates (network); Open Releases page; Download update package → `downloads\` (newest 3 kept)
+- [ ] After download → Reveal package / Open downloads; Play shows What's new after a version bump
 - [ ] Play → Open downloads; optional CLI `--download-update`
+- [ ] Quit during Verify files → confirm dialog
 - [ ] System → Save diagnostic report (includes `.1.log` / free space); or `--save-diagnostics`
 - [ ] System → Copy log path / Copy user data path; after a forced crash, Play banner → Save diagnostic report
 - [ ] FPS overlay shows guest Hz + memory; input hints for Jump/Slash/Pause

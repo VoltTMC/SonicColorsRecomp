@@ -27,3 +27,6 @@ std::string UpdateCheck_DownloadMessage();
 float UpdateCheck_DownloadProgress();
 std::string UpdateCheck_DownloadPath();
 void UpdateCheck_OpenDownloadFolder();
+// Opens the downloaded AppImage (Linux) or reveals the zip (Windows). No-op if none.
+void UpdateCheck_OpenDownloadedPackage();
+bool UpdateCheck_DownloadedPackageIsAppImage();

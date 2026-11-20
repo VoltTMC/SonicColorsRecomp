@@ -43,6 +43,7 @@ struct Config
     int settingsTab = 0;                 // 0 Video, 1 Input, 2 Audio, 3 System
     int launcherWidth = 1060;            // last launcher window size (logical px)
     int launcherHeight = 740;
+    std::string lastSeenVersion;         // g_version last acknowledged on Play (What's new)
     // [Audio]
     float masterVolume = 1.0f;     // 0..1 host scale for the main (TV) mix
     float speakerVolume = 0.6f;    // 0..1 relative Wii Remote speaker level (× master)

@@ -109,6 +109,11 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — What's new + open downloaded package
+
+- Version bump banner; AppImage/zip open after download; quit confirm during verify.
+- Next: Win native checklist; optional auto-install / Recomp Achievements.
+
 ### 2026-11-20 — Crash-banner diagnostics + copy paths
 
 - One-click diagnostic from crash banner; clipboard helpers for log/user-data; desktop Keywords refresh.

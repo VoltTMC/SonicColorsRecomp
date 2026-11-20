@@ -370,7 +370,7 @@ void UpdateCheck_StartDownload()
             if (ok)
             {
                 s_dlPath = dest.string();
-                s_dlMsg = std::format("Downloaded {} — replace your install manually, then relaunch.", safe);
+                s_dlMsg = std::format("Downloaded {} — open the package below, then quit this build.", safe);
             }
             else
             {
@@ -429,4 +429,27 @@ void UpdateCheck_OpenDownloadFolder()
     }
     else
         Shell_OpenFolder(dir);
+}
+
+bool UpdateCheck_DownloadedPackageIsAppImage()
+{
+    const std::string path = UpdateCheck_DownloadPath();
+    if (path.size() < 9) return false;
+    std::string lower = path;
+    for (char& c : lower) c = (char)std::tolower((unsigned char)c);
+    return lower.ends_with(".appimage");
+}
+
+void UpdateCheck_OpenDownloadedPackage()
+{
+    const std::string path = UpdateCheck_DownloadPath();
+    if (path.empty())
+    {
+        UpdateCheck_OpenDownloadFolder();
+        return;
+    }
+    if (UpdateCheck_DownloadedPackageIsAppImage())
+        Shell_OpenUrl(path);
+    else
+        UpdateCheck_OpenDownloadFolder();
 }

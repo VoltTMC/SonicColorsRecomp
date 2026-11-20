@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — What's new + open downloaded package
+
+- Play banner after version bump (`last_seen_version`); Open AppImage / Reveal package after download.
+- Confirm before quitting while a game-file check is running.
+
 ## 2026-11-20 — Crash-banner diagnostics + copy paths
 
 - Play crash recovery: Save diagnostic report; System: Copy log / user-data paths.

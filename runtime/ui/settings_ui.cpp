@@ -714,6 +714,17 @@ void SystemTab(SettingsHost host)
         ImGui::SameLine();
         if (ImGui::Button("Open downloads folder"))
             UpdateCheck_OpenDownloadFolder();
+        if (UpdateCheck_DownloadOk())
+        {
+            ImGui::SameLine();
+            if (UpdateCheck_DownloadedPackageIsAppImage())
+            {
+                if (ImGui::Button("Open AppImage"))
+                    UpdateCheck_OpenDownloadedPackage();
+            }
+            else if (ImGui::Button("Reveal package"))
+                UpdateCheck_OpenDownloadedPackage();
+        }
         const std::string updateMsg = UpdateCheck_Message();
         if (!updateMsg.empty()) ImGui::TextWrapped("%s", updateMsg.c_str());
         if (UpdateCheck_NewerAvailable())
