@@ -41,4 +41,16 @@
     <control>pointing</control>
   </recommends>
   <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.3.0" date="2026-11-20">
+      <description>
+        <p>Launcher and updater polish: last played, reinstall confirm, Install &amp; relaunch, verify-data CLI, window size restore, and RecompLauncher settings.</p>
+      </description>
+    </release>
+    <release version="0.2.0" date="2026-11-20">
+      <description>
+        <p>RecompLauncher Easy Setup support and redistributable packages.</p>
+      </description>
+    </release>
+  </releases>
 </component>

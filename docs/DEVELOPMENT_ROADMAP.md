@@ -109,6 +109,11 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — Release v0.3.0
+
+- Ship redistributables covering post-v0.2.0 launcher/updater/QoL batches.
+- Next: Win native checklist; Recomp Achievements; signed builds.
+
 ### 2026-11-20 — Reinstall confirm + Copy paths
 
 - Accidental reinstall guard; clipboard paths on Play Quick folders.
