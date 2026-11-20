@@ -7,6 +7,7 @@
 #include "ui_shot.h"
 #include "../audio/audio_out.h"
 #include "../config.h"
+#include "../mods/mods.h"
 #include "../env.h"
 #include "../install/releases.h"
 #include "../install/verify.h"
@@ -278,11 +279,37 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
     ImGui::TextDisabled("File checks look at the installed files only; mods load on top of them.");
 
     ImGui::Spacing();
+    ImGui::SeparatorText("Quick folders");
+    ImGui::BeginDisabled(st.status == DataStatus::Missing);
+    if (ImGui::Button("Open game data"))
+    {
+        std::error_code ec;
+        fs::create_directories(st.data, ec);
+        Shell_OpenFolder(st.data);
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Open user data"))
+        Shell_OpenFolder(Platform_UserDir());
+    ImGui::SameLine();
+    if (ImGui::Button("Open mods"))
+    {
+        fs::path mods = Mods_MainDir(g_config.modsDir);
+        std::error_code ec;
+        fs::create_directories(mods, ec);
+        Shell_OpenFolder(mods);
+    }
+    ImGui::TextDisabled("Game data, config/saves/logs, and file-replacement mods.");
+
+    ImGui::Spacing();
     ImGui::SeparatorText("Controls");
     ImGui::TextDisabled("In game: View (Back) or %s opens the settings. View + Start is the Wii HOME button.",
                         Config_HotkeyName(g_config.hotkeySettings, "F1").c_str());
     ImGui::Spacing();
     ImGui::TextDisabled("%s", g_version);
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Copy version"))
+        ImGui::SetClipboardText(g_version);
 }
 }   // namespace
 

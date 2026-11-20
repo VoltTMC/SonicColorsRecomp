@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — Play-tab quick folders
+
+- Open game data / user data / mods; Copy version on the Play tab.
+
 ## 2026-11-20 — Launcher size, richer FPS overlay, update check
 
 - Persist launcher window size; FPS overlay shows ms + approx 1% low.

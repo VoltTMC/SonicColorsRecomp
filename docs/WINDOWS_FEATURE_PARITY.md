@@ -81,6 +81,7 @@ Last updated: 2026-11-20 (continuous improvement audit; stick deadzone; spiral g
 | Persist launcher window size | yes | yes | FULL `[source]` | `launcher_width` / `launcher_height` |
 | FPS overlay (ms / 1% approx) | yes | yes | FULL `[source]` | Host present timing |
 | Check for updates (GitHub) | yes | yes | FULL `[source]` | Tag compare only; no auto-install |
+| Play-tab quick folders | yes | yes | FULL `[source]` | Game data / user data / mods |
 | Rumble | yes | yes | UNVERIFIED | `[native]` |
 | Hot-plug toasts | yes | yes | FULL `[source]` | — |
 | Launcher home / Play | yes | yes | FULL `[source]` | Version on home (2026-11-20) |
