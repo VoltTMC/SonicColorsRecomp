@@ -228,59 +228,7 @@ fs::path Platform_DolphinTextureDir()
 
 bool Platform_ReplaceFile(const std::string& from, const std::string& to) { return rename(from.c_str(), to.c_str()) == 0; }
 
-bool Platform_RunProcess(const std::vector<std::string>& argv,
-                         const fs::path& stdoutPath,
-                         const fs::path& stderrPath,
-                         int& exitCode)
-{
-    exitCode = -1;
-    if (argv.empty() || argv[0].empty()) return false;
-
-    std::vector<char*> args;
-    args.reserve(argv.size() + 1);
-    for (const auto& s : argv) args.push_back(const_cast<char*>(s.c_str()));
-    args.push_back(nullptr);
-
-    int outFd = -1, errFd = -1;
-    auto openOut = [](const fs::path& p) -> int {
-        if (p.empty()) return -1;
-        return open(p.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    };
-    outFd = openOut(stdoutPath);
-    errFd = openOut(stderrPath);
-    if ((!stdoutPath.empty() && outFd < 0) || (!stderrPath.empty() && errFd < 0))
-    {
-        if (outFd >= 0) close(outFd);
-        if (errFd >= 0) close(errFd);
-        return false;
-    }
-
-    posix_spawn_file_actions_t fa;
-    posix_spawn_file_actions_init(&fa);
-    if (outFd >= 0)
-    {
-        posix_spawn_file_actions_adddup2(&fa, outFd, STDOUT_FILENO);
-        posix_spawn_file_actions_addclose(&fa, outFd);
-    }
-    if (errFd >= 0)
-    {
-        posix_spawn_file_actions_adddup2(&fa, errFd, STDERR_FILENO);
-        posix_spawn_file_actions_addclose(&fa, errFd);
-    }
-
-    pid_t pid = 0;
-    int rc = posix_spawnp(&pid, args[0], &fa, nullptr, args.data(), environ);
-    posix_spawn_file_actions_destroy(&fa);
-    if (outFd >= 0) close(outFd);
-    if (errFd >= 0) close(errFd);
-    if (rc != 0) return false;
-
-    int status = 0;
-    if (waitpid(pid, &status, 0) < 0) return false;
-    if (WIFEXITED(status)) exitCode = WEXITSTATUS(status);
-    else exitCode = 128 + (WIFSIGNALED(status) ? WTERMSIG(status) : 1);
-    return true;
-}
+// Platform_RunProcess lives in runtime/platform/run_process.cpp
 
 std::string Platform_UiFont()
 {

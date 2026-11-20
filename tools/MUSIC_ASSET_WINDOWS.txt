@@ -44,3 +44,12 @@ Replacement CPK cache (`music_mods/current.json`) is created by Prepare. A
 use the game CPK directly (they need vgmstream on PATH).
 
 Override the launcher path with SCR_MUSIC_ASSET.
+Override the Python interpreter with SCR_MUSIC_PYTHON (full path to python.exe).
+
+Exit codes from music_asset.exe:
+  127 — Python not found (install Python + music_deps_setup, or set SCR_MUSIC_PYTHON)
+  126 — Python path resolved but CreateProcessW failed (see stderr Win32 code)
+  other non-zero — Python/cli failure
+
+If you previously saw "CreateProcess failed (87)" then "PREPARE FAILED (rc=127)",
+that was a Unicode environment-block bug in the launcher (fixed: CREATE_UNICODE_ENVIRONMENT).

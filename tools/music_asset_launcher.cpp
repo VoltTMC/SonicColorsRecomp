@@ -69,6 +69,12 @@ static bool ExistsFile(const fs::path& p)
 
 static fs::path FindPython(const fs::path& root)
 {
+    if (const char* env = std::getenv("SCR_MUSIC_PYTHON"))
+    {
+        fs::path p(env);
+        if (ExistsFile(p)) return p;
+    }
+
 #ifdef _WIN32
     const fs::path local[] = {
         root / ".venv-music" / "Scripts" / "python.exe",
@@ -86,6 +92,13 @@ static fs::path FindPython(const fs::path& root)
         if (ExistsFile(p)) return p;
 
 #ifdef _WIN32
+    // Installed layout: Music venv under %APPDATA%\SonicColorsRecomp (not beside the exe).
+    if (const wchar_t* appdata = _wgetenv(L"APPDATA"))
+    {
+        const fs::path userVenv =
+            fs::path(appdata) / L"SonicColorsRecomp" / L".venv-music" / L"Scripts" / L"python.exe";
+        if (ExistsFile(userVenv)) return userVenv;
+    }
     for (const wchar_t* name : { L"python.exe", L"python3.exe", L"py.exe" })
     {
         wchar_t buf[MAX_PATH];
@@ -129,32 +142,65 @@ static fs::path FindPython(const fs::path& root)
 }
 
 #ifdef _WIN32
+static std::wstring QuoteWinArg(const std::wstring& arg)
+{
+    if (arg.empty()) return L"\"\"";
+    const bool need = arg.find_first_of(L" \t\"") != std::wstring::npos;
+    if (!need) return arg;
+    std::wstring out = L"\"";
+    int bs = 0;
+    for (wchar_t c : arg)
+    {
+        if (c == L'\\')
+        {
+            ++bs;
+            continue;
+        }
+        if (c == L'"')
+        {
+            out.append(bs * 2 + 1, L'\\');
+            out += L'"';
+            bs = 0;
+            continue;
+        }
+        if (bs)
+        {
+            out.append(bs, L'\\');
+            bs = 0;
+        }
+        out += c;
+    }
+    if (bs) out.append(bs * 2, L'\\');
+    out += L'"';
+    return out;
+}
+
 static int RunWindows(const fs::path& python, const fs::path& tools, int argc, char** argv)
 {
     auto widen = [](const std::string& s) {
-        std::wstring w(MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0), L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), w.data(), (int)w.size());
+        if (s.empty()) return std::wstring();
+        int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
+        std::wstring w(n > 0 ? n : 0, L'\0');
+        if (n > 0) MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), w.data(), n);
         return w;
     };
-    auto quote = [](const std::wstring& a) {
-        if (a.find_first_of(L" \t\"") == std::wstring::npos) return a;
-        std::wstring o = L"\"";
-        for (wchar_t c : a)
-            o += (c == L'"') ? L"\\\"" : std::wstring(1, c);
-        return o + L'"';
-    };
 
-    std::wstring cmd = quote(python.wstring()) + L" -m music_asset_pkg.cli";
+    const std::wstring pyW = python.wstring();
+    const std::wstring toolsW = tools.wstring();
+
+    std::wstring cmd = QuoteWinArg(pyW) + L" -m music_asset_pkg.cli";
     for (int i = 1; i < argc; i++)
     {
         cmd += L' ';
-        cmd += quote(widen(argv[i]));
+        cmd += QuoteWinArg(widen(argv[i]));
     }
 
+    // Unicode environment block requires CREATE_UNICODE_ENVIRONMENT or CreateProcess
+    // returns ERROR_INVALID_PARAMETER (87).
     std::wstring envBlock;
     {
         wchar_t* env = GetEnvironmentStringsW();
-        std::wstring pyPath = L"PYTHONPATH=" + tools.wstring();
+        std::wstring pyPath = L"PYTHONPATH=" + toolsW;
         envBlock = pyPath;
         envBlock.push_back(L'\0');
         if (env)
@@ -175,11 +221,17 @@ static int RunWindows(const fs::path& python, const fs::path& tools, int argc, c
     STARTUPINFOW si{ sizeof(si) };
     PROCESS_INFORMATION pi{};
     std::wstring mutableCmd = cmd;
-    if (!CreateProcessW(python.wstring().c_str(), mutableCmd.data(), nullptr, nullptr, TRUE, 0,
-                        envBlock.data(), tools.wstring().c_str(), &si, &pi))
+    if (!CreateProcessW(pyW.c_str(), mutableCmd.data(), nullptr, nullptr, TRUE,
+                        CREATE_UNICODE_ENVIRONMENT, envBlock.data(), toolsW.c_str(), &si, &pi))
     {
-        fprintf(stderr, "music_asset: CreateProcess failed (%lu)\n", GetLastError());
-        return 127;
+        const DWORD err = GetLastError();
+        fprintf(stderr,
+                "music_asset: failed to start Python (CreateProcessW Win32=%lu). "
+                "python=\"%ls\" tools=\"%ls\"\n",
+                err, pyW.c_str(), toolsW.c_str());
+        // Distinct from "Python not found" (also historically 127) so UI/logs can tell
+        // process-creation failure apart from missing interpreter.
+        return err == ERROR_FILE_NOT_FOUND || err == ERROR_PATH_NOT_FOUND ? 127 : 126;
     }
     WaitForSingleObject(pi.hProcess, INFINITE);
     DWORD code = 1;
@@ -200,8 +252,8 @@ int main(int argc, char** argv)
     if (py.empty())
     {
         fprintf(stderr,
-                "music_asset: Python not found. Install Python 3.11+ and cricodecs,\n"
-                "or set SCR_MUSIC_ASSET to a working launcher. See tools/MUSIC_ASSET_WINDOWS.txt\n");
+                "music_asset: Python not found. Install Python 3.11+ and run Music deps setup,\n"
+                "or set SCR_MUSIC_PYTHON / SCR_MUSIC_ASSET. See tools/MUSIC_ASSET_WINDOWS.txt\n");
         return 127;
     }
 

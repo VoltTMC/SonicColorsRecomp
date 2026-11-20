@@ -62,6 +62,8 @@ bool Platform_RunProcess(const std::vector<std::string>& argv,
                          const std::filesystem::path& stdoutPath,
                          const std::filesystem::path& stderrPath,
                          int& exitCode);
+// After a failed Platform_RunProcess: Win32 GetLastError, or posix_spawnp/errno; else 0.
+unsigned Platform_LastRunProcessError();
 // A UI font of the system (empty: use ImGui's own).
 std::string Platform_UiFont();
 // fonts merged after it for Chinese, Japanese and Korean text and symbols (existing files only)

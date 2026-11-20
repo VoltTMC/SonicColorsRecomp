@@ -41,6 +41,13 @@ static int g_fail = 0;
 
 fs::path Platform_ExeDir() { return s_exeDir; }
 
+// Use the shared implementation under test for MusicTool_Run integration.
+// (stubs for other Platform_* remain below)
+
+unsigned Platform_LastRunProcessError(); // defined in run_process.cpp when linked
+
+// When this TU is built alone without run_process.cpp, provide thin stubs:
+#if !defined(SCR_PLATFORM_TEST_USE_RUN_PROCESS)
 bool Platform_RunProcess(const std::vector<std::string>& argv,
                          const fs::path& stdoutPath,
                          const fs::path& stderrPath,
@@ -67,7 +74,7 @@ bool Platform_RunProcess(const std::vector<std::string>& argv,
         cmd += quote(widen(argv[i]));
     }
     SECURITY_ATTRIBUTES sa{ sizeof(sa), nullptr, TRUE };
-    HANDLE hOut = INVALID_HANDLE_VALUE, hErr = INVALID_HANDLE_VALUE;
+    HANDLE hOut = INVALID_HANDLE_VALUE, hErr = INVALID_HANDLE_VALUE, hNul = INVALID_HANDLE_VALUE;
     if (!stdoutPath.empty())
         hOut = CreateFileW(stdoutPath.wstring().c_str(), GENERIC_WRITE, FILE_SHARE_READ, &sa, CREATE_ALWAYS,
                            FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -77,10 +84,12 @@ bool Platform_RunProcess(const std::vector<std::string>& argv,
     STARTUPINFOW si{ sizeof(si) };
     if (hOut != INVALID_HANDLE_VALUE || hErr != INVALID_HANDLE_VALUE)
     {
+        hNul = CreateFileW(L"NUL", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa,
+                           OPEN_EXISTING, 0, nullptr);
         si.dwFlags |= STARTF_USESTDHANDLES;
-        si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
-        si.hStdOutput = hOut != INVALID_HANDLE_VALUE ? hOut : GetStdHandle(STD_OUTPUT_HANDLE);
-        si.hStdError = hErr != INVALID_HANDLE_VALUE ? hErr : GetStdHandle(STD_ERROR_HANDLE);
+        si.hStdInput = hNul;
+        si.hStdOutput = hOut != INVALID_HANDLE_VALUE ? hOut : hNul;
+        si.hStdError = hErr != INVALID_HANDLE_VALUE ? hErr : hNul;
     }
     PROCESS_INFORMATION pi{};
     std::wstring mutableCmd = cmd;
@@ -88,6 +97,7 @@ bool Platform_RunProcess(const std::vector<std::string>& argv,
                              &si, &pi);
     if (hOut != INVALID_HANDLE_VALUE) CloseHandle(hOut);
     if (hErr != INVALID_HANDLE_VALUE) CloseHandle(hErr);
+    if (hNul != INVALID_HANDLE_VALUE) CloseHandle(hNul);
     if (!ok) return false;
     WaitForSingleObject(pi.hProcess, INFINITE);
     DWORD code = 1;
@@ -128,10 +138,14 @@ bool Platform_RunProcess(const std::vector<std::string>& argv,
 #endif
 }
 
+unsigned Platform_LastRunProcessError() { return 0; }
+#endif
+
 // Unused stubs required if something pulls more of platform.h (not linked).
 void Platform_Init(int, char**) {}
 void Platform_RequestPortable() {}
 fs::path Platform_UserDir() { return s_exeDir; }
+fs::path Platform_MusicToolsBinDir() { return s_exeDir / "tools" / "bin"; }
 bool Platform_ReplaceFile(const std::string& from, const std::string& to)
 {
     std::error_code ec;

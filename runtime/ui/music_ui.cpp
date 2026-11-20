@@ -657,7 +657,18 @@ void StartPrepareAsync()
                     if (!log.empty()) log += "\n";
                     log += js.size() > 1500 ? js.substr(0, 1500) + "…" : js;
                 }
-                if (rc != 0) log = "PREPARE FAILED (rc=" + std::to_string(rc) + ")\n" + log;
+                if (rc != 0)
+                {
+                    std::string why = "PREPARE FAILED (rc=" + std::to_string(rc) + ")";
+                    if (rc == 127)
+                        why += " — helper/Python not found (install Music deps or set SCR_MUSIC_PYTHON)";
+                    else if (rc == 126)
+                        why += " — failed to start Python (see log; often CreateProcess/env)";
+                    else if (rc < 0)
+                        why += " — process did not start (Win32=" +
+                               std::to_string(Platform_LastRunProcessError()) + ")";
+                    log = why + "\n" + log;
+                }
             }
         }
         {

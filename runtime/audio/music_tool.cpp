@@ -1,6 +1,7 @@
 #include "music_tool.h"
 #include "../platform/platform.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <system_error>
@@ -59,6 +60,18 @@ bool MusicTool_Run(const std::vector<std::string>& args,
     if (tool.empty())
     {
         exitCode = -1;
+        if (!stderrPath.empty())
+        {
+            std::error_code ec;
+            fs::create_directories(stderrPath.parent_path(), ec);
+            FILE* f = std::fopen(stderrPath.string().c_str(), "wb");
+            if (f)
+            {
+                std::fprintf(f, "MusicTool_Run: music_asset helper not found "
+                                "(checked SCR_MUSIC_ASSET and tools/ beside the app).\n");
+                std::fclose(f);
+            }
+        }
         return false;
     }
     // Prefer user-writable drop-ins (survive updates) over install-dir tools/bin.
@@ -72,5 +85,23 @@ bool MusicTool_Run(const std::vector<std::string>& args,
     argv.reserve(args.size() + 1);
     argv.push_back(tool.string());
     argv.insert(argv.end(), args.begin(), args.end());
-    return Platform_RunProcess(argv, stdoutPath, stderrPath, exitCode);
+    const bool ok = Platform_RunProcess(argv, stdoutPath, stderrPath, exitCode);
+    if (!ok && !stderrPath.empty())
+    {
+        // Platform_RunProcess may already have written a CreateProcess diagnostic.
+        std::error_code ec;
+        const auto sz = fs::file_size(stderrPath, ec);
+        if (ec || sz == 0)
+        {
+            FILE* f = std::fopen(stderrPath.string().c_str(), "wb");
+            if (f)
+            {
+                std::fprintf(f,
+                             "MusicTool_Run: failed to start \"%s\" (platform error %u).\n",
+                             tool.string().c_str(), Platform_LastRunProcessError());
+                std::fclose(f);
+            }
+        }
+    }
+    return ok;
 }

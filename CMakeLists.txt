@@ -329,6 +329,29 @@ if(WIN32 OR LINUX)
                                                         RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
                                                         RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
 
+    # Real Platform_RunProcess implementation (not stubs).
+    add_executable(scr_run_process_test EXCLUDE_FROM_ALL tools/run_process_test/main.cpp
+                                       runtime/platform/run_process.cpp)
+    target_include_directories(scr_run_process_test PRIVATE runtime)
+    if(LINUX OR MINGW)
+        target_compile_options(scr_run_process_test PRIVATE -include ${CMAKE_SOURCE_DIR}/runtime/platform/compat.h)
+        target_link_options(scr_run_process_test PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
+    if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Windows")
+        target_compile_definitions(scr_run_process_test PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    endif()
+    if(MSVC_FRONTEND)
+        target_compile_options(scr_run_process_test PRIVATE /EHsc /utf-8)
+    endif()
+    if(MINGW)
+        set_target_properties(scr_run_process_test PROPERTIES WIN32_EXECUTABLE FALSE)
+        target_link_options(scr_run_process_test PRIVATE -mconsole
+                            -static-libgcc -static-libstdc++ -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic)
+    endif()
+    set_target_properties(scr_run_process_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${SCR_OUT_DIR}
+                                                          RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
+                                                          RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
+
     add_executable(scr_config_test EXCLUDE_FROM_ALL tools/config_test/main.cpp runtime/config.cpp)
     target_include_directories(scr_config_test PRIVATE runtime)
     if(LINUX)
@@ -478,6 +501,7 @@ else()
 endif()
 list(FILTER PLATFORM_SOURCES EXCLUDE REGEX "/sha1[.]cpp$")   # in scr_installer
 list(APPEND RUNTIME_SOURCES ${PLATFORM_SOURCES})
+list(APPEND RUNTIME_SOURCES runtime/platform/run_process.cpp)
 add_executable(SonicColorsRecomp ${RUNTIME_SOURCES})
 target_include_directories(SonicColorsRecomp PRIVATE runtime runtime/cpu generated)
 target_sources(SonicColorsRecomp PRIVATE $<TARGET_OBJECTS:ppcrecomp>)

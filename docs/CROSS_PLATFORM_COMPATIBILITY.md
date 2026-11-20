@@ -100,11 +100,11 @@ Discovery: `tools/bin` → `SCR_MUSIC_BIN` → `PATH`. Doctor **runs** each bina
 | Browse full catalog (~114) | PASS | PASS package | UNVERIFIED UI | Clean ZIP unzip test |
 | Locate original CPK | PASS | PASS `[auto]` | PASS `[auto]` | Portable `exe/game/...` |
 | Replacement CPK cache (`current.json`) | PASS | PASS `[source]` | PASS `[source]` | Only after Prepare |
-| Original preview | PARTIAL | PARTIAL | PARTIAL | vgmstream + Python |
+| Original preview | PARTIAL | PARTIAL → launch fixed `[wine]` | PARTIAL | Process launch fixed; full audio UNVERIFIED native |
 | Replacement WAV preview | PASS `[source]` | PASS `[source]` | UNVERIFIED | No CPK cache needed |
 | A/B compare | PASS `[source]` | PASS `[source]` | UNVERIFIED | |
-| Export original WAV | PARTIAL | PARTIAL | PARTIAL | Same tool chain |
-| Prepare ADX/AAX/CPK patch | PARTIAL | PARTIAL | PARTIAL | Same tool chain |
+| Export original WAV | PARTIAL | PARTIAL → launch fixed `[wine]` | PARTIAL | Same as preview |
+| Prepare ADX/AAX/CPK patch | PARTIAL | PARTIAL → launch fixed `[wine]` | PARTIAL | Was CreateProcess 87 / rc=127; see root causes |
 | In-game replacement | PASS `[source]` | PASS `[source]` | UNVERIFIED | Shared `music_mod` |
 | Original CPK untouched | PASS | PASS | PASS `[source]` | |
 
@@ -145,6 +145,8 @@ Discovery: `tools/bin` → `SCR_MUSIC_BIN` → `PATH`. Doctor **runs** each bina
 | Launcher tab `forceTab` stuck | Tabs not clickable | Dedicated `bootFrames` |
 | Host music toolchain not bundled | Prepare/preview/export PARTIAL both OS | Doctor + setup scripts + optional `tools/bin` drop-ins; no GPL FFmpeg in packages |
 | `music_asset.exe` MinGW DLL next to main exe only | Helper failed to load under Wine/clean ZIP (`libwinpthread-1.dll`) | Also ship winpthread under `tools/` |
+| `music_asset.exe` Unicode env block without `CREATE_UNICODE_ENVIRONMENT` | `CreateProcess failed (87)` then `PREPARE FAILED (rc=127)` when starting Python | Pass `CREATE_UNICODE_ENVIRONMENT`; discover AppData `.venv-music`; distinguish exit 126 vs 127 |
+| GUI `Platform_RunProcess` + `STARTF_USESTDHANDLES` + `GetStdHandle` | `ERROR_INVALID_PARAMETER` (87) when redirecting stdout/stderr from a GUI parent | Open `NUL` for stdin/unused std handles; shared `runtime/platform/run_process.cpp` + `scr_run_process_test` |
 
 ---
 
@@ -153,11 +155,13 @@ Discovery: `tools/bin` → `SCR_MUSIC_BIN` → `PATH`. Doctor **runs** each bina
 ### Automated (this repo)
 
 ```bash
-cmake --build --preset linux-clang --target SonicColorsRecomp scr_music_paths_test scr_music_manifest_test scr_update_apply_test
+cmake --build --preset linux-clang --target SonicColorsRecomp scr_music_paths_test scr_music_manifest_test scr_update_apply_test scr_run_process_test
 ./out/scr_music_paths_test
 ./out/scr_music_manifest_test
 ./out/scr_update_apply_test
-cmake --build --preset windows-mingw --target SonicColorsRecomp
+./out/scr_run_process_test
+cmake --build --preset windows-mingw --target SonicColorsRecomp scr_run_process_test music_asset
+wine out-windows/scr_run_process_test.exe   # Wine ≠ native Windows PASS
 ./tools/package_linux.sh -S
 ./tools/package_windows_cross.sh -v test
 ./tools/package_cross_check.sh
@@ -190,6 +194,7 @@ Follow `docs/windows-native-checklist.md`. Items marked UNVERIFIED above stay UN
 
 | Date | Change |
 |------|--------|
+| 2026-11-20 | Fix Windows Music `CreateProcess` 87: Unicode env flag in `music_asset` + NUL std handles in `Platform_RunProcess`; `scr_run_process_test` (Linux + Wine) |
 | 2026-11-20 | Windows per-user Inno installer (`installed.txt` → AppData); portable ZIP optional; user-data music tools |
 | 2026-11-20 | Doctor exec/version probe, clean-env tests, setup.steps, optional ffmpeg fix, AppDir isolated doctor |
 | 2026-11-20 | Ship `libwinpthread-1.dll` next to `tools/music_asset.exe`; Wine doctor smoke in `package_cross_check` |
