@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — GPU blit timing on FPS overlay
+
+- D3D11 timestamp queries around the present blit; overlay shows `GPU blit ~N ms` when resolved.
+
 ## 2026-11-20 — Persist Music Library filters
 
 - `[Music] filter_cat/var/repl/world` remember Category/Variant/Replaced/World combos.

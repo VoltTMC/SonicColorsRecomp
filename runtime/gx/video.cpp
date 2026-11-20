@@ -5,6 +5,7 @@
 #include "../platform/platform.h"
 #include "../platform/window.h"
 #include "../ios/nand_autosave.h"
+#include "../perf.h"
 #include "../ui/overlay.h"
 
 #include <algorithm>
@@ -29,6 +30,56 @@ static ID3D11DepthStencilState* s_blitDS = nullptr;
 // UI screenshots of a minimized test window (BKR_UI_SHOT_OVERLAY): drawn off screen
 static ID3D11Texture2D* s_shotTex = nullptr;
 static ID3D11RenderTargetView* s_shotRTV = nullptr;
+// Double-buffered GPU timestamps around the present blit (one frame late when resolved).
+static ID3D11Query* s_gpuDisjoint[2]{};
+static ID3D11Query* s_gpuTsBegin[2]{};
+static ID3D11Query* s_gpuTsEnd[2]{};
+static int s_gpuQWrite = 0;
+static bool s_gpuQPending[2]{};
+
+static void GpuTimingEnsure()
+{
+    if (s_gpuDisjoint[0]) return;
+    D3D11_QUERY_DESC qd{};
+    for (int i = 0; i < 2; i++)
+    {
+        qd.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
+        if (FAILED(g_device->CreateQuery(&qd, &s_gpuDisjoint[i]))) return;
+        qd.Query = D3D11_QUERY_TIMESTAMP;
+        if (FAILED(g_device->CreateQuery(&qd, &s_gpuTsBegin[i]))) return;
+        if (FAILED(g_device->CreateQuery(&qd, &s_gpuTsEnd[i]))) return;
+    }
+}
+
+static void GpuTimingBegin()
+{
+    if (!g_config.showFpsOverlay) return;
+    GpuTimingEnsure();
+    if (!s_gpuDisjoint[0]) return;
+    g_ctx->Begin(s_gpuDisjoint[s_gpuQWrite]);
+    g_ctx->End(s_gpuTsBegin[s_gpuQWrite]);
+}
+
+static void GpuTimingEndAndResolve()
+{
+    if (!g_config.showFpsOverlay || !s_gpuDisjoint[0]) return;
+    g_ctx->End(s_gpuTsEnd[s_gpuQWrite]);
+    g_ctx->End(s_gpuDisjoint[s_gpuQWrite]);
+    s_gpuQPending[s_gpuQWrite] = true;
+    s_gpuQWrite ^= 1;
+    const int r = s_gpuQWrite;
+    if (!s_gpuQPending[r]) return;
+    D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj{};
+    UINT64 t0 = 0, t1 = 0;
+    // DONOTFLUSH: return S_FALSE until ready (do not stall the pipe).
+    if (g_ctx->GetData(s_gpuDisjoint[r], &dj, sizeof(dj), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) return;
+    if (g_ctx->GetData(s_gpuTsBegin[r], &t0, sizeof(t0), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) return;
+    if (g_ctx->GetData(s_gpuTsEnd[r], &t1, sizeof(t1), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) return;
+    s_gpuQPending[r] = false;
+    if (dj.Disjoint || !dj.Frequency || t1 < t0) return;
+    const uint64_t gpuNs = (uint64_t)((double)(t1 - t0) * 1.0e9 / (double)dj.Frequency);
+    Perf_NoteGpuNs(gpuNs);
+}
 static ID3DBlob* Compile(const char* src, const char* entry, const char* target)
 {
     ID3DBlob* blob = nullptr;
@@ -188,6 +239,7 @@ void Video_Present(ID3D11ShaderResourceView* srv, float u0, float v0, float u1, 
     float black[4] = { 0, 0, 0, 1 };
     g_ctx->OMSetRenderTargets(1, &target, nullptr);
     g_ctx->ClearRenderTargetView(target, black);
+    GpuTimingBegin();
     if (srv)
     {
         // letterbox to target aspect (optional integer scale keeps sharp pixels)
@@ -227,6 +279,7 @@ void Video_Present(ID3D11ShaderResourceView* srv, float u0, float v0, float u1, 
     }
     Overlay_Render(w, h);   // in-game settings, drawn over the game while it keeps running
     NandAutosave_Tick();
+    GpuTimingEndAndResolve();
     HRESULT hr = s_swapchain->Present(g_videoConfig.vsync ? 1 : 0, 0);
     if (FAILED(hr))
     {

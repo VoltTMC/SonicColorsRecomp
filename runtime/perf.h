@@ -34,6 +34,8 @@ void Perf_NoteXfbDraws(uint32_t draws);    // 3D draw calls since previous XFB
 float Perf_LastPresentMs();
 float Perf_PresentMsSmooth();
 uint32_t Perf_LastXfbDraws();
+void Perf_NoteGpuNs(uint64_t gpuNs);   // from D3D11 timestamp queries (one frame late)
+float Perf_GpuMsSmooth();              // 0 if no GPU timing yet
 
 // Watchdog / status line: append rates when --perf is on.
 void Perf_LogStatus(double secs);

@@ -255,6 +255,11 @@ void Overlay_Render(float w, float h)
         {
             ImGui::Text("%.0f FPS  ·  %.1f ms  ·  1%% ~%.0f", s_fpsSmooth, ftMs, onePct);
             ImGui::Text("present %.1f ms  ·  draws/xfb %u", Perf_PresentMsSmooth(), Perf_LastXfbDraws());
+            {
+                const float gpuMs = Perf_GpuMsSmooth();
+                if (gpuMs > 0.0f)
+                    ImGui::Text("GPU blit ~%.2f ms", gpuMs);
+            }
             ImGui::Text("guest ~%.0f Hz  ·  %llu MB  ·  aud underrun %d", s_guestHz,
                         (unsigned long long)s_rssMb, g_audioUnderruns);
         }

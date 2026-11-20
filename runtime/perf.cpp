@@ -107,6 +107,7 @@ static std::atomic<uint64_t> s_gxSyncCount{ 0 }, s_viSpinIters{ 0 };
 static std::atomic<uint64_t> s_lastPresentNs{ 0 };
 static std::atomic<uint64_t> s_presentSmoothNs{ 0 };
 static std::atomic<uint32_t> s_lastXfbDraws{ 0 };
+static std::atomic<uint64_t> s_gpuSmoothNs{ 0 };
 
 // Per-thread timing (guest CPU thread / GX present path).
 static thread_local uint64_t t_guest0 = 0, t_present0 = 0, t_gx0 = 0;
@@ -227,6 +228,18 @@ float Perf_PresentMsSmooth()
 uint32_t Perf_LastXfbDraws()
 {
     return s_lastXfbDraws.load(std::memory_order_relaxed);
+}
+
+void Perf_NoteGpuNs(uint64_t gpuNs)
+{
+    uint64_t prev = s_gpuSmoothNs.load(std::memory_order_relaxed);
+    const uint64_t next = prev ? (prev * 7 + gpuNs) / 8 : gpuNs;
+    s_gpuSmoothNs.store(next, std::memory_order_relaxed);
+}
+
+float Perf_GpuMsSmooth()
+{
+    return (float)(s_gpuSmoothNs.load(std::memory_order_relaxed) / 1.0e6);
 }
 
 void Perf_LogStatus(double secs)
