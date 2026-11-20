@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Release-notes softener fix + AppStream
+
+- SoftenReleaseBody only strips line-leading markdown (keeps mid-line hyphens).
+- `--check-updates` prints notes when newer; AppStream description / URLs refreshed.
+
 ## 2026-11-20 — Update notes + diagnostics prune
 
 - Newer-release banner / Settings show softened GitHub release notes.

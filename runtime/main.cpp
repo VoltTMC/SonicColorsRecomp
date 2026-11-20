@@ -179,7 +179,13 @@ int main(int argc, char** argv)
             if (msg.find("failed") != std::string::npos || msg.find("Could not") != std::string::npos ||
                 msg.find("No release") != std::string::npos)
                 return 1;
-            return UpdateCheck_NewerAvailable() ? 2 : 0;
+            if (UpdateCheck_NewerAvailable())
+            {
+                const std::string notes = UpdateCheck_Notes();
+                if (!notes.empty()) std::printf("\n%s\n", notes.c_str());
+                return 2;
+            }
+            return 0;
         }
         if (a == "--download-update")
         {

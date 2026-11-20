@@ -11,9 +11,15 @@
     <p>
       Sonic Colors Recomp runs the original Wii game as a native PC application
       (recompilation), with a launcher, settings, music replacement, and mod support.
-      You must supply your own legally obtained game data.
+      You must supply your own legally obtained Europe / PAL (SNCP8P) game data.
+    </p>
+    <p>
+      Works with RecompLauncher Easy Setup, optional update downloads, save backups,
+      FPS overlay, and diagnostic reports for troubleshooting.
     </p>
   </description>
+  <url type="homepage">https://github.com/VoltTMC/SonicColorsRecomp</url>
+  <url type="bugtracker">https://github.com/VoltTMC/SonicColorsRecomp/issues</url>
   <launchable type="desktop-id">soniccolorsrecomp.desktop</launchable>
   <categories>
     <category>Game</category>
