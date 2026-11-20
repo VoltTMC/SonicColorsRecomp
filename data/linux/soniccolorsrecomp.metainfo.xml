@@ -42,6 +42,11 @@
   </recommends>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.3.7" date="2026-11-20">
+      <description>
+        <p>Hotfix: Music original preview uses vgmstream-cli (not the 123 player), managed Windows Music deps install/persist correctly, Check tools works with embed Python, and the Music tab list is much more responsive.</p>
+      </description>
+    </release>
     <release version="0.3.6" date="2026-11-20">
       <description>
         <p>Hotfix: Windows Music Library can Install Music tools from the launcher (pinned Python, cricodecs, vgmstream, LGPL FFmpeg into LocalAppData). Also includes vgmstream discovery and CreateProcess 87 fixes from 0.3.5.</p>

@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — Release v0.3.7 (hotfix)
+
+- Music original preview (vgmstream-cli), managed Windows Music deps persistence/Check tools, and Music tab performance since 0.3.6.
+
 ## 2026-11-20 — Fix original preview picking vgmstream123
 
 - Doctor preferred `vgmstream123` (player) after `vgmstream-cli -h` exited 1; preview then failed with “Live output driver does not take an output file”.

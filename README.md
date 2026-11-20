@@ -125,8 +125,8 @@ See [`docs/MUSIC_MODDING.md`](docs/MUSIC_MODDING.md).
 
 ```bash
 cmake --build --preset windows-mingw --target SonicColorsRecomp music_asset
-./tools/package_windows_installer.sh -v 0.3.6   # Setup.exe (primary; Wine+Inno or ISCC)
-./tools/package_windows_cross.sh -v 0.3.6       # optional portable ZIP
+./tools/package_windows_installer.sh -v 0.3.7   # Setup.exe (primary; Wine+Inno or ISCC)
+./tools/package_windows_cross.sh -v 0.3.7       # optional portable ZIP
 ./tools/package_windows_install_check.sh
 ```
 
