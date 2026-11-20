@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — `--show-hints` + HiDPI checklist
+
+- CLI `--show-hints` for this-run input prompts; PERFORMANCE.md HiDPI/resize smoke steps.
+
 ## 2026-11-20 — Perf overlay detail + input hints
 
 - FPS overlay: guest Hz, RSS MB, audio underruns; `Platform_ProcessRssMb`.

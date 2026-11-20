@@ -45,6 +45,14 @@ Record for ~60s in a quiet stage (e.g. Tropical Resort Act 1):
 | Cold start | Time to first launcher frame |
 | Music Library | Time to list tracks after open |
 | Resize | No blurry intermediate frames; UI stays interactive |
+| Size restore | Quit after resize; reopen — size matches `launcher_width/height` |
+
+### HiDPI / resize smoke (manual)
+
+1. Start launcher at 100% / 125% / 150% desktop scale.
+2. Resize continuously for ~10 s; text stays sharp; no frozen controls.
+3. Maximise / restore; Play and Music tabs remain usable.
+4. Quit and relaunch; window size restored from config.
 
 ## What not to change
 
