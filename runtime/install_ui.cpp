@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <filesystem>
+#include <format>
 #include <string>
 #include <thread>
 
@@ -52,11 +53,31 @@ bool InstallUI_Run(const fs::path& dest, const std::string& foundImage, const st
         ? "Sonic Colors game data is not installed yet."
         : "The installed Sonic Colors game data is damaged (" + damage + ") and needs reinstalling.";
     // Supported releases come from runtime/install/releases.cpp (currently Europe SNCP8P).
+    std::string freeHint;
+    {
+        std::error_code ec;
+        fs::path probe = dest.has_parent_path() ? dest.parent_path() : dest;
+        while (!probe.empty() && !fs::exists(probe, ec))
+        {
+            if (!probe.has_parent_path() || probe.parent_path() == probe) break;
+            probe = probe.parent_path();
+        }
+        const fs::space_info si = fs::space(probe.empty() ? fs::path(".") : probe, ec);
+        if (!ec)
+        {
+            const double gb = (double)si.available / (1024.0 * 1024.0 * 1024.0);
+            freeHint = std::format("\nFree space at install location: {:.1f} GB.", gb);
+            if (si.available < (4ull << 30))
+                freeHint += " (Warning: under 4 GB — install may fail.)";
+        }
+    }
     std::string need = std::string("Supported release: ") + kReleaseNames +
         ".\nUSA (SNCE8P) and Japan (SNCJ8P) discs are not supported yet.\n\n"
-        "Select your own Wii disc image of Sonic Colors (ISO, RVZ, WIA, or WBFS). "
-        "Installation takes about a minute and needs roughly 4 GB of free space; "
-        "the disc image is not needed afterwards.";
+        "Select your own Wii disc image of Sonic Colors (ISO, RVZ, WIA, WBFS, or GCZ). "
+        "Installation takes about a minute and needs roughly 4 GB of free space"
+        " (about 8 GB free if reinstalling over existing data); "
+        "the disc image is not needed afterwards." +
+        freeHint;
     bool installed = false;
     fs::path image;
     if (!foundImage.empty() && Release_Find(Install_GameId(foundImage)))

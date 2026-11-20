@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <format>
 #include <memory>
 #include <span>
 #include <thread>
@@ -21,8 +22,42 @@ const wchar_t* const kInstallImageFilter = L"*.iso;*.rvz;*.wia;*.wbfs;*.ciso;*.g
 namespace
 {
 constexpr uint64_t kUnencryptedSize = 0x50000;
+// Extra headroom beyond FST payload (sys blobs, unencrypted.bin, FS overhead, rename swap).
+constexpr uint64_t kInstallSpaceMargin = 256ull << 20;
 
 struct NodDeleter { void operator()(NodHandle* h) const { nod_free(h); } };
+
+std::string FormatBytes(uint64_t n)
+{
+    const double gb = (double)n / (1024.0 * 1024.0 * 1024.0);
+    if (gb >= 0.1) return std::format("{:.1f} GB", gb);
+    const double mb = (double)n / (1024.0 * 1024.0);
+    return std::format("{:.0f} MB", mb);
+}
+
+// False with a player-facing error when the destination volume cannot hold a full extract.
+bool EnoughFreeSpace(const fs::path& dest, uint64_t payloadBytes, std::string& error)
+{
+    std::error_code ec;
+    fs::path probe = dest;
+    if (probe.has_parent_path()) probe = probe.parent_path();
+    if (probe.empty()) probe = ".";
+    // Walk up until a path that exists so space() works before create_directories.
+    while (!probe.empty() && !fs::exists(probe, ec))
+    {
+        if (!probe.has_parent_path() || probe.parent_path() == probe) break;
+        probe = probe.parent_path();
+    }
+    const fs::space_info si = fs::space(probe.empty() ? fs::path(".") : probe, ec);
+    if (ec)
+        return true;   // cannot query — proceed and let writes fail normally
+    const uint64_t need = payloadBytes + kInstallSpaceMargin;
+    if (si.available >= need) return true;
+    error = std::format(
+        "Not enough free space to install game data (need about {}, have {} free on {}).",
+        FormatBytes(need), FormatBytes(si.available), probe.string());
+    return false;
+}
 using NodPtr = std::unique_ptr<NodHandle, NodDeleter>;
 
 std::string NodError()
@@ -154,6 +189,14 @@ InstallResult Install_Run(const fs::path& image, const fs::path& dest, InstallPr
         if (!e.dir) total += e.size;
     progress.total = total;
     progress.done = 0;
+
+    // Fresh install needs ~payload free. Reinstall keeps the old tree until swap, so need
+    // another full copy worth of free space while dest.partial is written.
+    std::error_code existsEc;
+    const bool reinstall = fs::exists(dest, existsEc);
+    const uint64_t spaceNeed = reinstall ? total * 2 : total;
+    if (!EnoughFreeSpace(dest, spaceNeed, error))
+        return InstallResult::WriteFailed;
 
     fs::path tmp = dest;
     tmp += ".partial";

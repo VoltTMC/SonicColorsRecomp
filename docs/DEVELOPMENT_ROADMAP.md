@@ -109,6 +109,11 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — Install free-space check
+
+- Early reject with GB needed vs free; installer shows free space + reinstall headroom note.
+- Next: Win native checklist; optional auto-install / Recomp Achievements.
+
 ### 2026-11-20 — Previous-crash banner
 
 - Abnormal-exit marker + Play recovery banner; package_smoke covers `--prepare` / `--game` / `--download-update` help.

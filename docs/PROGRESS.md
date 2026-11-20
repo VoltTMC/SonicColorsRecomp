@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Install free-space check
+
+- `Install_Run` rejects early when the destination volume cannot hold the extract (2× if reinstall).
+- Installer dialog shows free space at the install location.
+
 ## 2026-11-20 — Previous-crash banner
 
 - Crash/FATAL writes `last_abnormal_exit.txt`; Play shows a banner with Open log folder / Dismiss.
