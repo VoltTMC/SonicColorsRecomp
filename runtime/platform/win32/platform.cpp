@@ -87,6 +87,27 @@ void Platform_Restart(bool skipLauncher, bool terminate)
     Platform_ExitProcess(0);
 }
 
+std::string Platform_AppImagePath() { return {}; }
+
+void Platform_RelaunchExecutable(const std::string& path)
+{
+    // Windows packages are zips — no AppImage path; still support a generic relaunch helper.
+    std::wstring wpath(MultiByteToWideChar(CP_UTF8, 0, path.data(), (int)path.size(), nullptr, 0), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, path.data(), (int)path.size(), wpath.data(), (int)wpath.size());
+    std::wstring cmd = L"\"" + wpath + L"\"";
+    STARTUPINFOW si{ sizeof(si) };
+    PROCESS_INFORMATION pi{};
+    Gamepad_StopRumble();
+    if (CreateProcessW(wpath.c_str(), cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi))
+    {
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        Platform_ExitProcess(0);
+    }
+    LOG_WARN("relaunch {} failed ({})", path, GetLastError());
+    Platform_ExitProcess(1);
+}
+
 // ---------------------------------------------------------------- paths and files
 fs::path Platform_ExeDir()
 {

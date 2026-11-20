@@ -1,4 +1,5 @@
 #include "update_check.h"
+#include "../log.h"
 #include "../net/http.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
@@ -10,6 +11,7 @@
 #include <atomic>
 #include <cctype>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <format>
 #include <mutex>
@@ -452,4 +454,50 @@ void UpdateCheck_OpenDownloadedPackage()
         Shell_OpenUrl(path);
     else
         UpdateCheck_OpenDownloadFolder();
+}
+
+bool UpdateCheck_CanApplyAppImage()
+{
+    if (!UpdateCheck_DownloadOk() || !UpdateCheck_DownloadedPackageIsAppImage()) return false;
+    const std::string app = Platform_AppImagePath();
+    if (app.empty()) return false;
+    const std::string dl = UpdateCheck_DownloadPath();
+    if (dl.empty() || !fs::is_regular_file(dl)) return false;
+    FILE* f = std::fopen(app.c_str(), "r+b");
+    if (!f) return false;
+    std::fclose(f);
+    return true;
+}
+
+bool UpdateCheck_ApplyAppImageAndRelaunch(std::string& err)
+{
+    err.clear();
+    if (!UpdateCheck_CanApplyAppImage())
+    {
+        err = "AppImage update apply is only available when running from a writable AppImage.";
+        return false;
+    }
+    const fs::path dest(Platform_AppImagePath());
+    const fs::path src(UpdateCheck_DownloadPath());
+    const fs::path tmp = dest.string() + ".new";
+    std::error_code ec;
+    fs::remove(tmp, ec);
+    fs::copy_file(src, tmp, fs::copy_options::overwrite_existing, ec);
+    if (ec)
+    {
+        err = "Copy failed: " + ec.message();
+        return false;
+    }
+    MakeExecutableIfAppImage(tmp);
+    if (!Platform_ReplaceFile(tmp.string(), dest.string()))
+    {
+        fs::remove(tmp, ec);
+        err = "Could not replace the running AppImage (is the file locked?).";
+        return false;
+    }
+    MakeExecutableIfAppImage(dest);
+    LOG_INFO("applied AppImage update → {}", dest.string());
+    Platform_RelaunchExecutable(dest.string());
+    err = "Relaunch failed.";
+    return false;
 }

@@ -710,7 +710,8 @@ void SystemTab(SettingsHost host)
         if (ImGui::Button("Download update package"))
             UpdateCheck_StartDownload();
         ImGui::EndDisabled();
-        Help("Saves the AppImage or Windows zip under user_data/downloads/ (keeps the newest 3; AppImages are marked executable). Does not replace this running build.");
+        Help("Saves the AppImage or Windows zip under user_data/downloads/ (keeps the newest 3; AppImages are marked executable). "
+             "On Linux AppImage builds, Install & relaunch can replace the running file.");
         ImGui::SameLine();
         if (ImGui::Button("Open downloads folder"))
             UpdateCheck_OpenDownloadFolder();
@@ -724,6 +725,33 @@ void SystemTab(SettingsHost host)
             }
             else if (ImGui::Button("Reveal package"))
                 UpdateCheck_OpenDownloadedPackage();
+            if (UpdateCheck_CanApplyAppImage())
+            {
+                ImGui::SameLine();
+                if (ImGui::Button("Install & relaunch"))
+                    ImGui::OpenPopup("Install AppImage update?");
+            }
+            if (ImGui::BeginPopupModal("Install AppImage update?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+            {
+                ImGui::TextWrapped(
+                    "Replace the running AppImage with the downloaded build and relaunch?\n\n"
+                    "Your config and saves are unchanged.");
+                static std::string applyErr;
+                if (ImGui::Button("Install & relaunch", ImVec2(160, 0)))
+                {
+                    if (!UpdateCheck_ApplyAppImageAndRelaunch(applyErr) && !applyErr.empty())
+                        /* stay open with error */;
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel", ImVec2(100, 0)))
+                {
+                    applyErr.clear();
+                    ImGui::CloseCurrentPopup();
+                }
+                if (!applyErr.empty())
+                    ImGui::TextColored(ImVec4(0.95f, 0.4f, 0.35f, 1.f), "%s", applyErr.c_str());
+                ImGui::EndPopup();
+            }
         }
         const std::string updateMsg = UpdateCheck_Message();
         if (!updateMsg.empty()) ImGui::TextWrapped("%s", updateMsg.c_str());

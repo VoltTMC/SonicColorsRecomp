@@ -110,6 +110,30 @@ void Platform_Restart(bool skipLauncher, bool)
     Platform_Terminate(0);
 }
 
+std::string Platform_AppImagePath()
+{
+    const char* p = getenv("APPIMAGE");
+    return (p && *p) ? std::string(p) : std::string();
+}
+
+void Platform_RelaunchExecutable(const std::string& path)
+{
+    // Spawn a fresh process for `path`, then exit so an AppImage FUSE mount can unmount.
+    std::vector<std::string> args = s_args;
+    if (args.empty()) args.push_back(path);
+    else args[0] = path;
+    std::vector<char*> argv;
+    for (auto& a : args) argv.push_back(a.data());
+    argv.push_back(nullptr);
+    Gamepad_StopRumble();
+    fflush(stdout);
+    pid_t pid = 0;
+    int rc = posix_spawn(&pid, path.c_str(), nullptr, nullptr, argv.data(), environ);
+    if (rc != 0)
+        LOG_WARN("relaunch {} failed ({})", path, strerror(rc));
+    Platform_Terminate(rc == 0 ? 0 : 1);
+}
+
 // ---------------------------------------------------------------- paths and files
 fs::path Platform_ExeDir()
 {

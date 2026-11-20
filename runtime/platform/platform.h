@@ -24,6 +24,10 @@ void Platform_LogHost();
 // Starts the game again with the same command line (plus --skip-launcher when asked),
 // then ends this process (terminate: as Platform_Terminate, else Platform_ExitProcess).
 [[noreturn]] void Platform_Restart(bool skipLauncher, bool terminate);
+// Path of the running AppImage (`$APPIMAGE`), or empty when not an AppImage / on Windows.
+std::string Platform_AppImagePath();
+// Spawns `path` with the original argv (argv[0] replaced), then ends this process.
+[[noreturn]] void Platform_RelaunchExecutable(const std::string& path);
 
 // ---------------------------------------------------------------- paths and files
 // The directory of the executable (read-only files shipped with it).

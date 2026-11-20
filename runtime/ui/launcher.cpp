@@ -282,6 +282,33 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
                 ImGui::SameLine();
                 if (ImGui::SmallButton("Open downloads folder"))
                     UpdateCheck_OpenDownloadFolder();
+                if (UpdateCheck_CanApplyAppImage())
+                {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Install & relaunch"))
+                        ImGui::OpenPopup("Install AppImage update?");
+                }
+                if (ImGui::BeginPopupModal("Install AppImage update?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+                {
+                    ImGui::TextWrapped(
+                        "Replace the running AppImage with the downloaded build and relaunch?\n\n"
+                        "Your config and saves are unchanged.");
+                    static std::string applyErr;
+                    if (ImGui::Button("Install & relaunch", ImVec2(160, 0)))
+                    {
+                        if (!UpdateCheck_ApplyAppImageAndRelaunch(applyErr) && !applyErr.empty())
+                            /* stay open with error */;
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Cancel", ImVec2(100, 0)))
+                    {
+                        applyErr.clear();
+                        ImGui::CloseCurrentPopup();
+                    }
+                    if (!applyErr.empty())
+                        ImGui::TextColored(ImVec4(0.95f, 0.4f, 0.35f, 1.f), "%s", applyErr.c_str());
+                    ImGui::EndPopup();
+                }
             }
         }
         else

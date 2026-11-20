@@ -30,3 +30,7 @@ void UpdateCheck_OpenDownloadFolder();
 // Opens the downloaded AppImage (Linux) or reveals the zip (Windows). No-op if none.
 void UpdateCheck_OpenDownloadedPackage();
 bool UpdateCheck_DownloadedPackageIsAppImage();
+// True when a downloaded AppImage can replace this running AppImage ($APPIMAGE writable).
+bool UpdateCheck_CanApplyAppImage();
+// Copy downloaded AppImage over $APPIMAGE and relaunch (never returns on success).
+bool UpdateCheck_ApplyAppImageAndRelaunch(std::string& err);

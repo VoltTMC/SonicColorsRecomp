@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — AppImage Install & relaunch
+
+- `UpdateCheck_ApplyAppImageAndRelaunch` copies the download over `$APPIMAGE` and respawns; Play/System confirm UI.
+- Windows zip packages remain Reveal-only (no in-place replace of a running exe).
+
 ## 2026-11-20 — What's new + open downloaded package
 
 - Play banner after version bump (`last_seen_version`); Open AppImage / Reveal package after download.
