@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Hotkey conflict warn + startup timing + Music empty state
+
+- Warn when two host hotkeys share a key; log `startup: guest entry ready in N ms`.
+- Music Library empty-catalog guidance bullets.
+
 ## 2026-11-20 — Remappable host hotkeys
 
 - `[System] hotkey_settings|screenshot|fullscreen` (F1–F12); System UI combos; Linux/Win handlers.

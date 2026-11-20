@@ -49,6 +49,7 @@ void App_Restart()
 static std::string s_dataDir, s_isoPath, s_nand;
 static uint32_t s_watchAddr = 0;
 static int s_profStart = -1, s_profDur = 0;
+static uint64_t s_processStartMs = 0;
 
 static void RunGame()
 {
@@ -72,6 +73,8 @@ static void RunGame()
     uint32_t entry = Boot_Setup(s_dataDir);
     if (s_watchAddr) { extern void Crash_SetWatch(uint32_t); Crash_SetWatch(s_watchAddr); }
     if (!entry) FATAL("boot failed");
+    if (s_processStartMs)
+        LOG_INFO("startup: guest entry ready in {} ms", Platform_TickMs() - s_processStartMs);
     Crash_StartWatchdog();
     if (s_profStart >= 0) { extern void Crash_StartProfiler(int, int); Crash_StartProfiler(s_profStart, s_profDur); }
     Threads_RunMain(entry);
@@ -126,6 +129,7 @@ static void PrintUsage()
 int main(int argc, char** argv)
 {
     Platform_Init(argc, argv);
+    s_processStartMs = Platform_TickMs();
     // packaging: fill the shader cache that ships with the exe (no window, no game data)
     if (argc == 3 && std::string(argv[1]) == "--precompile-shaders")
     {

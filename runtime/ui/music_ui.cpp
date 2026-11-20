@@ -992,6 +992,16 @@ void MusicUI_Draw(SettingsHost host, const char*& help)
     if (s_decodeRunning.load())
         ImGui::TextDisabled("Decoding original AAX…");
 
+    if (s_catalog.assets.empty())
+    {
+        ImGui::Spacing();
+        ImGui::TextWrapped("No music catalog loaded yet. Build one from your installed game data:");
+        ImGui::BulletText("Click Refresh — it runs music_asset catalog when the tool and CPK are available.");
+        ImGui::BulletText("Or run: music_asset catalog --cpk <path-to-sonic2010_0.cpk>");
+        ImGui::BulletText("Then assign WAV replacements, preview A/B, and Prepare.");
+        ImGui::Spacing();
+    }
+
     if (ImGui::Button("Refresh")) Reload();
     ImGui::SameLine();
     if (ImGui::Button("Open folder")) Shell_OpenFolder(s_dir);

@@ -27,7 +27,7 @@ Record for ~60s in a quiet stage (e.g. Tropical Resort Act 1):
 | Average FPS | Overlay reading / status log |
 | Stutter | Visual + log underruns (`g_audioUnderruns`) |
 | Memory | `ps -o rss= -p <pid>` |
-| Startup | Time from process start to first GX frame in log |
+| Startup | Log line `startup: guest entry ready in N ms` (process start → guest entry) |
 
 ## Windows
 

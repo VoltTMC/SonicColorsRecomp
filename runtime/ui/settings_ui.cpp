@@ -623,6 +623,12 @@ void SystemTab(SettingsHost host)
             c.hotkeyFullscreen = defaults.hotkeyFullscreen;
             Changed(host, false);
         }
+        const int a = Config_HotkeyVk(c.hotkeySettings, 0x70);
+        const int b = Config_HotkeyVk(c.hotkeyScreenshot, 0x7B);
+        const int d = Config_HotkeyVk(c.hotkeyFullscreen, 0x7A);
+        if (a == b || a == d || b == d)
+            ImGui::TextColored(ImVec4(1.f, 0.75f, 0.35f, 1.f),
+                               "Two host hotkeys share the same key — pick distinct F-keys.");
     }
     ImGui::Spacing();
     ImGui::TextWrapped("User data: %s", Platform_UserDir().string().c_str());
