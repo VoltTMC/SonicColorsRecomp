@@ -104,6 +104,7 @@ static void PrintUsage()
         "  --frame-rate 30|60|0    Pacing (0 = uncapped). Also --60fps\n"
         "                          60 = true 60 Hz guest + spring cooldown gate.\n"
         "  --guest-60              Force wait=1 (implied by --60fps)\n"
+        "  --show-fps              Show on-screen FPS overlay for this run\n"
         "  --spring-cd-gate        Force spring gate on (implied by --60fps);\n"
         "                          SCR_SPRING_CD_GATE=0 disables\n"
         "  --spring-diag           Log Spring/WideSpring/SpringPole collide+act+upd (SCR_SPRING_DIAG)\n"
@@ -167,7 +168,7 @@ int main(int argc, char** argv)
     int profStart = -1, profDur = 0;
     std::string nandDir;   // --nand: separate save data (test runs)
     // command line overrides for this run only (never written to config.ini)
-    bool fps60 = false, singleCore = false, skipLauncher = false;
+    bool fps60 = false, singleCore = false, skipLauncher = false, showFps = false;
     int scaleOverride = 0;
     int fpsOverride = -1;   // --frame-rate 30|60|0; --60fps sets 60
     for (int i = 1; i < argc; i++)
@@ -176,6 +177,7 @@ int main(int argc, char** argv)
         if (a == "--data" && i + 1 < argc) dataDir = argv[++i];
         else if (a == "--iso" && i + 1 < argc) isoPath = argv[++i];
         else if (a == "--verbose") g_logLevel = 0;
+        else if (a == "--show-fps") showFps = true;
         else if (a == "--60fps") fps60 = true;
         else if (a == "--guest-60")
         {
@@ -276,6 +278,7 @@ int main(int argc, char** argv)
     }
 
     g_cfgFrameRate = fpsOverride >= 0 ? (uint32_t)fpsOverride : (fps60 ? 60u : (uint32_t)g_config.frameRate);
+    if (showFps) g_config.showFpsOverlay = true;   // this run only; not written until Settings save
     Perf_SetHostFpsCap(g_config.hostFpsCap);
     { extern bool g_gpuThread; g_gpuThread = g_config.gpuThread && !singleCore; }
     g_videoConfig.internalScale = scaleOverride ? scaleOverride : g_config.internalScale;

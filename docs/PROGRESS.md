@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — `--show-fps` + backlog audit
+
+- CLI `--show-fps` enables the overlay for the current run without editing config.ini.
+- `docs/DEVELOPMENT_ROADMAP.md` top-20 improvement backlog (spiral/H7 excluded).
+
 ## 2026-11-20 — Input binding profiles
 
 - Save/load controller + keyboard + deadzone profiles under `user_data/input_profiles/`.

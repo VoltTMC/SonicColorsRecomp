@@ -13,12 +13,40 @@ Baseline: Phase 19 `72ae9de` (+ stability-recovery docs). Matching decomp: read-
 |---|---|---|---|
 | A | Linux/Windows feature parity (honest matrix) | Equal UX | **Ongoing** — matrix refreshed 2026-11-20 |
 | B | H8 — Confirm in-game music replacement audible in TR1 | Prepare smoke PASS; playtest open | **PART** |
-| B | Stick deadzone settings | Worn pads / PC QoL | **Done** (2026-11-20) |
-| B | Trigger deadzone + graphics presets | Input / Video QoL | **Done** (2026-11-20) |
+| B | Stick / trigger deadzones, graphics presets, FPS overlay, config backup, input profiles, focus mute | PC QoL | **Done** (2026-11-20) |
 | B | Independent music / SFX volume (host) | Shared Wii mix — master + speaker only | **Done** (master) |
 | D | Packaging smoke (`tools/package_smoke.sh`) | Regression net | **Done** |
 | — | H7 black-screen + soft-lock | Known unresolved | **DEFERRED** |
 | — | AP1 spiral / ForcePath | Known unresolved | **DEFERRED** |
+
+---
+
+## Top improvement backlog (audit 2026-11-20)
+
+Ranked for the continuous-improvement goal. Spiral/H7 excluded.
+
+| # | Area | Improvement | Status |
+|---|---|---|---|
+| 1 | Parity | Keep `WINDOWS_FEATURE_PARITY.md` honest; expand `[native]` checks | Ongoing |
+| 2 | Stability | Config backup before Reset | **Done** |
+| 3 | QoL | On-screen FPS overlay + `--show-fps` | **Done** |
+| 4 | Stability | Focus-loss mute + rumble stop | **Done** |
+| 5 | Launcher | Play-tab settings / pad summary | **Done** |
+| 6 | Input | Named binding profiles | **Done** |
+| 7 | Input | Stick + trigger deadzones | **Done** |
+| 8 | Video | Graphics presets | **Done** |
+| 9 | Audio | H8 in-game music audibility confirmation | PART |
+| 10 | Parity | Native Win WASAPI / DPI / pad checklist | UNVERIFIED |
+| 11 | Launcher | First-run setup wizard polish | Partial |
+| 12 | Performance | Frame-time / startup benchmarks doc | Open |
+| 13 | QoL | Controller prompt glyphs in overlay | Open |
+| 14 | Accessibility | Remappable F1/F12 / UI scale | Open |
+| 15 | Mods | Mod profiles (enable sets) | Open |
+| 16 | Saves | Auto-backup on stage clear / interval | Open |
+| 17 | Packaging | Auto-updater / version check | Open |
+| 18 | Launcher | Resize / HiDPI stress-test checklist | Open |
+| 19 | Runtime | In-game performance overlay (CPU/GPU) | Open |
+| 20 | Distribution | Signed Windows builds / installer | Open |
 
 ---
 
@@ -81,10 +109,14 @@ Baseline: Phase 19 `72ae9de` (+ stability-recovery docs). Matching decomp: read-
 
 ## Session log
 
+### 2026-11-20 — `--show-fps` + backlog
+
+- CLI `--show-fps`; top-20 improvement backlog in this file.
+- Next: Win native checklist items; mod profiles; frame-time benchmarks.
+
 ### 2026-11-20 — Input binding profiles
 
 - Named profiles for binds/deadzones under `input_profiles/`; Input tab Save/Load.
-- Next: Win native WASAPI/DPI verification; graphics preset persistence label; more launcher polish.
 
 ### 2026-11-20 — Focus-loss mute + launcher status
 
