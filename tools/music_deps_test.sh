@@ -271,7 +271,8 @@ for p in man["packages"]:
     d.mkdir(parents=True, exist_ok=True)
     if p["id"] == "cricodecs":
         (d / "cricodecs").mkdir(exist_ok=True)
-        (d / "cricodecs" / "__init__.py").write_text("# test\n")
+        # Match real Windows wheel layout (extension module, no __init__.py).
+        (d / "cricodecs" / "__init__.cp312-win_amd64.pyd").write_bytes(b"MZ-fake-pyd\n")
     else:
         art = d / p["exe_relative"]
         art.parent.mkdir(parents=True, exist_ok=True)

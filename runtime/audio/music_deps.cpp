@@ -208,7 +208,28 @@ fs::path PrimaryArtifact(const fs::path& root, const json& pkg)
 {
     const std::string id = pkg.value("id", "");
     const fs::path dir = ExtractDir(root, pkg);
-    if (id == "cricodecs") return dir / "cricodecs" / "__init__.py";
+    if (id == "cricodecs")
+    {
+        // Windows wheel is a binary extension module: __init__.cp312-win_amd64.pyd
+        // (no __init__.py). Also accept pure-Python / alternate layouts.
+        const fs::path pkgDir = dir / "cricodecs";
+        const fs::path py = pkgDir / "__init__.py";
+        if (FileOk(py)) return py;
+        std::error_code ec;
+        if (fs::is_directory(pkgDir, ec))
+        {
+            for (auto& ent : fs::directory_iterator(pkgDir, ec))
+            {
+                if (!ent.is_regular_file()) continue;
+                const auto n = ent.path().filename().string();
+                if (n.rfind("__init__", 0) != 0) continue;
+                if (n.size() >= 4 && IeEq(n.substr(n.size() - 4), ".pyd")) return ent.path();
+                if (n.size() >= 3 && IeEq(n.substr(n.size() - 3), ".py")) return ent.path();
+            }
+        }
+        // Preferred expected path for error messages when nothing is present yet.
+        return pkgDir / "__init__.cp312-win_amd64.pyd";
+    }
     const std::string rel = pkg.value("exe_relative", "");
     if (!rel.empty()) return dir / rel;
     return {};
@@ -755,23 +776,37 @@ void EnsureWorker(bool force)
         LOG_INFO("[Dependency] Existing installation: {}", r.filesPresent ? "found" : "missing");
         LOG_INFO("[Dependency] Resolved path: {}", r.primary.string());
 
-        if (!force && r.filesPresent)
+        auto isPkgReady = [](const Resolve& rr, const std::string& pkgId) {
+            if (pkgId == "python_embed" || pkgId == "cricodecs") return rr.filesPresent;
+            return rr.linkedPresent;
+        };
+
+        if (r.filesPresent)
         {
-            // Authoritative: on-disk primary artifact exists → never redownload.
+            // Authoritative: on-disk primary exists. Repair LinkBins; never wipe a working
+            // package (force only reinstalls packages that still fail readiness).
             WriteReadyMarker(r.installDir, pkg);
             std::string linkErr;
             LinkBins(root, man, linkErr);
             r = ResolvePackage(root, pkg);
-            LOG_INFO("[Dependency] Version check: skipped redownload (files present)");
-            if ((id == "vgmstream" || id == "ffmpeg_lgpl") && !r.linkedPresent)
+            if (isPkgReady(r, id))
             {
-                LOG_WARN("[Dependency] Repair: LinkBins did not publish {}", id);
-                if (!linkErr.empty()) LOG_WARN("[Dependency] Failure reason: {}", linkErr);
-                LOG_WARN("[Dependency] Final status: REPAIR_REQUIRED");
-            }
-            else
+                LOG_INFO("[Dependency] Version check: skipped redownload (files present)");
                 LOG_INFO("[Dependency] Final status: READY");
-            continue;
+                continue;
+            }
+            if (!force)
+            {
+                LOG_INFO("[Dependency] Version check: skipped redownload (files present)");
+                if ((id == "vgmstream" || id == "ffmpeg_lgpl") && !r.linkedPresent)
+                {
+                    LOG_WARN("[Dependency] Repair: LinkBins did not publish {}", id);
+                    if (!linkErr.empty()) LOG_WARN("[Dependency] Failure reason: {}", linkErr);
+                    LOG_WARN("[Dependency] Final status: REPAIR_REQUIRED");
+                }
+                continue;
+            }
+            LOG_WARN("[Dependency] Force reinstall: files present but not ready — {}", r.detail);
         }
 
         if (!InstallOne(pkg, root, err)) break;

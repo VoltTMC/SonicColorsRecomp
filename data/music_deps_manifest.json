@@ -24,6 +24,8 @@
       "sha256": "ee6cfab8b17fffdb6fc0be73769b00b23ef4e5cf4839e698da564e305927f5f4",
       "archive": "wheel",
       "extract_to": "python/3.12.8/Lib/site-packages",
+      "exe_relative": "cricodecs/__init__.cp312-win_amd64.pyd",
+      "notes": "Binary wheel: module is __init__.cp312-win_amd64.pyd (no __init__.py).",
       "requires": ["python_embed"],
       "ops": ["preview_original", "export_original", "prepare_replacements", "catalog_rebuild"]
     },
