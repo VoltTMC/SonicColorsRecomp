@@ -5,13 +5,11 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 import tempfile
 import wave
 from pathlib import Path
 
 from .cpk_patch import sha256_file
-from .preview import which_vgmstream
 
 # Export modes (vgmstream-driven).
 # complete  — intro + loop once (-i)
@@ -111,9 +109,25 @@ def export_original_wav(
     if mode not in ("complete", "loops", "smpl"):
         return {"ok": False, "error": f"unknown export mode: {mode}"}
 
-    vg = which_vgmstream()
+    from .doctor import probe_vgmstream, run_host_binary
+
+    vg_info = probe_vgmstream()
+    vg = vg_info.get("path") if vg_info.get("ok") else None
     if not vg:
-        return {"ok": False, "error": "vgmstream-cli not found on PATH"}
+        if vg_info.get("path") and not vg_info.get("ok"):
+            return {
+                "ok": False,
+                "error": (
+                    f"vgmstream unusable at {vg_info.get('path')}: "
+                    f"{vg_info.get('error') or vg_info.get('status')}"
+                ),
+                "searched": vg_info.get("searched"),
+            }
+        return {
+            "ok": False,
+            "error": vg_info.get("error") or "vgmstream-cli not found",
+            "searched": vg_info.get("searched"),
+        }
     if not cpk_path.is_file():
         return {"ok": False, "error": f"original CPK missing: {cpk_path}"}
 
@@ -154,12 +168,13 @@ def export_original_wav(
             # Prefer native sample format when requesting 24-bit; fall back to PCM16.
             cmd += ["-w"]
         cmd.append(str(aax_path))
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        r = run_host_binary(cmd)
         if r.returncode != 0 or not raw_wav.is_file():
             return {
                 "ok": False,
                 "error": f"vgmstream decode failed: {(r.stderr or r.stdout)[-600:]}",
                 "aax_meta": meta,
+                "vgmstream": vg,
             }
 
         # Normalize to requested PCM via ffmpeg when needed (channel/layout preserved).
@@ -180,7 +195,7 @@ def export_original_wav(
                 str(meta["sample_rate"] or 48000),
                 str(final_tmp),
             ]
-            rf = subprocess.run(cmd_ff, capture_output=True, text=True)
+            rf = run_host_binary(cmd_ff)
             if rf.returncode != 0 or not final_tmp.is_file():
                 return {
                     "ok": False,

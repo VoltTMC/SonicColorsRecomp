@@ -25,7 +25,7 @@ Last updated: 2026-11-20 (doctor exec validation + clean-env music_deps_test).
 | Prepare (WAV→ADX/AAX→CPK) | required | ADX/AAX/CPK | — | resample 48 kHz | No |
 | Rebuild catalog from CPK | required | required | — | — | No (not needed if catalog ships) |
 
-Discovery: `tools/bin` → `SCR_MUSIC_BIN` → `PATH`. Doctor **runs** each binary (`ok` / `missing` / `unusable`). Setup: `music_deps_setup` → drop-ins → **Check tools**. Isolation: `SCR_MUSIC_APP_BIN_ONLY=1`.
+Discovery: `SCR_MUSIC_BIN` → packaged `tools/bin` → user-data `tools/bin` → `PATH`. Doctor **runs** each binary (`ok` / `missing` / `unusable`) and lists `searched` dirs on failure. Windows launcher sets `SCR_MUSIC_BIN` with `SetEnvironmentVariableW` (not CRT `_putenv` alone) so Music preview children inherit it. Setup: `music_deps_setup` → drop-ins → **Check tools**. Isolation: `SCR_MUSIC_APP_BIN_ONLY=1`.
 
 **Bundling policy:** no GPL FFmpeg / Python / cricodecs in ZIP/AppImage.
 
@@ -100,7 +100,7 @@ Discovery: `tools/bin` → `SCR_MUSIC_BIN` → `PATH`. Doctor **runs** each bina
 | Browse full catalog (~114) | PASS | PASS package | UNVERIFIED UI | Clean ZIP unzip test |
 | Locate original CPK | PASS | PASS `[auto]` | PASS `[auto]` | Portable `exe/game/...` |
 | Replacement CPK cache (`current.json`) | PASS | PASS `[source]` | PASS `[source]` | Only after Prepare |
-| Original preview | PARTIAL | PARTIAL → launch fixed `[wine]` | PARTIAL | Process launch fixed; full audio UNVERIFIED native |
+| Original preview | PARTIAL | PARTIAL → discovery+launch fixed `[source]`/`[wine]` | PARTIAL | Needs host vgmstream drop-in; native preview UNVERIFIED |
 | Replacement WAV preview | PASS `[source]` | PASS `[source]` | UNVERIFIED | No CPK cache needed |
 | A/B compare | PASS `[source]` | PASS `[source]` | UNVERIFIED | |
 | Export original WAV | PARTIAL | PARTIAL → launch fixed `[wine]` | PARTIAL | Same as preview |
@@ -147,6 +147,7 @@ Discovery: `tools/bin` → `SCR_MUSIC_BIN` → `PATH`. Doctor **runs** each bina
 | `music_asset.exe` MinGW DLL next to main exe only | Helper failed to load under Wine/clean ZIP (`libwinpthread-1.dll`) | Also ship winpthread under `tools/` |
 | `music_asset.exe` Unicode env block without `CREATE_UNICODE_ENVIRONMENT` | `CreateProcess failed (87)` then `PREPARE FAILED (rc=127)` when starting Python | Pass `CREATE_UNICODE_ENVIRONMENT`; discover AppData `.venv-music`; distinguish exit 126 vs 127 |
 | GUI `Platform_RunProcess` + `STARTF_USESTDHANDLES` + `GetStdHandle` | `ERROR_INVALID_PARAMETER` (87) when redirecting stdout/stderr from a GUI parent | Open `NUL` for stdin/unused std handles; shared `runtime/platform/run_process.cpp` + `scr_run_process_test` |
+| Windows `_putenv_s(SCR_MUSIC_BIN)` only | Music preview child never saw drop-in dir → `vgmstream-cli not found on PATH` | `SetEnvironmentVariableW` + prefer `vgmstream-cli.exe`; doctor/preview report `searched` paths |
 
 ---
 
@@ -194,6 +195,7 @@ Follow `docs/windows-native-checklist.md`. Items marked UNVERIFIED above stay UN
 
 | Date | Change |
 |------|--------|
+| 2026-11-20 | Fix Windows vgmstream discovery: Win32 `SCR_MUSIC_BIN` env, `.exe` names, searched-path errors; CreateProcess 87 fix remains in v0.3.5 |
 | 2026-11-20 | Fix Windows Music `CreateProcess` 87: Unicode env flag in `music_asset` + NUL std handles in `Platform_RunProcess`; `scr_run_process_test` (Linux + Wine) |
 | 2026-11-20 | Windows per-user Inno installer (`installed.txt` → AppData); portable ZIP optional; user-data music tools |
 | 2026-11-20 | Doctor exec/version probe, clean-env tests, setup.steps, optional ffmpeg fix, AppDir isolated doctor |

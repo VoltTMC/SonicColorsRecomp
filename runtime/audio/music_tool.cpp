@@ -6,6 +6,13 @@
 #include <filesystem>
 #include <system_error>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace fs = std::filesystem;
 
 std::filesystem::path MusicTool_Find()
@@ -74,10 +81,15 @@ bool MusicTool_Run(const std::vector<std::string>& args,
         }
         return false;
     }
-    // Prefer user-writable drop-ins (survive updates) over install-dir tools/bin.
+    // Point music_asset at the user-writable drop-in dir (survives updates).
+    // On Windows, CreateProcess inherits the Win32 env block — SetEnvironmentVariableW
+    // is required; _putenv_s alone does not update what child processes see.
     const fs::path userBin = Platform_MusicToolsBinDir();
 #ifdef _WIN32
-    _putenv_s("SCR_MUSIC_BIN", userBin.string().c_str());
+    SetEnvironmentVariableW(L"SCR_MUSIC_BIN", userBin.wstring().c_str());
+    // Narrow CRT copy for in-process getenv; Win32 block above is what CreateProcess inherits.
+    const std::string binUtf8 = userBin.string();
+    _putenv_s("SCR_MUSIC_BIN", binUtf8.c_str());
 #else
     setenv("SCR_MUSIC_BIN", userBin.string().c_str(), 1);
 #endif

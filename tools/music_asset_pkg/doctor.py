@@ -20,22 +20,41 @@ _ROOT = _TOOLS.parent if _TOOLS.name == "tools" else _TOOLS
 def _bin_dirs() -> list[Path]:
     """Application-managed binary search paths (before system PATH).
 
-    Prefer user-writable drop-ins (SCR_MUSIC_BIN / %APPDATA% tools/bin) so tools
-    survive application updates when the install directory is read-only.
+    Priority (matches tools/bin/README + Windows installed layout):
+      1. SCR_MUSIC_BIN (explicit override; launcher sets this to user-data tools/bin)
+      2. Packaged tools/bin beside music_asset_pkg
+      3. User-data drop-in dirs (AppData / XDG) when distinct from the above
+      4. PATH (unless SCR_MUSIC_APP_BIN_ONLY)
     """
     dirs: list[Path] = []
     env_bin = Path(os.environ["SCR_MUSIC_BIN"]) if os.environ.get("SCR_MUSIC_BIN") else None
     appdata = os.environ.get("APPDATA") or os.environ.get("XDG_DATA_HOME")
     localapp = os.environ.get("LOCALAPPDATA")
-    for d in (
-        env_bin,
-        Path(appdata) / "SonicColorsRecomp" / "tools" / "bin" if appdata else None,
-        Path(localapp) / "SonicColorsRecomp" / "tools" / "bin" if localapp else None,
+    xdg = os.environ.get("XDG_DATA_HOME")
+    packaged = [
         _TOOLS / "bin",
         _ROOT / "tools" / "bin",
         _ROOT / "bin",
-    ):
-        if d and d.is_dir() and d not in dirs:
+    ]
+    user = []
+    if appdata:
+        user.append(Path(appdata) / "SonicColorsRecomp" / "tools" / "bin")
+    if localapp:
+        user.append(Path(localapp) / "SonicColorsRecomp" / "tools" / "bin")
+    if xdg and not appdata:
+        user.append(Path(xdg) / "SonicColorsRecomp" / "tools" / "bin")
+    # Linux default when XDG_DATA_HOME unset
+    if os.name != "nt" and not xdg:
+        user.append(Path.home() / ".local" / "share" / "SonicColorsRecomp" / "tools" / "bin")
+
+    for d in [env_bin, *packaged, *user]:
+        if not d:
+            continue
+        try:
+            d = d.expanduser()
+        except Exception:
+            pass
+        if d.is_dir() and d not in dirs:
             dirs.append(d)
     return dirs
 
@@ -46,23 +65,59 @@ def _app_bin_only() -> bool:
     return v in ("1", "true", "yes", "on")
 
 
-def which_in_app(names: list[str]) -> str | None:
+def _windows_names(names: list[str]) -> list[str]:
+    """Prefer .exe forms first on Windows so drop-ins resolve without PATHEXT tricks."""
+    if os.name != "nt":
+        return names
+    out: list[str] = []
+    seen: set[str] = set()
+    for n in names:
+        variants = []
+        if n.lower().endswith(".exe"):
+            variants = [n, n[:-4]]
+        else:
+            variants = [n + ".exe", n]
+        for v in variants:
+            if v not in seen:
+                seen.add(v)
+                out.append(v)
+    return out
+
+
+def find_in_app(names: list[str]) -> tuple[str | None, list[str]]:
+    """Locate a host binary. Returns (absolute path or None, dirs/paths searched)."""
+    names = _windows_names(names)
+    searched: list[str] = []
     for d in _bin_dirs():
+        searched.append(str(d))
         for name in names:
             p = d / name
-            # Keep the app-local path (do not resolve symlinks away from tools/bin).
-            if p.is_file() and os.access(p, os.X_OK):
-                return str(p)
-            # Windows: allow non-+x marked files
-            if p.is_file() and (name.endswith(".exe") or os.name == "nt"):
-                return str(p)
+            try:
+                if not p.is_file():
+                    continue
+            except OSError:
+                continue
+            # Windows: os.access(..., X_OK) is unreliable; accept regular files.
+            if os.name == "nt" or name.lower().endswith(".exe") or os.access(p, os.X_OK):
+                # Keep the tools/bin path (do not resolve symlinks away to /usr/bin).
+                try:
+                    return str(p.absolute()), searched
+                except OSError:
+                    return str(p), searched
     if _app_bin_only():
-        return None
+        searched.append("PATH (skipped: SCR_MUSIC_APP_BIN_ONLY)")
+        return None, searched
+    searched.append("PATH")
     for name in names:
         hit = shutil.which(name)
         if hit:
-            return hit
-    return None
+            return hit, searched
+    return None, searched
+
+
+def which_in_app(names: list[str]) -> str | None:
+    path, _ = find_in_app(names)
+    return path
 
 
 def which_ffmpeg() -> str | None:
@@ -75,6 +130,27 @@ def which_vgmstream() -> str | None:
     return info.get("path") if info.get("ok") else None
 
 
+def missing_tool_message(label: str, names: list[str], *, searched: list[str] | None = None) -> str:
+    if searched is None:
+        _, searched = find_in_app(names)
+    drop = (
+        str(Path(os.environ["APPDATA"]) / "SonicColorsRecomp" / "tools" / "bin")
+        if os.environ.get("APPDATA")
+        else str(_TOOLS / "bin")
+    )
+    win_hint = "vgmstream-cli.exe" if "vgmstream" in label.lower() else "ffmpeg.exe"
+    lines = [
+        f"{label} not found.",
+        f"Place the executable (e.g. {win_hint} on Windows) in:",
+        f"  {drop}",
+        "or set SCR_MUSIC_BIN to a directory containing it, or add it to PATH.",
+        "Searched:",
+    ]
+    for s in searched:
+        lines.append(f"  - {s}")
+    return "\n".join(lines)
+
+
 def _venv_python() -> Path | None:
     from .cricodecs_env import _venv_pythons
 
@@ -84,15 +160,28 @@ def _venv_python() -> Path | None:
     return None
 
 
+def run_host_binary(cmd: list[str], *, timeout: float | None = None) -> subprocess.CompletedProcess[str]:
+    """Run a resolved host tool with DLL-friendly PATH and no console window on Windows."""
+    env = os.environ.copy()
+    if cmd:
+        tool_dir = str(Path(cmd[0]).resolve().parent)
+        env["PATH"] = tool_dir + os.pathsep + env.get("PATH", "")
+    kwargs: dict = {
+        "capture_output": True,
+        "text": True,
+        "env": env,
+    }
+    if timeout is not None:
+        kwargs["timeout"] = timeout
+    if os.name == "nt":
+        # Avoid flashing a console when the GUI launcher decodes previews.
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    return subprocess.run(cmd, **kwargs)
+
+
 def _run_version(cmd: list[str], *, timeout: float = 8.0) -> tuple[int | None, str]:
     try:
-        r = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            env={**os.environ, "PATH": os.environ.get("PATH", "")},
-        )
+        r = run_host_binary(cmd, timeout=timeout)
         out = ((r.stdout or "") + "\n" + (r.stderr or "")).strip()
         return r.returncode, out[-2000:]
     except FileNotFoundError:
@@ -120,10 +209,12 @@ def _probe_tool(
         "error": None,
         "label": label,
         "host": f"{platform.system()}-{platform.machine()}",
+        "searched": [],
     }
-    path = which_in_app(names)
+    path, searched = find_in_app(names)
+    info["searched"] = searched
     if not path:
-        info["error"] = f"{label} not found in tools/bin or PATH"
+        info["error"] = missing_tool_message(label, names, searched=searched)
         return info
 
     info["path"] = path
@@ -133,7 +224,6 @@ def _probe_tool(
         info["error"] = "path does not exist"
         return info
 
-    # Reject obviously non-binary drop-ins (empty / tiny text stubs without shebang that fail)
     try:
         size = p.stat().st_size
     except OSError as e:
@@ -150,7 +240,6 @@ def _probe_tool(
         info["status"] = "unusable"
         info["error"] = out
         return info
-    # ffmpeg -version → 0; some builds print help and exit 1 — accept version text either way
     m = version_re.search(out)
     if m:
         info["version"] = m.group(1)
@@ -162,7 +251,6 @@ def _probe_tool(
         info["status"] = "unusable"
         info["error"] = f"exit {rc} with empty output"
         return info
-    # Executable ran but version string unexpected — still usable if exit 0
     if rc == 0:
         info["ok"] = True
         info["status"] = "ok"
@@ -185,16 +273,22 @@ def probe_ffmpeg() -> dict:
 
 
 def probe_vgmstream() -> dict:
-    # Prefer -h / no args that print help; many builds support -v or print on -h
+    names = [
+        "vgmstream-cli",
+        "vgmstream_cli",
+        "vgmstream123",
+        "vgmstream-cli.exe",
+        "vgmstream_cli.exe",
+        "vgmstream123.exe",
+    ]
     info = _probe_tool(
-        names=["vgmstream-cli", "vgmstream_cli", "vgmstream123", "vgmstream-cli.exe", "vgmstream_cli.exe"],
+        names=names,
         version_args=["-h"],
         version_re=re.compile(r"vgmstream(?:-cli)?\s+(\d[\w.\-]*)", re.I),
         label="vgmstream",
     )
     if info.get("ok"):
         return info
-    # Fallback: some builds use -v / --version
     path = info.get("path")
     if path:
         for args in (["-v"], ["--version"], []):
@@ -327,6 +421,7 @@ def doctor() -> dict:
         "app_bin_only": _app_bin_only(),
         "tools_dir": str(_TOOLS),
         "root": str(_ROOT),
+        "scr_music_bin": os.environ.get("SCR_MUSIC_BIN"),
     }
 
     have = {
@@ -408,10 +503,17 @@ def _setup_steps(deps: dict, blocked: list) -> list[str]:
             "or on PATH. Needed for Prepare."
         )
     if not deps["vgmstream"].get("ok"):
-        steps.append(
-            f"Install vgmstream-cli into {user_bin} (installed) or tools/bin/ (portable), "
-            "or on PATH. Needed for original preview/export."
-        )
+        st = deps["vgmstream"].get("status")
+        if st == "unusable" and deps["vgmstream"].get("path"):
+            steps.append(
+                f"vgmstream at {deps['vgmstream']['path']} is unusable "
+                f"({deps['vgmstream'].get('error')}). Replace it or install matching DLLs beside it."
+            )
+        else:
+            steps.append(
+                f"Install vgmstream-cli.exe into {user_bin} (installed) or tools/bin/ (portable), "
+                "or on PATH. Needed for original preview/export. No reboot required — use Check tools."
+            )
     if not steps and not blocked:
         steps.append("All Music Library host tools look usable. Re-run doctor after changing tools/bin.")
     elif blocked:

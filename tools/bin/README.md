@@ -9,7 +9,9 @@ user-writable folder so they survive application updates:
 | **Portable ZIP** | `tools\bin\` next to the exe (this folder when shipped) |
 | **Linux AppImage / XDG** | `$XDG_DATA_HOME/SonicColorsRecomp/tools/bin` (usually `~/.local/share/...`) |
 
-Override with `SCR_MUSIC_BIN`. Search order: `SCR_MUSIC_BIN` → user-data `tools/bin` → this folder → `PATH`.
+Override with `SCR_MUSIC_BIN`. Search order: `SCR_MUSIC_BIN` → packaged `tools/bin` (this folder) → user-data `tools/bin` → `PATH`.
+
+On Windows the launcher sets `SCR_MUSIC_BIN` to `%APPDATA%\SonicColorsRecomp\tools\bin` via the Win32 environment API (so Music preview children see it without a reboot). Drop-ins are picked up on the next **Check tools** / preview — no system restart required.
 
 | Binary | Used for | Redistribution note |
 |--------|----------|---------------------|

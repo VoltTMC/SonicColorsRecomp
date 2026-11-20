@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Windows vgmstream discovery for Music preview
+
+- Root cause: `SCR_MUSIC_BIN` set only via CRT `_putenv_s` was invisible to `CreateProcess` children; preview error said “not found on PATH” even for AppData/`tools/bin` drop-ins.
+- Fix: `SetEnvironmentVariableW`, Windows `.exe`-first name search, `searched` paths in doctor/preview errors, DLL-friendly `PATH` when running host tools.
+
 ## 2026-11-20 — Release v0.3.5 (hotfix)
 
 - Windows Music Library: fix `CreateProcess` error 87 / `PREPARE FAILED (rc=127)` (`CREATE_UNICODE_ENVIRONMENT` + NUL std handles). `scr_run_process_test` added.

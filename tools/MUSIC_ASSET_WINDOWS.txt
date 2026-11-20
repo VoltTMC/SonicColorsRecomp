@@ -10,7 +10,8 @@ The Music Library uses `tools/music_asset.exe` (or `music_asset.cmd`) to:
 Required (same roles as Linux):
   1. Python 3.11+ on PATH (`python` / `py -3`)
   2. cricodecs (via tools\music_deps_setup.cmd → .venv-music)
-  3. vgmstream-cli — PATH or drop into tools\bin\
+  3. vgmstream-cli.exe — drop into %APPDATA%\SonicColorsRecomp\tools\bin (installed)
+     or tools\bin\ (portable), or on PATH. No reboot needed after copying.
   4. ffmpeg — PATH or drop into tools\bin\ (prefer an LGPL build)
 
 Installed app (Setup.exe — preferred):
@@ -41,7 +42,10 @@ replacements in the Music tab (not shipped).
 
 Replacement CPK cache (`music_mods/current.json`) is created by Prepare. A
 “not prepared yet” status is normal until then — original previews/export still
-use the game CPK directly (they need vgmstream on PATH).
+use the game CPK directly (they need vgmstream-cli.exe in tools\bin or PATH).
+
+If preview says vgmstream was not found, open Music → Check tools and read `searched`
+paths in the doctor JSON, or copy vgmstream-cli.exe into the drop-in folder above.
 
 Override the launcher path with SCR_MUSIC_ASSET.
 Override the Python interpreter with SCR_MUSIC_PYTHON (full path to python.exe).

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import subprocess
 from pathlib import Path
 
 from .cricodecs_env import ensure_cricodecs
@@ -34,14 +33,29 @@ def extract_and_decode_original(
     """
     ensure_cricodecs()
     from cricodecs.cpk import Cpk
+    from .doctor import probe_vgmstream, run_host_binary
 
     cpk_path = Path(cpk_path)
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    vg = which_vgmstream()
+    vg_info = probe_vgmstream()
+    vg = vg_info.get("path") if vg_info.get("ok") else None
     if not vg:
-        return {"ok": False, "error": "vgmstream-cli not found on PATH"}
+        if vg_info.get("path") and not vg_info.get("ok"):
+            return {
+                "ok": False,
+                "error": (
+                    f"vgmstream unusable at {vg_info.get('path')}: "
+                    f"{vg_info.get('error') or vg_info.get('status')}"
+                ),
+                "searched": vg_info.get("searched"),
+            }
+        return {
+            "ok": False,
+            "error": vg_info.get("error") or "vgmstream-cli not found",
+            "searched": vg_info.get("searched"),
+        }
 
     cpk_sha = sha256_file(cpk_path)
     key = preview_cache_key(cpk_sha, internal_path)
@@ -71,12 +85,13 @@ def extract_and_decode_original(
 
     # Decode looping once through without infinite loop (-i = ignore loop / play once)
     cmd = [vg, "-o", str(wav_out), "-i", str(aax_path)]
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    r = run_host_binary(cmd)
     if r.returncode != 0 or not wav_out.is_file():
         return {
             "ok": False,
             "error": f"vgmstream failed: {(r.stderr or r.stdout)[-600:]}",
             "aax": str(aax_path),
+            "vgmstream": vg,
         }
 
     import json

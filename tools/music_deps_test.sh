@@ -92,7 +92,10 @@ rm -f "$clean/bin/ffmpeg"
 if command -v ffmpeg >/dev/null 2>&1; then
     ln -sf "$(command -v ffmpeg)" "$clean/bin/ffmpeg"
     set +e
-    good_out=$("$PY" -c 'from music_asset_pkg.doctor import probe_ffmpeg, which_ffmpeg; import json; p=probe_ffmpeg(); print(json.dumps(p)); print("WHICH", which_ffmpeg() or "")' 2>&1)
+    good_out=$(
+      SCR_MUSIC_APP_BIN_ONLY=1 PYTHONPATH="$clean" \
+        "$PY" -c 'from music_asset_pkg.doctor import probe_ffmpeg, which_ffmpeg; import json; p=probe_ffmpeg(); print(json.dumps(p)); print("WHICH", which_ffmpeg() or "")' 2>&1
+    )
     set -e
     echo "$good_out" | grep -Fq '"ok": true' || fail "linked ffmpeg not ok: $good_out"
     echo "$good_out" | grep -Fq "$clean/bin/ffmpeg" || fail "which did not prefer spaced tools/bin: $good_out"
@@ -140,6 +143,77 @@ assert "ffmpeg" not in o.get("missing",[]), o
 # warnings may list optional ffmpeg
 ' || fail "export_original incorrectly hard-requires ffmpeg: $exp_out"
 ok "export_original treats ffmpeg as optional"
+
+# --- SCR_MUSIC_BIN + Windows-style .exe name discovery (no probe required for find) ---
+drop="$tmpdir/user drop/bin"
+mkdir -p "$drop"
+# Extensionless stub named like a Windows drop-in basename; find_in_app must locate
+# vgmstream-cli.exe when that file exists under SCR_MUSIC_BIN.
+printf '#!/bin/sh\necho "vgmstream-cli 0.0-test"\nexit 0\n' > "$drop/vgmstream-cli.exe"
+chmod +x "$drop/vgmstream-cli.exe"
+set +e
+bin_out=$(
+  SCR_MUSIC_APP_BIN_ONLY=1 SCR_MUSIC_BIN="$drop" PYTHONPATH="$root/tools" \
+    "$PY" -c '
+from music_asset_pkg.doctor import find_in_app, probe_vgmstream, missing_tool_message
+import json
+path, searched = find_in_app(["vgmstream-cli", "vgmstream-cli.exe"])
+assert path and path.endswith("vgmstream-cli.exe"), (path, searched)
+assert any("user drop" in s for s in searched), searched
+info = probe_vgmstream()
+assert info.get("path") and "vgmstream-cli.exe" in info["path"], info
+# Missing tool message lists searched dirs
+msg = missing_tool_message("vgmstream", ["vgmstream-cli"], searched=["/tmp/a", "PATH"])
+assert "Searched" in msg and "/tmp/a" in msg, msg
+print(json.dumps({"path": path, "searched": searched, "probe_ok": info.get("ok")}))
+' 2>&1
+)
+set -e
+echo "$bin_out" | grep -Fq 'vgmstream-cli.exe' || fail "SCR_MUSIC_BIN .exe discovery failed: $bin_out"
+ok "SCR_MUSIC_BIN discovers vgmstream-cli.exe (path with spaces)"
+
+# --- packaged tools/bin without SCR_MUSIC_BIN ---
+pkg="$tmpdir/pkg tools"
+mkdir -p "$pkg/bin" "$pkg/music_asset_pkg"
+cp -a "$root/tools/music_asset_pkg/." "$pkg/music_asset_pkg/"
+rm -rf "$pkg/music_asset_pkg/__pycache__"
+printf '#!/bin/sh\necho "vgmstream-cli 1.0-pkg"\nexit 0\n' > "$pkg/bin/vgmstream-cli"
+chmod +x "$pkg/bin/vgmstream-cli"
+set +e
+pkg_out=$(
+  unset SCR_MUSIC_BIN
+  SCR_MUSIC_APP_BIN_ONLY=1 PYTHONPATH="$pkg" \
+    "$PY" -c '
+from music_asset_pkg.doctor import find_in_app
+path, searched = find_in_app(["vgmstream-cli", "vgmstream-cli.exe"])
+assert path and path.endswith("vgmstream-cli"), (path, searched)
+assert any(s.endswith("bin") for s in searched), searched
+print(path)
+' 2>&1
+)
+set -e
+echo "$pkg_out" | grep -Fq "$pkg/bin/vgmstream-cli" || fail "packaged tools/bin miss: $pkg_out"
+ok "packaged tools/bin discovery without SCR_MUSIC_BIN"
+
+# --- preview error includes searched when missing ---
+set +e
+prev_out=$(
+  SCR_MUSIC_APP_BIN_ONLY=1 SCR_MUSIC_BIN="$tmpdir/emptybin" PYTHONPATH="$root/tools" \
+    "$PY" -c '
+import os, tempfile
+from pathlib import Path
+os.makedirs(os.environ["SCR_MUSIC_BIN"], exist_ok=True)
+from music_asset_pkg.doctor import probe_vgmstream
+info = probe_vgmstream()
+assert not info.get("ok")
+assert info.get("error") and "Searched" in info["error"], info
+assert isinstance(info.get("searched"), list) and info["searched"], info
+print("preview-missing-ok")
+' 2>&1
+)
+set -e
+echo "$prev_out" | grep -Fq preview-missing-ok || fail "missing vgmstream error incomplete: $prev_out"
+ok "missing vgmstream reports searched paths"
 
 if [ "${SCR_MUSIC_PIPELINE:-0}" = 1 ]; then
     if [ -f "$root/game/SNCP8P/files/sonic2010_0.cpk" ] && command -v vgmstream-cli >/dev/null \
