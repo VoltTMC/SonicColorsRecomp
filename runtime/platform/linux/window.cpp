@@ -17,6 +17,7 @@ static std::atomic<int> s_pixelW{ 0 }, s_pixelH{ 0 };
 static std::atomic<int> s_mouseX{ -1 }, s_mouseY{ -1 };
 static std::atomic<bool> s_mouseInside{ false };
 static int s_windowW = 1, s_windowH = 1;   // in window coordinates (mouse), main thread
+static int s_lastWindowedW = 0, s_lastWindowedH = 0;
 
 static void UpdateSize()
 {
@@ -25,6 +26,27 @@ static void UpdateSize()
     s_pixelW = w;
     s_pixelH = h;
     SDL_GetWindowSize(s_window, &s_windowW, &s_windowH);
+    if (!(SDL_GetWindowFlags(s_window) & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_MINIMIZED)) &&
+        s_windowW >= 320 && s_windowH >= 240)
+    {
+        s_lastWindowedW = s_windowW;
+        s_lastWindowedH = s_windowH;
+    }
+}
+
+static void ApplyPauseFromFocusOrMinimize()
+{
+    if (!g_config.pauseOnFocusLoss || !s_window) return;
+    extern std::atomic<bool> g_pauseRequested;
+    const Uint32 flags = SDL_GetWindowFlags(s_window);
+    const bool minimized = (flags & SDL_WINDOW_MINIMIZED) != 0;
+    const bool pause = minimized || !s_focused;
+    g_pauseRequested = pause;
+    if (pause)
+    {
+        void Gamepad_StopRumble();
+        Gamepad_StopRumble();
+    }
 }
 
 struct CreateParams { int width, height; bool fullscreen; bool ok = false; };
@@ -78,6 +100,8 @@ static void CreateOnMain(void* userdata)
         SDL_SetWindowFullscreen(s_window, true);
     SDL_HideCursor();   // the game draws its own Wii Remote pointer
     UpdateSize();
+    s_lastWindowedW = p->width;
+    s_lastWindowedH = p->height;
     s_focused = (SDL_GetWindowFlags(s_window) & SDL_WINDOW_INPUT_FOCUS) != 0;
     p->ok = true;
 }
@@ -125,6 +149,15 @@ void Window_SetSize(int w, int h)
     SDL_RunOnMainThread(SetSizeOnMain, nullptr, false);
 }
 
+void Window_PersistSize()
+{
+    if (s_lastWindowedW < 320 || s_lastWindowedH < 240) return;
+    if (g_config.windowWidth == s_lastWindowedW && g_config.windowHeight == s_lastWindowedH) return;
+    g_config.windowWidth = s_lastWindowedW;
+    g_config.windowHeight = s_lastWindowedH;
+    Config_Save();
+}
+
 bool Window_Focused() { return s_window && s_focused; }
 
 bool Window_Cursor(int& x, int& y)
@@ -156,6 +189,7 @@ static void HandleEvent(const SDL_Event& e)
         // Closing the window quits. Saves are written to the host NAND as the game issues
         // them, so there is nothing to flush (as on Windows).
         LOG_INFO("window closed, exiting");
+        Window_PersistSize();
         { void Gamepad_StopRumble(); Gamepad_StopRumble(); }
         Platform_Terminate(0);
     case SDL_EVENT_WINDOW_RESIZED:
@@ -163,19 +197,14 @@ static void HandleEvent(const SDL_Event& e)
         UpdateSize();
         s_resized = true;
         break;
+    case SDL_EVENT_WINDOW_MINIMIZED:
+    case SDL_EVENT_WINDOW_RESTORED:
+        ApplyPauseFromFocusOrMinimize();
+        break;
     case SDL_EVENT_WINDOW_FOCUS_GAINED:
     case SDL_EVENT_WINDOW_FOCUS_LOST:
         s_focused = e.type == SDL_EVENT_WINDOW_FOCUS_GAINED;
-        if (g_config.pauseOnFocusLoss)
-        {
-            extern std::atomic<bool> g_pauseRequested;
-            g_pauseRequested = !s_focused;
-            if (!s_focused)
-            {
-                void Gamepad_StopRumble();
-                Gamepad_StopRumble();
-            }
-        }
+        ApplyPauseFromFocusOrMinimize();
         break;
     case SDL_EVENT_MOUSE_MOTION:
         s_mouseX = (int)e.motion.x;

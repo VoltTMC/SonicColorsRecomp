@@ -70,7 +70,7 @@ std::string Config_Text(const Config& c)
     s += "[System]\n";
     s += "; english, german, french, spanish, italian, dutch, japanese\n";
     s += std::format("language = {}\n", kLanguages[std::clamp(c.language, 0, 6)]);
-    s += "; freeze the game while its window is in the background\n";
+    s += "; freeze the game while its window is in the background or minimized\n";
     s += std::format("pause_on_focus_loss = {}\n", Bool(c.pauseOnFocusLoss));
     s += "; draw an FPS counter while playing (host present rate)\n";
     s += std::format("show_fps_overlay = {}\n", Bool(c.showFpsOverlay));

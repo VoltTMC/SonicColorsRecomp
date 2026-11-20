@@ -569,7 +569,7 @@ void SystemTab(SettingsHost host)
     if (Combo(host, "Language", c.language, langs, langNames, 7, true, "Language of the game's text and menus (the Wii system language)."))
         Changed(host, true);
     Check(host, "Pause when the window is in the background", c.pauseOnFocusLoss, false,
-          "Freeze the game while another window has focus. Audio is muted and rumble stops until focus returns.");
+          "Freeze the game while another window has focus or the game is minimized. Audio is muted and rumble stops until focus returns.");
     Check(host, "Show FPS overlay", c.showFpsOverlay, false,
           "Draw FPS, frame time, Present ms, draws/XFB, guest Hz, memory and audio underruns while playing.");
     Check(host, "Show input hints", c.showInputHints, false,

@@ -13,14 +13,44 @@ bool Overlay_WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);   // platform/w
 static HWND s_hwnd = nullptr;
 static std::atomic<bool> s_resized{ false };
 static bool s_fullscreen = false;   // window thread only
+static int s_lastWindowedW = 0, s_lastWindowedH = 0;
 constexpr UINT WM_APP_FULLSCREEN = WM_APP + 1;   // wParam: 1 fullscreen, 0 windowed
 constexpr UINT WM_APP_WINDOWSIZE = WM_APP + 2;   // wParam: width, lParam: height
+
+static void RememberWindowedSize(HWND hwnd)
+{
+    if (s_fullscreen || IsIconic(hwnd)) return;
+    RECT rc{};
+    if (!GetClientRect(hwnd, &rc)) return;
+    const int w = rc.right - rc.left;
+    const int h = rc.bottom - rc.top;
+    if (w >= 320 && h >= 240)
+    {
+        s_lastWindowedW = w;
+        s_lastWindowedH = h;
+    }
+}
+
+static void ApplyPauseFromFocusOrMinimize(bool appActive)
+{
+    if (!g_config.pauseOnFocusLoss || !s_hwnd) return;
+    extern std::atomic<bool> g_pauseRequested;
+    const bool pause = !appActive || IsIconic(s_hwnd);
+    g_pauseRequested = pause;
+    if (pause)
+    {
+        void Gamepad_StopRumble();
+        Gamepad_StopRumble();
+    }
+}
 
 // borderless fullscreen on the window's monitor, or back to the saved window rect
 static void SetFullscreen(HWND hwnd, bool on)
 {
     static RECT saved;
     if (on == s_fullscreen) return;
+    if (!on)
+        RememberWindowedSize(hwnd);
     s_fullscreen = on;
     if (on)
     {
@@ -36,6 +66,7 @@ static void SetFullscreen(HWND hwnd, bool on)
     {
         SetWindowLongW(hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW | WS_VISIBLE);
         SetWindowPos(hwnd, nullptr, saved.left, saved.top, saved.right - saved.left, saved.bottom - saved.top, SWP_FRAMECHANGED);
+        RememberWindowedSize(hwnd);
     }
 }
 
@@ -49,23 +80,24 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         // issues them, so there is nothing to flush; terminate directly rather than
         // running DLL teardown while guest/GX/audio threads are mid-operation.
         LOG_INFO("window closed, exiting");
+        RememberWindowedSize(hwnd);
+        Window_PersistSize();
         { void Gamepad_StopRumble(); Gamepad_StopRumble(); }
         TerminateProcess(GetCurrentProcess(), 0);
         return 0;
     case WM_SIZE:
         s_resized = true;
+        if (wp == SIZE_MINIMIZED || wp == SIZE_RESTORED || wp == SIZE_MAXIMIZED)
+        {
+            if (wp != SIZE_MINIMIZED)
+                RememberWindowedSize(hwnd);
+            ApplyPauseFromFocusOrMinimize(GetForegroundWindow() == hwnd);
+        }
+        else
+            RememberWindowedSize(hwnd);
         return 0;
     case WM_ACTIVATEAPP:
-        if (g_config.pauseOnFocusLoss)
-        {
-            extern std::atomic<bool> g_pauseRequested;
-            g_pauseRequested = (wp == FALSE);
-            if (wp == FALSE)
-            {
-                void Gamepad_StopRumble();
-                Gamepad_StopRumble();
-            }
-        }
+        ApplyPauseFromFocusOrMinimize(wp != FALSE);
         break;
     case WM_SETCURSOR:
         // the game draws its own Wii Remote pointer; the overlay needs the mouse cursor
@@ -128,7 +160,13 @@ static void WindowThread(WindowParams* p)
     // Window class keeps the legacy name for ABI; the title is user-visible branding.
     s_hwnd = CreateWindowW(L"SonicColorsRecomp", L"Sonic Colors - Recompiled", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
                            CW_USEDEFAULT, CW_USEDEFAULT, r.right - r.left, r.bottom - r.top, nullptr, nullptr, wc.hInstance, nullptr);
-    if (s_hwnd && p->fullscreen) SetFullscreen(s_hwnd, true);
+    if (s_hwnd)
+    {
+        s_lastWindowedW = p->width;
+        s_lastWindowedH = p->height;
+        RememberWindowedSize(s_hwnd);
+        if (p->fullscreen) SetFullscreen(s_hwnd, true);
+    }
     p->ready = s_hwnd ? 1 : -1;
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0)
@@ -168,6 +206,15 @@ bool Window_TakeResized() { return s_resized.exchange(false); }
 
 void Window_SetFullscreen(bool on) { if (s_hwnd) PostMessageW(s_hwnd, WM_APP_FULLSCREEN, on ? 1 : 0, 0); }
 void Window_SetSize(int w, int h) { if (s_hwnd) PostMessageW(s_hwnd, WM_APP_WINDOWSIZE, (WPARAM)w, (LPARAM)h); }
+
+void Window_PersistSize()
+{
+    if (s_lastWindowedW < 320 || s_lastWindowedH < 240) return;
+    if (g_config.windowWidth == s_lastWindowedW && g_config.windowHeight == s_lastWindowedH) return;
+    g_config.windowWidth = s_lastWindowedW;
+    g_config.windowHeight = s_lastWindowedH;
+    Config_Save();
+}
 
 bool Window_Focused() { return GetForegroundWindow() == s_hwnd; }
 

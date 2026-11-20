@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Persist game window size + pause on minimize
+
+- Closing the game writes the last windowed client size to config.ini.
+- `pause_on_focus_loss` also pauses when the window is minimized.
+
 ## 2026-11-20 — Windows zip Install & relaunch
 
 - Deferred `apply_update.cmd` waits for exit, expands the zip, copies over a writable portable install, relaunches.

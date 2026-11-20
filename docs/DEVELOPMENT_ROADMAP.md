@@ -109,6 +109,11 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — Persist game window size + pause on minimize
+
+- Last windowed size saved on quit; minimize pauses with focus-loss option.
+- Next: Win native checklist; Recomp Achievements; signed builds.
+
 ### 2026-11-20 — Windows zip Install & relaunch
 
 - Portable Windows installs schedule `apply_update.cmd` (wait → Expand-Archive → xcopy → relaunch).
