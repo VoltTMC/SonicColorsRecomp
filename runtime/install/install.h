@@ -38,5 +38,9 @@ std::string Install_GameId(const std::filesystem::path& image);
 InstallResult Install_Run(const std::filesystem::path& image, const std::filesystem::path& dest,
                           InstallProgress& progress, std::string& error);
 
+// Windowless install for RecompLauncher / scripts. Prints `progress 0.0–1.0 Text` lines to stdout.
+// Returns process exit code: 0 ok, 1 failed.
+int Install_PrepareCli(const std::filesystem::path& image, const std::filesystem::path& dest);
+
 // File dialog filter description of the supported image types
 extern const wchar_t* const kInstallImageFilter;

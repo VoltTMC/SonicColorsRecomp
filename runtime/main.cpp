@@ -14,6 +14,7 @@
 #include "ios/nand_paths.h"
 #include "mods/mods.h"
 #include "audio/music_mod.h"
+#include "install/install.h"
 #include "install/releases.h"
 #include "install/verify.h"
 #include "region.h"
@@ -23,6 +24,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <cstdlib>
 #include <filesystem>
 #include <string>
@@ -102,6 +104,10 @@ static void PrintUsage()
         "  --skip-launcher         Start the game without the launcher UI\n"
         "  --data DIR              Game data directory (extracted DATA)\n"
         "  --iso PATH              Disc image used by the installer\n"
+        "  --game PATH             Disc image or extracted DATA folder (for launchers)\n"
+        "  --prepare               Windowless install from --game/--iso into --data\n"
+        "                          (or the default game/extracted/DATA). Prints progress\n"
+        "                          lines; no UI. Used by RecompLauncher Easy Setup.\n"
         "  --nand DIR              Host NAND / save directory for this run\n"
         "  --mods DIR              Mods directory override\n"
         "  --nobox                 Suppress message boxes / dialogs\n"
@@ -192,13 +198,27 @@ int main(int argc, char** argv)
     std::string nandDir;   // --nand: separate save data (test runs)
     // command line overrides for this run only (never written to config.ini)
     bool fps60 = false, singleCore = false, skipLauncher = false, showFps = false, showHints = false;
+    bool prepare = false;
     int scaleOverride = 0;
     int fpsOverride = -1;   // --frame-rate 30|60|0; --60fps sets 60
+    auto applyGamePath = [&](const std::string& g) {
+        std::error_code ec;
+        if (std::filesystem::is_directory(g, ec) &&
+            std::filesystem::exists(std::filesystem::path(g) / "sys" / "boot.bin", ec))
+            dataDir = g;
+        else
+            isoPath = g;
+    };
     for (int i = 1; i < argc; i++)
     {
         std::string a = argv[i];
         if (a == "--data" && i + 1 < argc) dataDir = argv[++i];
+        else if (a.size() > 7 && a.compare(0, 7, "--data=") == 0) dataDir = a.substr(7);
         else if (a == "--iso" && i + 1 < argc) isoPath = argv[++i];
+        else if (a.size() > 6 && a.compare(0, 6, "--iso=") == 0) isoPath = a.substr(6);
+        else if (a == "--game" && i + 1 < argc) applyGamePath(argv[++i]);
+        else if (a.size() > 7 && a.compare(0, 7, "--game=") == 0) applyGamePath(a.substr(7));
+        else if (a == "--prepare") prepare = true;
         else if (a == "--verbose") g_logLevel = 0;
         else if (a == "--show-fps") showFps = true;
         else if (a == "--show-hints") showHints = true;
@@ -290,6 +310,33 @@ int main(int argc, char** argv)
     if (!std::filesystem::exists(gameDir) && std::filesystem::exists(std::filesystem::path(root) / ".." / "game"))
         gameDir = std::filesystem::weakly_canonical(std::filesystem::path(root) / ".." / "game");
     std::filesystem::path installDest = gameDir / "extracted" / "DATA";
+
+    // RecompLauncher: skip our own launcher when started from its Play button.
+    if (const char* rl = std::getenv("RECOMPLAUNCHER"); rl && rl[0] == '1')
+        skipLauncher = true;
+    // Big Picture: prefer fullscreen unless the player already chose otherwise in config.
+    if (const char* mode = std::getenv("RECOMPLAUNCHER_MODE");
+        mode && !std::strcmp(mode, "bigpicture") && !g_config.fullscreen)
+        g_config.fullscreen = true;
+
+    if (prepare)
+    {
+        if (isoPath.empty())
+        {
+            std::fprintf(stderr, "prepare: pass --game <disc-image> or --iso <disc-image>\n");
+            return 1;
+        }
+        std::filesystem::path dest = dataDir.empty() ? installDest : std::filesystem::path(dataDir);
+        const int rc = Install_PrepareCli(isoPath, dest);
+        if (rc == 0)
+        {
+            g_config.dataDir = dest.string();
+            g_config.isoPath = isoPath;
+            Config_Save();
+            LOG_INFO("prepare: wrote data={} iso={}", g_config.dataDir, g_config.isoPath);
+        }
+        return rc;
+    }
 
     // Launcher on every start (settings, install / repair the game data); TAS runs,
     // --skip-launcher (test scripts) and restarts from the in-game settings go straight to

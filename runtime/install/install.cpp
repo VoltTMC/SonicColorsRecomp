@@ -5,10 +5,13 @@
 #include <nod.h>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <memory>
 #include <span>
+#include <thread>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -274,4 +277,56 @@ InstallResult Install_Run(const fs::path& image, const fs::path& dest, InstallPr
     }
     if (replaced) fs::remove_all(old, ec);
     return InstallResult::Ok;
+}
+
+int Install_PrepareCli(const fs::path& image, const fs::path& dest)
+{
+    std::printf("progress 0.0 Checking disc image\n");
+    std::fflush(stdout);
+    if (image.empty() || !fs::exists(image))
+    {
+        std::fprintf(stderr, "prepare: disc image not found: %s\n", image.string().c_str());
+        return 1;
+    }
+    InstallProgress progress;
+    std::string error;
+    std::atomic<bool> finished{ false };
+    InstallResult result = InstallResult::Canceled;
+    std::thread worker([&] {
+        result = Install_Run(image, dest, progress, error);
+        finished = true;
+    });
+    uint64_t lastPct = 0;
+    while (!finished)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        const uint64_t total = progress.total.load();
+        const uint64_t done = progress.done.load();
+        if (total > 0)
+        {
+            uint64_t pct = done * 100 / total;
+            if (pct > 99) pct = 99;
+            if (pct != lastPct)
+            {
+                lastPct = pct;
+                std::printf("progress %.2f Extracting game data (%llu%%)\n", pct / 100.0,
+                            (unsigned long long)pct);
+                std::fflush(stdout);
+            }
+        }
+        else
+        {
+            std::printf("progress 0.05 Reading disc file system\n");
+            std::fflush(stdout);
+        }
+    }
+    worker.join();
+    if (result != InstallResult::Ok)
+    {
+        std::fprintf(stderr, "prepare failed: %s\n", error.empty() ? "(unknown)" : error.c_str());
+        return 1;
+    }
+    std::printf("progress 1.0 Game data ready\n");
+    std::fflush(stdout);
+    return 0;
 }
