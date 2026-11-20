@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — Persist settings sub-tab
+
+- `[System] settings_tab` remembers Video/Input/Audio/System across sessions.
+
 ## 2026-11-20 — Video profiles + Play recovery links
 
 - Named video/graphics profiles under `video_profiles/`; Video tab Save/Load.

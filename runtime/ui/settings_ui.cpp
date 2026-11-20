@@ -723,6 +723,7 @@ void SystemTab(SettingsHost host)
             // Keep the auto-backup preference across Reset (it is a safety setting).
             defaults.autoBackupSavesOnLaunch = keepPaths.autoBackupSavesOnLaunch;
             defaults.launcherTab = keepPaths.launcherTab;
+            defaults.settingsTab = keepPaths.settingsTab;
             defaults.launcherWidth = keepPaths.launcherWidth;
             defaults.launcherHeight = keepPaths.launcherHeight;
             c = defaults;
@@ -993,16 +994,27 @@ void SettingsUI_Draw(SettingsHost host)
         // test aid: SCR_UI_SHOT_SUBTAB=<tab name> (legacy BKR_*) opens that tab first
         static const char* shotTab = EnvGet("SCR_UI_SHOT_SUBTAB", "BKR_UI_SHOT_SUBTAB");
         static int shotFrames = 0;
+        static int bootFrames = 0;
         bool shot = shotTab && shotFrames++ < 2;
-        static int selected = 0;
+        const bool forceRemembered = !shotTab && bootFrames++ < 2;
+        static int selected = -1;
+        if (selected < 0) selected = std::clamp(g_config.settingsTab, 0, 3);
         int pick = SettingsUI_PadTab(selected, (int)std::size(tabs), false);
         for (int i = 0; i < (int)std::size(tabs); i++)
-            if (SettingsUI_TabItem(tabs[i].name, i, pick, shot && !_stricmp(shotTab, tabs[i].name)))
+        {
+            const bool force = (shot && !_stricmp(shotTab, tabs[i].name)) || (forceRemembered && i == selected);
+            if (SettingsUI_TabItem(tabs[i].name, i, pick, force))
             {
-                selected = i;
+                if (selected != i)
+                {
+                    selected = i;
+                    g_config.settingsTab = i;
+                    Config_Save();
+                }
                 Page(host, tabs[i].draw, HelpHeight());
                 ImGui::EndTabItem();
             }
+        }
         ImGui::EndTabBar();
     }
     Footer();

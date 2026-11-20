@@ -86,6 +86,8 @@ std::string Config_Text(const Config& c)
     s += std::format("hotkey_fullscreen = {}\n", c.hotkeyFullscreen);
     s += "; last launcher tab: 0=Play 1=Settings 2=Mods 3=Music\n";
     s += std::format("launcher_tab = {}\n", std::clamp(c.launcherTab, 0, 3));
+    s += "; last settings sub-tab: 0=Video 1=Input 2=Audio 3=System\n";
+    s += std::format("settings_tab = {}\n", std::clamp(c.settingsTab, 0, 3));
     s += "; last launcher window size (logical pixels)\n";
     s += std::format("launcher_width = {}\nlauncher_height = {}\n\n", c.launcherWidth, c.launcherHeight);
     s += "[Audio]\n";
@@ -649,6 +651,7 @@ void Config_Load(const std::string& path)
             else if (key == "hotkey_screenshot") c.hotkeyScreenshot = Config_HotkeyName(val, "F12");
             else if (key == "hotkey_fullscreen") c.hotkeyFullscreen = Config_HotkeyName(val, "F11");
             else if (key == "launcher_tab") c.launcherTab = std::clamp(atoi(val.c_str()), 0, 3);
+            else if (key == "settings_tab") c.settingsTab = std::clamp(atoi(val.c_str()), 0, 3);
             else if (key == "launcher_width") c.launcherWidth = std::clamp(atoi(val.c_str()), 800, 7680);
             else if (key == "launcher_height") c.launcherHeight = std::clamp(atoi(val.c_str()), 560, 4320);
         }

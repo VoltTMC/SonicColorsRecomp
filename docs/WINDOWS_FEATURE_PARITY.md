@@ -78,6 +78,7 @@ Last updated: 2026-11-20 (continuous improvement audit; stick deadzone; spiral g
 | UI scale (launcher/overlay) | yes | yes | FULL `[source]` | System `ui_scale` 75–150% |
 | Remappable host hotkeys | yes | yes | FULL `[source]` | F1–F12 settings/screenshot/fullscreen |
 | Persist launcher tab | yes | yes | FULL `[source]` | `launcher_tab` in config.ini |
+| Persist settings sub-tab | yes | yes | FULL `[source]` | `settings_tab` Video/Input/Audio/System |
 | Persist launcher window size | yes | yes | FULL `[source]` | `launcher_width` / `launcher_height` |
 | FPS overlay (ms / 1% / guest / RSS) | yes | yes | FULL `[source]` | Host present + process RSS |
 | On-screen input hints | yes | yes | FULL `[source]` | Jump/Slash/Pause pad+key text |

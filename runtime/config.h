@@ -37,6 +37,7 @@ struct Config
     std::string hotkeyScreenshot = "F12";
     std::string hotkeyFullscreen = "F11";
     int launcherTab = 0;                 // 0 Play, 1 Settings, 2 Mods, 3 Music
+    int settingsTab = 0;                 // 0 Video, 1 Input, 2 Audio, 3 System
     int launcherWidth = 1060;            // last launcher window size (logical px)
     int launcherHeight = 740;
     // [Audio]
