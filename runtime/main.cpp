@@ -345,6 +345,15 @@ int main(int argc, char** argv)
         s_nand = nand_paths::DefaultRoot().string();
     else
         s_nand = nandDir;
+    if (g_config.autoBackupSavesOnLaunch && nandDir.empty())
+    {
+        std::filesystem::path dest;
+        std::string err;
+        if (nand_backup::BackupTree(std::filesystem::path(s_nand), dest, err))
+            LOG_INFO("auto save backup: {}", dest.string());
+        else
+            LOG_INFO("auto save backup skipped: {}", err);
+    }
     s_watchAddr = watchAddr;
     s_profStart = profStart;
     s_profDur = profDur;

@@ -73,6 +73,7 @@ Last updated: 2026-11-20 (continuous improvement audit; stick deadzone; spiral g
 | Pause-on-focus (mute + rumble stop) | yes | yes | FULL `[source]` | Audio suspended while guest paused |
 | Launcher settings summary | yes | yes | FULL `[source]` | Display / audio / pads on Play tab |
 | Input binding profiles | yes | yes | FULL `[source]` | `user_data/input_profiles/*.ini` |
+| Auto save backup on launch | yes | yes | FULL `[source]` | System toggle; skipped for `--nand` |
 | Rumble | yes | yes | UNVERIFIED | `[native]` |
 | Hot-plug toasts | yes | yes | FULL `[source]` | — |
 | Launcher home / Play | yes | yes | FULL `[source]` | Version on home (2026-11-20) |

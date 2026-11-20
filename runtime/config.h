@@ -29,6 +29,7 @@ struct Config
     int language = 1;                // Wii IPL.LNG: 0 ja, 1 en, 2 de, 3 fr, 4 es, 5 it, 6 nl
     bool pauseOnFocusLoss = false;   // freeze the game while the window is in the background
     bool showFpsOverlay = false;     // on-screen FPS while playing (host present rate)
+    bool autoBackupSavesOnLaunch = false; // copy save tree to save_backups/ before each Play
     // [Audio]
     float masterVolume = 1.0f;     // 0..1 host scale for the main (TV) mix
     float speakerVolume = 0.6f;    // 0..1 relative Wii Remote speaker level (× master)

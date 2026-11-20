@@ -42,7 +42,7 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 | 13 | QoL | Controller prompt glyphs in overlay | Open |
 | 14 | Accessibility | Remappable F1/F12 / UI scale | Open |
 | 15 | Mods | Mod profiles (enable sets) | Open |
-| 16 | Saves | Auto-backup on stage clear / interval | Open |
+| 16 | Saves | Auto-backup on launch (config) | **Done** (2026-11-20); stage-clear still open |
 | 17 | Packaging | Auto-updater / version check | Open |
 | 18 | Launcher | Resize / HiDPI stress-test checklist | Open |
 | 19 | Runtime | In-game performance overlay (CPU/GPU) | Open |
@@ -109,10 +109,14 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — Auto save backup on launch
+
+- Optional `auto_backup_saves_on_launch`; preserved across Settings Reset.
+- Next: Win native checklist items; mod profiles; frame-time benchmarks.
+
 ### 2026-11-20 — `--show-fps` + backlog
 
 - CLI `--show-fps`; top-20 improvement backlog in this file.
-- Next: Win native checklist items; mod profiles; frame-time benchmarks.
 
 ### 2026-11-20 — Input binding profiles
 

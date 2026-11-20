@@ -73,7 +73,9 @@ std::string Config_Text(const Config& c)
     s += "; freeze the game while its window is in the background\n";
     s += std::format("pause_on_focus_loss = {}\n", Bool(c.pauseOnFocusLoss));
     s += "; draw an FPS counter while playing (host present rate)\n";
-    s += std::format("show_fps_overlay = {}\n\n", Bool(c.showFpsOverlay));
+    s += std::format("show_fps_overlay = {}\n", Bool(c.showFpsOverlay));
+    s += "; copy the save tree into save_backups/ each time the game starts (Play)\n";
+    s += std::format("auto_backup_saves_on_launch = {}\n\n", Bool(c.autoBackupSavesOnLaunch));
     s += "[Audio]\n";
     s += "; host volume scales (0.0–1.0). Music and SFX share the Wii mix — only a master\n";
     s += "; control is available without changing original game mixing.\n";
@@ -380,6 +382,7 @@ void Config_Load(const std::string& path)
             if (key == "language") c.language = ParseLanguage(val);
             else if (key == "pause_on_focus_loss") c.pauseOnFocusLoss = ParseBool(val);
             else if (key == "show_fps_overlay") c.showFpsOverlay = ParseBool(val);
+            else if (key == "auto_backup_saves_on_launch") c.autoBackupSavesOnLaunch = ParseBool(val);
         }
         else if (section == "audio")
         {

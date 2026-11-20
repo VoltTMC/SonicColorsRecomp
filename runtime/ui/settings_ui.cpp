@@ -584,6 +584,8 @@ void SystemTab(SettingsHost host)
           "Freeze the game while another window has focus. Audio is muted and rumble stops until focus returns.");
     Check(host, "Show FPS overlay", c.showFpsOverlay, false,
           "Draw a small FPS counter while playing (host present rate). Toggle anytime from System.");
+    Check(host, "Backup saves when starting the game", c.autoBackupSavesOnLaunch, false,
+          "Before each Play, copy the save tree into save_backups/<timestamp>/. Skipped for --nand test runs.");
     ImGui::Spacing();
     ImGui::TextWrapped("User data: %s", Platform_UserDir().string().c_str());
     Help("Config, log, screenshots and default saves. AppImage uses ~/.local/share/SonicColorsRecomp unless --portable / SCR_PORTABLE=1.");
@@ -621,6 +623,8 @@ void SystemTab(SettingsHost host)
             defaults.musicModsEnabled = keepPaths.musicModsEnabled;
             defaults.musicModsDir = keepPaths.musicModsDir;
             defaults.texturePackDir = keepPaths.texturePackDir;
+            // Keep the auto-backup preference across Reset (it is a safety setting).
+            defaults.autoBackupSavesOnLaunch = keepPaths.autoBackupSavesOnLaunch;
             c = defaults;
             AudioOut_ApplyVolumes(c.masterVolume, c.speakerVolume);
             AudioOut_SetDevice(c.audioDevice);

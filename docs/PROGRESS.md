@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — Auto save backup on launch
+
+- `[System] auto_backup_saves_on_launch` + System checkbox; runs `nand_backup` before Play (not for `--nand`).
+
 ## 2026-11-20 — `--show-fps` + backlog audit
 
 - CLI `--show-fps` enables the overlay for the current run without editing config.ini.
