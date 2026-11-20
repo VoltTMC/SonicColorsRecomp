@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — Music Library Clear filters
+
+- One-click reset of search + Category/Variant/Replaced/World (persists cleared state).
+
 ## 2026-11-20 — CLI `--check-updates`
 
 - Queries latest GitHub release tag and exits (0 up to date, 2 newer, 1 failed). No download.

@@ -742,6 +742,13 @@ void DrawFilterBar(float availW)
     maybeBreak(comboW + 80);
     ImGui::SetNextItemWidth(comboW * 1.2f);
     if (ImGui::Combo("World", &s_filterWorld, kWorlds, IM_ARRAYSIZE(kWorlds))) saveFilters();
+    maybeBreak(ImGui::GetFontSize() * 8.f);
+    if (ImGui::Button("Clear filters"))
+    {
+        s_search[0] = 0;
+        s_filterCat = s_filterVar = s_filterRepl = s_filterWorld = 0;
+        saveFilters();
+    }
 }
 
 std::string SuggestedExportName(const MusicCatalogAsset& asset)
