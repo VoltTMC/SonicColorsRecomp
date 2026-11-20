@@ -109,7 +109,17 @@ WAV → 48 kHz PCM → CRI ADX → AAX (template segments, UTF data_alignment=8)
 Builds an isolated TR1 (`stg110`) diagnostic replacement and checks the patched
 CPK + payload proof. This does **not** replace an in-game listen test.
 
+## Replacement CPK cache (`music_mods/current.json`)
+
+Created only after a successful **Prepare** with enabled replacements (or a
+prepare that records `use_original`). It is **not** required to browse the
+catalog, preview originals, or export WAVs — those read the untouched game CPK.
+
+On Windows portable installs the cache lives next to the exe under
+`music_mods/` (same as `%APPDATA%\SonicColorsRecomp\music_mods` for non-portable).
+The launcher Music tab and in-game override share this path via `MusicPaths_*`.
+
 ## Restore original music
 
 Disable mappings, turn off custom music assets, or delete
-`userdata/music_mods/current.json`. Original CPK is never modified.
+`music_mods/current.json`. Original CPK is never modified.

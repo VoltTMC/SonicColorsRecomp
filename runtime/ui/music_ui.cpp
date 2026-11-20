@@ -1,5 +1,6 @@
 #include "music_ui.h"
 #include "../audio/music_catalog.h"
+#include "../audio/music_paths.h"
 #include "../audio/music_manifest.h"
 #include "../audio/music_tool.h"
 #include "../audio/wav_file.h"
@@ -118,46 +119,18 @@ fs::path MusicDir()
 
 fs::path FindMusicAssetTool() { return MusicTool_Find(); }
 
-fs::path OriginalCpk()
-{
-    fs::path p = fs::path(g_config.dataDir) / "files" / "sonic2010_0.cpk";
-    if (fs::exists(p)) return p;
-    p = fs::current_path() / "game" / "SNCP8P" / "files" / "sonic2010_0.cpk";
-    if (fs::exists(p)) return p;
-    p = Platform_ExeDir() / ".." / "game" / "SNCP8P" / "files" / "sonic2010_0.cpk";
-    return p;
-}
+fs::path OriginalCpk() { return MusicPaths_OriginalCpk(); }
 
-fs::path EnsureWritableDir(const fs::path& preferred, const fs::path& fallback)
-{
-    std::error_code ec;
-    fs::create_directories(preferred, ec);
-    if (fs::is_directory(preferred, ec)) return preferred;
-    fs::create_directories(fallback, ec);
-    return fallback;
-}
-
-fs::path CacheRoot()
-{
-    return EnsureWritableDir(fs::current_path() / "userdata" / "music_mods",
-                             Platform_UserDir() / "music_mods");
-}
-fs::path PreviewCache()
-{
-    return EnsureWritableDir(fs::current_path() / "userdata" / "music_preview",
-                             Platform_UserDir() / "music_preview");
-}
+fs::path CacheRoot() { return MusicPaths_CacheRoot(); }
+fs::path PreviewCache() { return MusicPaths_PreviewCache(); }
 
 void RefreshCacheSummary()
 {
-    std::string summary;
-    const fs::path cur = CacheRoot() / "current.json";
-    if (!fs::exists(cur))
-        summary = "CPK cache: not built";
-    else
-        summary = "CPK cache ready (" + cur.string() + ")";
+    const MusicPathsStatus st = MusicPaths_QueryStatus();
     std::lock_guard lk(s_cacheMu);
-    s_cacheSummary = std::move(summary);
+    s_cacheSummary = st.summary;
+    if (!st.detail.empty() && st.summary.find(st.detail) == std::string::npos)
+        s_cacheSummary += " — " + st.detail;
 }
 
 MusicAssetMapping* FindMapping(const std::string& path)
@@ -391,7 +364,8 @@ void RequestOriginalPreview(const MusicCatalogAsset& asset)
     const fs::path cpk = OriginalCpk();
     if (tool.empty() || !fs::exists(cpk))
     {
-        s_statusMsg = "Cannot preview original: music_asset tool or CPK missing";
+        const MusicPathsStatus st = MusicPaths_QueryStatus();
+        s_statusMsg = "Cannot preview original: " + st.summary;
         return;
     }
     {
@@ -787,7 +761,8 @@ void RequestExportOriginal(const MusicCatalogAsset& asset)
     if (tool.empty() || !fs::exists(cpk))
     {
         s_exportRunning = false;
-        s_statusMsg = "Cannot export: music_asset tool or CPK missing";
+        const MusicPathsStatus st = MusicPaths_QueryStatus();
+        s_statusMsg = "Cannot export: " + st.summary;
         return;
     }
     fs::path dest;
@@ -1016,11 +991,19 @@ void MusicUI_Draw(SettingsHost host, const char*& help)
 
     {
         std::lock_guard lk(s_cacheMu);
-        if (compact)
-            ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.55f, 1.f), "%s",
-                               s_cacheSummary.find("ready") != std::string::npos ? "CPK cache ready" : s_cacheSummary.c_str());
+        const bool ok = s_cacheSummary.find("ready") != std::string::npos
+                        || s_cacheSummary.find("not prepared yet") != std::string::npos
+                        || s_cacheSummary.find("using original") != std::string::npos;
+        const bool bad = s_cacheSummary.find("not found") != std::string::npos
+                         || s_cacheSummary.find("missing") != std::string::npos;
+        const ImVec4 col = bad ? ImVec4(0.95f, 0.55f, 0.35f, 1.f)
+                               : (ok ? ImVec4(0.45f, 0.85f, 0.55f, 1.f) : ImVec4(0.85f, 0.80f, 0.45f, 1.f));
+        if (compact && s_cacheSummary.find("ready") != std::string::npos)
+            ImGui::TextColored(col, "Replacement CPK ready");
         else
-            ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.55f, 1.f), "%s", s_cacheSummary.c_str());
+            ImGui::TextColored(col, "%s", s_cacheSummary.c_str());
+        Hover("Replacement CPK cache is created by Prepare after you assign WAV replacements. "
+              "Original previews/export read the untouched game CPK and do not need this cache.");
     }
     if (!compact && !s_statusMsg.empty())
         ImGui::TextWrapped("%s", s_statusMsg.c_str());
@@ -1042,6 +1025,9 @@ void MusicUI_Draw(SettingsHost host, const char*& help)
     if (ImGui::Button("Refresh")) Reload();
     ImGui::SameLine();
     if (ImGui::Button("Open folder")) Shell_OpenFolder(s_dir);
+    ImGui::SameLine();
+    if (ImGui::Button("Open cache")) Shell_OpenFolder(CacheRoot());
+    Hover("Folder for prepared replacement CPKs (current.json). Independent of original-preview cache.");
     ImGui::SameLine();
     if (s_prepRunning)
     {

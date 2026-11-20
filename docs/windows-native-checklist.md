@@ -51,7 +51,10 @@ what you can prove — note that in any report.
 - [ ] Remap settings/screenshot/fullscreen hotkeys (System → Host hotkeys)
 - [ ] Resize launcher; quit and reopen — size restored
 - [ ] Music tab shows the full catalog (~114 tracks) from `mods\music\catalog.json` without the repo
-- [ ] Assign Replacement writes `mods\music\manifest.toml` + `tracks\`; Prepare works when Python/cricodecs/vgmstream/ffmpeg are installed
+- [ ] Status says “Replacement CPK: not prepared yet” before Prepare (not a hard error); originals still preview when tools are installed
+- [ ] With game data installed, Music finds `sonic2010_0.cpk` under `game\extracted\DATA\files\` (portable) even if launched from another cwd
+- [ ] Assign Replacement writes `mods\music\manifest.toml` + `tracks\`; Prepare writes `music_mods\current.json`; Play uses the same cache folder
+- [ ] Prepare works when Python/cricodecs/vgmstream/ffmpeg are installed (see `tools\MUSIC_ASSET_WINDOWS.txt`)
 - [ ] System → Check for updates (network); Open Releases page; Download update package → `downloads\` (newest 3 kept)
 - [ ] After download → Reveal package / Open downloads; Play shows What's new after a version bump
 - [ ] Install & relaunch on a portable zip install (exits → `downloads\apply_update.ps1` extract → relaunch); on failure check `downloads\apply_update.log`

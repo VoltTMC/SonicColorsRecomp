@@ -1,4 +1,6 @@
 #include "music_mod.h"
+#include "music_paths.h"
+#include "music_manifest.h"
 #include "music_tool.h"
 #include "../config.h"
 #include "../ios/disc.h"
@@ -42,31 +44,9 @@ struct ProofEntry
 std::vector<ProofEntry> s_proof;
 std::string s_proofTsv;
 
-static fs::path ExeDir()
-{
-    return Platform_ExeDir();
-}
-
 static fs::path FindMusicAssetTool() { return MusicTool_Find(); }
 
-static fs::path DefaultCacheRoot()
-{
-    // Prefer XDG/user data so AppImage / installed builds don't write into a
-    // read-only or cwd-relative tree.
-    const fs::path cands[] = {
-        Platform_UserDir() / "music_mods",
-        fs::current_path() / "userdata" / "music_mods",
-        ExeDir() / "userdata" / "music_mods",
-        ExeDir() / ".." / "userdata" / "music_mods",
-    };
-    for (auto& p : cands)
-    {
-        std::error_code ec;
-        fs::create_directories(p, ec);
-        if (fs::is_directory(p)) return p;
-    }
-    return Platform_UserDir() / "music_mods";
-}
+static fs::path DefaultCacheRoot() { return MusicPaths_CacheRoot(); }
 
 static std::string JsonGetString(const std::string& json, const char* key)
 {
@@ -222,7 +202,7 @@ void MusicMod_Init()
     else if (!g_config.musicModsDir.empty())
         s_dir = g_config.musicModsDir;
     else
-        s_dir = "mods/music";
+        s_dir = MusicManifest_DefaultDir().string();
 
     const fs::path musicDir = fs::path(s_dir);
     const fs::path manifest = musicDir / "manifest.toml";
@@ -232,21 +212,16 @@ void MusicMod_Init()
         return;
     }
 
-    fs::path cpk;
-    const fs::path dataCands[] = {
-        fs::path(g_config.dataDir) / "files" / "sonic2010_0.cpk",
-        fs::current_path() / "game" / "SNCP8P" / "files" / "sonic2010_0.cpk",
-        ExeDir() / "game" / "SNCP8P" / "files" / "sonic2010_0.cpk",
-    };
-    for (auto& p : dataCands)
-        if (fs::exists(p)) { cpk = p; break; }
-    if (cpk.empty())
+    fs::path cpk = MusicPaths_OriginalCpk();
+    if (!fs::exists(cpk))
     {
-        LOG_WARN("[MUSIC] sonic2010_0.cpk not found — cannot patch");
+        LOG_WARN("[MUSIC] sonic2010_0.cpk not found — cannot patch (tried {})", cpk.string());
         return;
     }
+    LOG_INFO("[MUSIC] original CPK → {}", cpk.string());
 
     const fs::path cache = DefaultCacheRoot();
+    LOG_INFO("[MUSIC] cache root → {}", cache.string());
     std::string json;
     if (!RunPrepare(manifest, musicDir, cpk, cache, json))
     {

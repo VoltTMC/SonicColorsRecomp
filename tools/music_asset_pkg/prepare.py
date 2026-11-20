@@ -131,13 +131,27 @@ def prepare(
         active.append({**t, "wav": wav, "path": internal})
 
     if not active:
-        return {
+        status = {
             "ok": True,
             "use_original": True,
             "message": "no enabled asset mappings — using original CPK",
             "original_cpk": str(original_cpk),
             "original_sha256": sha256_file(original_cpk),
         }
+        cache_root.mkdir(parents=True, exist_ok=True)
+        (cache_root / "current.json").write_text(
+            json.dumps(
+                {
+                    "use_original": True,
+                    "original_cpk": str(original_cpk),
+                    "message": status["message"],
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return status
 
     # Reject duplicate targets
     seen = {}

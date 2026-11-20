@@ -28,4 +28,8 @@ WAVs still works; original decode / export / CPK prepare will report a clear err
 `manifest.toml` and `tracks/` are created next to the catalog when you assign
 replacements in the Music tab (not shipped).
 
+Replacement CPK cache (`music_mods/current.json`) is created by Prepare. A
+“not prepared yet” status is normal until then — original previews/export still
+use the game CPK directly (they need vgmstream on PATH).
+
 Override the launcher path with SCR_MUSIC_ASSET.
