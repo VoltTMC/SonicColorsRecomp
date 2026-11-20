@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Fix unclickable launcher tabs
+
+- Root cause: boot `forceTab` used `frames < 2`, but `frames` only advanced on install prompt / UI shots, so `ImGuiTabItemFlags_SetSelected` stayed forced on the remembered tab and cancelled mouse selection.
+- Fix: dedicated `bootFrames` counter (same pattern as Settings sub-tabs). Linux + Windows builds OK; SCR_UI_SHOT_TAB + live clicks confirmed.
+
 ## 2026-11-20 — Release v0.3.0
 
 - Tagged packages: AppImage + Windows zip (updater, launcher QoL, verify-data, RecompLauncher settings, last played, reinstall confirm).

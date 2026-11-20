@@ -706,7 +706,13 @@ bool Launcher_Run(std::string& dataDir, const std::string& isoPath, const fs::pa
                     Config_Save();
                 }
             };
-            const bool forceTab = frames < 2;
+            // Only force the remembered/shot tab for the first two frames. `frames` is not a
+            // reliable boot counter (it only advances on promptInstall / SCR_UI_SHOT), so a
+            // stuck force would re-assert ImGuiTabItemFlags_SetSelected every frame and cancel
+            // mouse clicks on other tabs.
+            static int bootFrames = 0;
+            const bool forceTab = bootFrames < 2;
+            if (bootFrames < 2) bootFrames++;
             auto force = [&](int tab, const char* shotName) {
                 if (shotTab && shotName && !strcmp(shotTab, shotName)) return forceTab;
                 return forceTab && !shotTab && selected == tab;
