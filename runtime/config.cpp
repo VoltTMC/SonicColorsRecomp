@@ -75,7 +75,9 @@ std::string Config_Text(const Config& c)
     s += "; draw an FPS counter while playing (host present rate)\n";
     s += std::format("show_fps_overlay = {}\n", Bool(c.showFpsOverlay));
     s += "; copy the save tree into save_backups/ each time the game starts (Play)\n";
-    s += std::format("auto_backup_saves_on_launch = {}\n\n", Bool(c.autoBackupSavesOnLaunch));
+    s += std::format("auto_backup_saves_on_launch = {}\n", Bool(c.autoBackupSavesOnLaunch));
+    s += "; launcher and in-game settings UI scale (0.75–1.50)\n";
+    s += std::format("ui_scale = {:.2f}\n\n", c.uiScale);
     s += "[Audio]\n";
     s += "; host volume scales (0.0–1.0). Music and SFX share the Wii mix — only a master\n";
     s += "; control is available without changing original game mixing.\n";
@@ -480,6 +482,8 @@ void Config_Load(const std::string& path)
             else if (key == "pause_on_focus_loss") c.pauseOnFocusLoss = ParseBool(val);
             else if (key == "show_fps_overlay") c.showFpsOverlay = ParseBool(val);
             else if (key == "auto_backup_saves_on_launch") c.autoBackupSavesOnLaunch = ParseBool(val);
+            else if (key == "ui_scale")
+                c.uiScale = std::clamp(std::strtof(val.c_str(), nullptr), 0.75f, 1.50f);
         }
         else if (section == "audio")
         {

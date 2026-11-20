@@ -108,8 +108,9 @@ void Overlay_Render(float w, float h)
     ImGui_ImplDX11_NewFrame();
     UiBackend_NewFrame();
     ImGui::GetIO().DisplaySize = ImVec2(w, h);   // the bound target (an off-screen one for screenshots)
-    // scale with the window: designed for 720p
-    float scale = std::max(0.75f, ImGui::GetIO().DisplaySize.y / 720.0f);
+    // scale with the window: designed for 720p, then user ui_scale
+    const float userScale = std::clamp(g_config.uiScale, 0.75f, 1.50f);
+    float scale = std::max(0.75f, ImGui::GetIO().DisplaySize.y / 720.0f) * userScale;
     ImGui::GetStyle().FontScaleMain = scale;
     ImGui::NewFrame();
 

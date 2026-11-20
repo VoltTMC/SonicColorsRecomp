@@ -375,6 +375,7 @@ bool Launcher_Run(std::string& dataDir, const std::string& isoPath, const fs::pa
             float dpi = std::max(io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);
             if (dpi < 0.5f) dpi = 1.f;
             ImGui::GetStyle().FontScaleDpi = 1.f; // layout stays in logical px; density via framebuffer
+            ImGui::GetStyle().FontScaleMain = std::clamp(g_config.uiScale, 0.75f, 1.50f);
             // Ensure swapchain matches what ImGui will actually draw into this frame.
             uint32_t drawW = (uint32_t)std::lround(io.DisplaySize.x * io.DisplayFramebufferScale.x);
             uint32_t drawH = (uint32_t)std::lround(io.DisplaySize.y * io.DisplayFramebufferScale.y);

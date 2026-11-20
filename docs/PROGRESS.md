@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — UI scale
+
+- `[System] ui_scale` (75–150%) for launcher + overlay; System slider; config_test roundtrip.
+
 ## 2026-11-20 — Mod profiles + PERFORMANCE.md
 
 - Named mod enable/order profiles under `user_data/mod_profiles/`; Mods tab Save/Load.

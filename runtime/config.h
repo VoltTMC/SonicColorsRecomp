@@ -30,6 +30,7 @@ struct Config
     bool pauseOnFocusLoss = false;   // freeze the game while the window is in the background
     bool showFpsOverlay = false;     // on-screen FPS while playing (host present rate)
     bool autoBackupSavesOnLaunch = false; // copy save tree to save_backups/ before each Play
+    float uiScale = 1.0f;                // launcher + overlay text/UI scale (0.75–1.50)
     // [Audio]
     float masterVolume = 1.0f;     // 0..1 host scale for the main (TV) mix
     float speakerVolume = 0.6f;    // 0..1 relative Wii Remote speaker level (× master)

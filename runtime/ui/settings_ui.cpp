@@ -586,6 +586,16 @@ void SystemTab(SettingsHost host)
           "Draw a small FPS counter while playing (host present rate). Toggle anytime from System.");
     Check(host, "Backup saves when starting the game", c.autoBackupSavesOnLaunch, false,
           "Before each Play, copy the save tree into save_backups/<timestamp>/. Skipped for --nand test runs.");
+    {
+        float pct = c.uiScale * 100.0f;
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14);
+        if (ImGui::SliderFloat("UI scale", &pct, 75.0f, 150.0f, "%.0f%%"))
+        {
+            c.uiScale = pct / 100.0f;
+            Changed(host, false);
+        }
+        Help("Scales launcher and in-game settings text (75%–150%). Applies immediately.");
+    }
     ImGui::Spacing();
     ImGui::TextWrapped("User data: %s", Platform_UserDir().string().c_str());
     Help("Config, log, screenshots and default saves. AppImage uses ~/.local/share/SonicColorsRecomp unless --portable / SCR_PORTABLE=1.");
