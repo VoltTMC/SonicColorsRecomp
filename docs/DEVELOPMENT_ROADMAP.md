@@ -109,6 +109,11 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — Win32 audio remaster toast
+
+- Match Linux toast on IMMNotificationClient remaster; parity matrix updated (native still UNVERIFIED).
+- Next: Win native checklist; D3D timestamp queries.
+
 ### 2026-11-20 — Play portable status + config backup prune
 
 - Portable / user-data line on Play; Open screenshots; prune config_backups to 20.

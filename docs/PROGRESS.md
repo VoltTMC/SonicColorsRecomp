@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — Win32 audio remaster toast
+
+- XAudio2 `MaybeRemaster` shows the same reconnect/lost toast as Linux after device remove/default change.
+
 ## 2026-11-20 — Play portable status + config backup prune
 
 - Play tab shows portable vs user-data path; Quick folders → Open screenshots.

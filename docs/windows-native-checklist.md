@@ -64,6 +64,7 @@ what you can prove — note that in any report.
 - [ ] Reset settings creates `config_backups\config_*.ini`
 - [ ] Auto save backup on launch (optional) writes `save_backups\`
 - [ ] Auto save backup after write (optional) after stage clear / menu save; prune respects Keep N
+- [ ] Unplug default audio device mid-game → toast “Audio output reconnected/lost”; sound returns on replug
 - [ ] Mod profile Save/Load under `mod_profiles\`
 
 ## Record

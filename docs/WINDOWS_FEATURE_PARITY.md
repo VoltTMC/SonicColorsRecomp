@@ -21,7 +21,7 @@ Last updated: 2026-11-20 (continuous improvement audit; stick deadzone; spiral g
 | VSync / frame rate / host FPS cap | FULL | FULL `[source]` | UNVERIFIED | `[native]` pacing |
 | Audio playback | FULL | UNVERIFIED audible | UNVERIFIED | `[native]` listen |
 | Audio device enum / select | FULL | FULL `[source]` | UNVERIFIED | `[native]` switch |
-| Audio hot-plug remaster | FULL | PARTIAL | PARTIAL | Win: IMMNotificationClient; disconnect `[native]` open |
+| Audio hot-plug remaster | FULL | FULL `[source]` | UNVERIFIED | Win: IMMNotificationClient + toast; `[native]` listen |
 | Input + remapping | FULL | FULL `[source]` | UNVERIFIED | `[native]` pad |
 | Stick deadzone settings | FULL | FULL `[source]` | FULL `[source]` | Added 2026-11-20 |
 | Launcher + Music Library UI | FULL | FULL `[source]` / Wine boot | UNVERIFIED | Interactive `[native]` |
@@ -58,7 +58,7 @@ Last updated: 2026-11-20 (continuous improvement audit; stick deadzone; spiral g
 | Game audio output | PipeWire/SDL | XAudio2 | UNVERIFIED | `[native]` audible |
 | Device enumeration | SDL | WASAPI | FULL `[source]` | — |
 | Device selection (`audio_device`) | yes | yes | FULL `[source]` | Fix stale “Linux only” comment (done) |
-| Hot-plug / default change | SDL events | IMMNotificationClient | PARTIAL | Disconnect path `[native]` |
+| Hot-plug / default change | SDL events | IMMNotificationClient + toast | UNVERIFIED | `[native]` unplug/replug |
 | Master / speaker volume | yes | yes | FULL `[source]` | — |
 | `--list-audio-devices` | yes | yes | FULL `[auto]` | — |
 | Keyboard / mouse | yes | yes | FULL `[source]` | — |

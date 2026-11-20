@@ -2,6 +2,7 @@
 #include "../../audio/audio_out.h"
 #include "../../audio/music_mod.h"
 #include "../../log.h"
+#include "../../ui/overlay.h"
 
 #include <algorithm>
 #include <atomic>
@@ -289,11 +290,13 @@ static void MaybeRemaster()
     std::lock_guard lk(s_audioMu);
     if (!s_xa) return;
     // Prefer configured device; if gone, fall back to system default.
-    if (!SetDeviceLocked(s_deviceName, true) && !s_deviceName.empty())
+    bool ok = SetDeviceLocked(s_deviceName, true);
+    if (!ok && !s_deviceName.empty())
     {
         LOG_WARN("XAudio2: preferred device unavailable — falling back to default");
-        SetDeviceLocked("", true);
+        ok = SetDeviceLocked("", true);
     }
+    Overlay_Toast(ok ? "Audio output reconnected" : "Audio output lost");
 }
 
 void AudioOut_Init()
