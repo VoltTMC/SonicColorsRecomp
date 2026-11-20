@@ -8,6 +8,13 @@
 #include <archive.h>
 #include <archive_entry.h>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #include <cctype>
 #include <cstdio>
 #include <fstream>
@@ -197,10 +204,31 @@ json LoadManifest(std::string& err)
     }
 }
 
+// Append a relative path that may use '/' or '\\' as component separators.
+// Never append a string containing '/' as a single filename (Wine Win32 listing breaks).
+fs::path AppendRel(fs::path base, const std::string& rel)
+{
+    std::string cur;
+    auto flush = [&] {
+        if (!cur.empty())
+        {
+            base /= cur;
+            cur.clear();
+        }
+    };
+    for (char c : rel)
+    {
+        if (c == '/' || c == '\\') flush();
+        else cur.push_back(c);
+    }
+    flush();
+    return base;
+}
+
 fs::path ExtractDir(const fs::path& root, const json& pkg)
 {
     const std::string rel = pkg.value("extract_to", pkg.value("id", "") + "/" + pkg.value("version", ""));
-    return root / rel;
+    return AppendRel(root, rel);
 }
 
 // Primary on-disk artifact from the extracted package (authoritative for "installed").
@@ -231,7 +259,7 @@ fs::path PrimaryArtifact(const fs::path& root, const json& pkg)
         return pkgDir / "__init__.cp312-win_amd64.pyd";
     }
     const std::string rel = pkg.value("exe_relative", "");
-    if (!rel.empty()) return dir / rel;
+    if (!rel.empty()) return AppendRel(dir, rel);
     return {};
 }
 
@@ -336,21 +364,64 @@ bool ExtractZip(const fs::path& zip, const fs::path& dest, std::string& error, s
     return true;
 }
 
+bool PthEnablesSite(const fs::path& pth)
+{
+#ifdef _WIN32
+    FILE* f = _wfopen(pth.wstring().c_str(), L"rb");
+#else
+    FILE* f = std::fopen(pth.string().c_str(), "rb");
+#endif
+    if (!f) return false;
+    char buf[512];
+    const size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
+    std::fclose(f);
+    buf[n] = 0;
+    const std::string s(buf, n);
+    return s.find("import site") != std::string::npos && s.find("Lib\\site-packages") != std::string::npos;
+}
+
 void EnableEmbedSite(const fs::path& pyDir)
 {
     std::error_code ec;
+    fs::create_directories(pyDir / "Lib" / "site-packages", ec);
     for (auto& ent : fs::directory_iterator(pyDir, ec))
     {
         if (!ent.is_regular_file()) continue;
         const auto name = ent.path().filename().string();
         if (name.size() < 5 || name.substr(name.size() - 4) != "._pth") continue;
-        // One backslash: Lib\site-packages (C++ "Lib\\site-packages").
-        std::ofstream out(ent.path(), std::ios::binary | std::ios::trunc);
-        out << "python312.zip\n.\nLib\\site-packages\nimport site\n";
+        if (PthEnablesSite(ent.path()))
+        {
+            LOG_INFO("[Dependency] python_embed: site-packages already enabled in {}", name);
+            return;
+        }
+        // Zip extract often leaves ._pth read-only; clear that before rewrite.
+        fs::permissions(ent.path(),
+                        fs::perms::owner_read | fs::perms::owner_write | fs::perms::group_read | fs::perms::others_read,
+                        fs::perm_options::replace, ec);
+#ifdef _WIN32
+        SetFileAttributesW(ent.path().wstring().c_str(), FILE_ATTRIBUTE_NORMAL);
+        FILE* f = _wfopen(ent.path().wstring().c_str(), L"wb");
+#else
+        FILE* f = std::fopen(ent.path().string().c_str(), "wb");
+#endif
+        if (!f)
+        {
+            LOG_WARN("[Dependency] python_embed: cannot rewrite {} (site-packages will be invisible)", name);
+            return;
+        }
+        // One backslash: Lib\site-packages (required by Windows embed ._pth).
+        static const char kPth[] = "python312.zip\n.\nLib\\site-packages\nimport site\n";
+        const bool wrote = std::fwrite(kPth, 1, sizeof(kPth) - 1, f) == sizeof(kPth) - 1;
+        std::fclose(f);
+        if (!wrote || !PthEnablesSite(ent.path()))
+        {
+            LOG_WARN("[Dependency] python_embed: failed to enable site-packages in {}", name);
+            return;
+        }
         LOG_INFO("[Dependency] python_embed: enabled site-packages in {}", name);
-        break;
+        return;
     }
-    fs::create_directories(pyDir / "Lib" / "site-packages", ec);
+    LOG_WARN("[Dependency] python_embed: no python*._pth found under {}", pyDir.string());
 }
 
 fs::path FindNamedUnder(const fs::path& root, const std::string& fileName)
@@ -424,7 +495,7 @@ bool LinkBins(const fs::path& root, const json& man, std::string& err)
 
         fs::path srcBin = extract;
         if (pkg.contains("bin_subdir"))
-            srcBin = extract / pkg.value("bin_subdir", "");
+            srcBin = AppendRel(extract, pkg.value("bin_subdir", ""));
 
         auto tryCopy = [&](const fs::path& dir) -> int {
             if (!fs::is_directory(dir, ec)) return 0;
@@ -786,6 +857,7 @@ void EnsureWorker(bool force)
             // Authoritative: on-disk primary exists. Repair LinkBins; never wipe a working
             // package (force only reinstalls packages that still fail readiness).
             WriteReadyMarker(r.installDir, pkg);
+            if (id == "python_embed") EnableEmbedSite(r.installDir);
             std::string linkErr;
             LinkBins(root, man, linkErr);
             r = ResolvePackage(root, pkg);
@@ -903,8 +975,18 @@ void MusicDeps_ApplyEnv()
 #ifdef _WIN32
     const fs::path bin = MusicDeps_ManagedBin();
     const fs::path py = MusicDeps_Python();
-    if (!bin.empty()) SetEnvironmentVariableW(L"SCR_MUSIC_MANAGED_BIN", bin.wstring().c_str());
-    if (!py.empty() && FileOk(py)) SetEnvironmentVariableW(L"SCR_MUSIC_PYTHON", py.wstring().c_str());
+    if (!py.empty() && FileOk(py))
+    {
+        // Repair embed ._pth so Lib\site-packages (cricodecs) is importable.
+        EnableEmbedSite(py.parent_path());
+        SetEnvironmentVariableW(L"SCR_MUSIC_PYTHON", py.wstring().c_str());
+        _putenv_s("SCR_MUSIC_PYTHON", py.string().c_str());
+    }
+    if (!bin.empty())
+    {
+        SetEnvironmentVariableW(L"SCR_MUSIC_MANAGED_BIN", bin.wstring().c_str());
+        _putenv_s("SCR_MUSIC_MANAGED_BIN", bin.string().c_str());
+    }
 #endif
 }
 

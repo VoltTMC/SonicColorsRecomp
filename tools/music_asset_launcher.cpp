@@ -69,6 +69,18 @@ static bool ExistsFile(const fs::path& p)
 
 static fs::path FindPython(const fs::path& root)
 {
+#ifdef _WIN32
+    // Prefer Win32 env (SetEnvironmentVariableW from the launcher) over CRT getenv.
+    {
+        wchar_t buf[MAX_PATH * 4];
+        const DWORD n = GetEnvironmentVariableW(L"SCR_MUSIC_PYTHON", buf, MAX_PATH * 4);
+        if (n > 0 && n < MAX_PATH * 4)
+        {
+            fs::path p(buf);
+            if (ExistsFile(p)) return p;
+        }
+    }
+#endif
     if (const char* env = std::getenv("SCR_MUSIC_PYTHON"))
     {
         fs::path p(env);
@@ -195,7 +207,15 @@ static int RunWindows(const fs::path& python, const fs::path& tools, int argc, c
     const std::wstring pyW = python.wstring();
     const std::wstring toolsW = tools.wstring();
 
-    std::wstring cmd = QuoteWinArg(pyW) + L" -m music_asset_pkg.cli";
+    // Embeddable Python ships a python*._pth that enables isolated mode and ignores
+    // PYTHONPATH. Inject tools/ via -c so -m music_asset_pkg.cli can import.
+    // sys.argv after -c: [ '-c', toolsDir, ...cli args ]
+    static const wchar_t kBoot[] =
+        L"import sys,runpy;"
+        L"sys.path.insert(0,sys.argv[1]);"
+        L"sys.argv=[sys.argv[0]]+sys.argv[2:];"
+        L"raise SystemExit(runpy.run_module('music_asset_pkg.cli',run_name='__main__'))";
+    std::wstring cmd = QuoteWinArg(pyW) + L" -c " + QuoteWinArg(kBoot) + L" " + QuoteWinArg(toolsW);
     for (int i = 1; i < argc; i++)
     {
         cmd += L' ';

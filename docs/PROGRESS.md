@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Fix Check tools vs managed Music deps
+
+- Embed Python `._pth` ignores PYTHONPATH → `music_asset` now bootstraps `sys.path` via `-c`; rewrite read-only `python312._pth` for site-packages; normalize `/` in extract paths for Wine/Win32.
+- Doctor skips unusable drop-ins and continues to managed `current/bin` (bad AppData ffmpeg no longer blocks).
+
 ## 2026-11-20 — Fix Windows managed Music deps persistence
 
 - Root cause: install markers/usable checks disagreed with `extract_to`; CLI readiness only looked at `current/bin`, so a failed LinkBins left packages “missing” and triggered redownload loops.

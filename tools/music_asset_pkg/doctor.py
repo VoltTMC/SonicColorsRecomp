@@ -198,6 +198,44 @@ def _run_version(cmd: list[str], *, timeout: float = 8.0) -> tuple[int | None, s
         return None, f"OSError: {e}"
 
 
+def _iter_app_candidates(names: list[str]) -> tuple[list[str], list[str]]:
+    """All matching binaries in search order, plus directories searched."""
+    names = _windows_names(names)
+    searched: list[str] = []
+    hits: list[str] = []
+    seen: set[str] = set()
+    for d in _bin_dirs():
+        searched.append(str(d))
+        for name in names:
+            p = d / name
+            try:
+                if not p.is_file():
+                    continue
+            except OSError:
+                continue
+            if os.name == "nt" or name.lower().endswith(".exe") or os.access(p, os.X_OK):
+                # Prefer absolute() over resolve() so tools/bin symlinks keep their
+                # drop-in path (tests and diagnostics expect the tools/bin location).
+                try:
+                    key = str(p.absolute())
+                except OSError:
+                    key = str(p)
+                if key in seen:
+                    continue
+                seen.add(key)
+                hits.append(key)
+    if not hits and not _app_bin_only():
+        searched.append("PATH")
+        for name in names:
+            hit = shutil.which(name)
+            if hit and hit not in seen:
+                seen.add(hit)
+                hits.append(hit)
+    elif not hits and _app_bin_only():
+        searched.append("PATH (skipped: SCR_MUSIC_APP_BIN_ONLY)")
+    return hits, searched
+
+
 def _probe_tool(
     *,
     names: list[str],
@@ -215,55 +253,62 @@ def _probe_tool(
         "host": f"{platform.system()}-{platform.machine()}",
         "searched": [],
     }
-    path, searched = find_in_app(names)
+    hits, searched = _iter_app_candidates(names)
     info["searched"] = searched
-    if not path:
+    if not hits:
         info["error"] = missing_tool_message(label, names, searched=searched)
         return info
 
-    info["path"] = path
-    p = Path(path)
-    if not p.is_file():
-        info["status"] = "missing"
-        info["error"] = "path does not exist"
-        return info
+    unusable: list[str] = []
+    for path in hits:
+        p = Path(path)
+        if not p.is_file():
+            unusable.append(f"{path}: path does not exist")
+            continue
+        try:
+            size = p.stat().st_size
+        except OSError as e:
+            unusable.append(f"{path}: {e}")
+            continue
+        if size == 0:
+            unusable.append(f"{path}: file is empty")
+            continue
 
-    try:
-        size = p.stat().st_size
-    except OSError as e:
-        info["status"] = "unusable"
-        info["error"] = str(e)
-        return info
-    if size == 0:
-        info["status"] = "unusable"
-        info["error"] = "file is empty"
-        return info
+        rc, out = _run_version([path, *version_args])
+        if rc is None:
+            unusable.append(f"{path}: {out}")
+            continue
+        m = version_re.search(out)
+        if m:
+            info["path"] = path
+            info["version"] = m.group(1)
+            info["ok"] = True
+            info["status"] = "ok"
+            info["probe_output"] = out[:400]
+            if unusable:
+                info["skipped_unusable"] = unusable
+            return info
+        if rc != 0 and not out:
+            unusable.append(f"{path}: exit {rc} with empty output")
+            continue
+        if rc == 0:
+            info["path"] = path
+            info["ok"] = True
+            info["status"] = "ok"
+            info["version"] = "unknown"
+            info["probe_output"] = out[:400]
+            info["warning"] = "ran successfully but version string not recognised"
+            if unusable:
+                info["skipped_unusable"] = unusable
+            return info
+        unusable.append(f"{path}: exit {rc}: {out[:200]}")
 
-    rc, out = _run_version([path, *version_args])
-    if rc is None:
-        info["status"] = "unusable"
-        info["error"] = out
-        return info
-    m = version_re.search(out)
-    if m:
-        info["version"] = m.group(1)
-        info["ok"] = True
-        info["status"] = "ok"
-        info["probe_output"] = out[:400]
-        return info
-    if rc != 0 and not out:
-        info["status"] = "unusable"
-        info["error"] = f"exit {rc} with empty output"
-        return info
-    if rc == 0:
-        info["ok"] = True
-        info["status"] = "ok"
-        info["version"] = "unknown"
-        info["probe_output"] = out[:400]
-        info["warning"] = "ran successfully but version string not recognised"
-        return info
+    # Every candidate failed to run — report the first path for diagnostics.
+    info["path"] = hits[0]
     info["status"] = "unusable"
-    info["error"] = f"exit {rc}: {out[:300]}"
+    info["error"] = unusable[0] if unusable else "no usable binary"
+    if len(unusable) > 1:
+        info["skipped_unusable"] = unusable
     return info
 
 
