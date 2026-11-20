@@ -49,6 +49,8 @@ what you can prove — note that in any report.
 - [ ] FPS overlay (System toggle or `--show-fps`)
 - [ ] UI scale 75% / 150% (launcher + settings overlay)
 - [ ] Remap settings/screenshot/fullscreen hotkeys (System → Host hotkeys)
+- [ ] Resize launcher; quit and reopen — size restored
+- [ ] System → Check for updates (network); Open Releases page
 - [ ] Move between monitors; DPI change (125% / 150%)
 
 ## User data

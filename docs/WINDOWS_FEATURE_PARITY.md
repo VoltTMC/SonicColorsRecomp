@@ -78,6 +78,9 @@ Last updated: 2026-11-20 (continuous improvement audit; stick deadzone; spiral g
 | UI scale (launcher/overlay) | yes | yes | FULL `[source]` | System `ui_scale` 75–150% |
 | Remappable host hotkeys | yes | yes | FULL `[source]` | F1–F12 settings/screenshot/fullscreen |
 | Persist launcher tab | yes | yes | FULL `[source]` | `launcher_tab` in config.ini |
+| Persist launcher window size | yes | yes | FULL `[source]` | `launcher_width` / `launcher_height` |
+| FPS overlay (ms / 1% approx) | yes | yes | FULL `[source]` | Host present timing |
+| Check for updates (GitHub) | yes | yes | FULL `[source]` | Tag compare only; no auto-install |
 | Rumble | yes | yes | UNVERIFIED | `[native]` |
 | Hot-plug toasts | yes | yes | FULL `[source]` | — |
 | Launcher home / Play | yes | yes | FULL `[source]` | Version on home (2026-11-20) |

@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Launcher size, richer FPS overlay, update check
+
+- Persist launcher window size; FPS overlay shows ms + approx 1% low.
+- System → Check for updates (GitHub Releases latest tag; no download).
+
 ## 2026-11-20 — Persist launcher tab
 
 - `[System] launcher_tab` remembers Play/Settings/Mods/Music across launches.

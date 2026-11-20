@@ -136,11 +136,16 @@ int main()
     CHECK(Config_Text(g_config).find("hotkey_settings") != std::string::npos);
 
     g_config.launcherTab = 2;
+    g_config.launcherWidth = 1280;
+    g_config.launcherHeight = 800;
     CHECK(Config_Save());
     g_config = Config{};
     Config_Load(tmp.string());
     CHECK(g_config.launcherTab == 2);
+    CHECK(g_config.launcherWidth == 1280);
+    CHECK(g_config.launcherHeight == 800);
     CHECK(Config_Text(g_config).find("launcher_tab") != std::string::npos);
+    CHECK(Config_Text(g_config).find("launcher_width") != std::string::npos);
 
     g_userDir = fs::temp_directory_path() / "scr_config_test_user";
     fs::remove_all(g_userDir, ec);

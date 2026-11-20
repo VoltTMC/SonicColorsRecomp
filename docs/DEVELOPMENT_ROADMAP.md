@@ -43,9 +43,9 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 | 14 | Accessibility | Remappable F1/F12 / UI scale | **Done** (UI scale + F-key hotkeys) |
 | 15 | Mods | Mod profiles (enable sets) | **Done** (2026-11-20) |
 | 16 | Saves | Auto-backup on launch (config) | **Done** (2026-11-20); stage-clear still open |
-| 17 | Packaging | Auto-updater / version check | Open |
-| 18 | Launcher | Resize / HiDPI stress-test checklist | Open |
-| 19 | Runtime | In-game performance overlay (CPU/GPU) | Open |
+| 17 | Packaging | Auto-updater / version check | Check-for-updates **Done**; auto-download open |
+| 18 | Launcher | Resize / HiDPI stress-test checklist | Size persist **Done**; formal stress doc open |
+| 19 | Runtime | In-game performance overlay (CPU/GPU) | FPS+ms+1% **Done**; CPU/GPU counters open |
 | 20 | Distribution | Signed Windows builds / installer | Open |
 
 ---
@@ -109,10 +109,14 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — Launcher size + FPS detail + update check
+
+- Persist launcher WxH; FPS overlay ms/1%; System update check vs GitHub Releases.
+- Next: Win native checklist items; controller prompt glyphs; CPU/GPU counters.
+
 ### 2026-11-20 — Persist launcher tab + Music empty state + startup log
 
 - `launcher_tab` remembered; Music catalog empty guidance; `startup: guest entry ready in N ms`.
-- Next: Win native checklist items; controller prompt glyphs; more launcher polish.
 
 ### 2026-11-20 — Remappable host hotkeys
 

@@ -117,9 +117,19 @@ void Overlay_Render(float w, float h)
     if (showFps)
     {
         static float s_fpsSmooth = 0.0f;
+        static float s_ftMs[120]{};
+        static int s_ftN = 0, s_ftI = 0;
         const float dt = ImGui::GetIO().DeltaTime;
         const float inst = (dt > 0.0001f) ? (1.0f / dt) : 0.0f;
         s_fpsSmooth = (s_fpsSmooth <= 0.0f) ? inst : (s_fpsSmooth * 0.9f + inst * 0.1f);
+        const float ftMs = dt * 1000.0f;
+        s_ftMs[s_ftI] = ftMs;
+        s_ftI = (s_ftI + 1) % 120;
+        if (s_ftN < 120) s_ftN++;
+        float worst = 0.0f;
+        for (int i = 0; i < s_ftN; i++) worst = std::max(worst, s_ftMs[i]);
+        // Approximate 1% low: reciprocal of the slowest recent frame in the window.
+        const float onePct = (worst > 0.0001f) ? (1000.0f / worst) : 0.0f;
         const ImGuiViewport* vp = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + 12.0f * scale, vp->WorkPos.y + 12.0f * scale), ImGuiCond_Always);
         ImGui::SetNextWindowBgAlpha(0.55f);
@@ -127,7 +137,7 @@ void Overlay_Render(float w, float h)
                                  ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove |
                                  ImGuiWindowFlags_NoInputs;
         if (ImGui::Begin("##scr_fps", nullptr, flags))
-            ImGui::Text("%.0f FPS", s_fpsSmooth);
+            ImGui::Text("%.0f FPS  ·  %.1f ms  ·  1%% ~%.0f", s_fpsSmooth, ftMs, onePct);
         ImGui::End();
     }
 

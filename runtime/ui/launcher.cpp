@@ -290,7 +290,9 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
 bool Launcher_Run(std::string& dataDir, const std::string& isoPath, const fs::path& installDest)
 {
     // room for the mod browser (within the screen)
-    HWND hwnd = (HWND)UiWindow_Create("Sonic Colors - Recompiled", 1060, 740);
+    const int launchW = std::clamp(g_config.launcherWidth, 800, 3840);
+    const int launchH = std::clamp(g_config.launcherHeight, 560, 2160);
+    HWND hwnd = (HWND)UiWindow_Create("Sonic Colors - Recompiled", launchW, launchH);
     if (!hwnd)
     {
         // UI screenshot / automated GUI tests must not fall through into the game.
@@ -478,6 +480,17 @@ bool Launcher_Run(std::string& dataDir, const std::string& isoPath, const fs::pa
     st.verify.cancel = true;
     if (st.verifyThread.joinable()) st.verifyThread.join();
     MusicUI_Shutdown();
+    {
+        const int saveW = (int)ImGui::GetIO().DisplaySize.x;
+        const int saveH = (int)ImGui::GetIO().DisplaySize.y;
+        if (saveW >= 800 && saveH >= 560 &&
+            (saveW != g_config.launcherWidth || saveH != g_config.launcherHeight))
+        {
+            g_config.launcherWidth = saveW;
+            g_config.launcherHeight = saveH;
+            Config_Save();
+        }
+    }
     UiImage_SetDevice(nullptr);
     ImGui_ImplDX11_Shutdown();
     UiBackend_Shutdown();
