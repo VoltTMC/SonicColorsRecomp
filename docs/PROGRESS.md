@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — Config backups folder + save backup count
+
+- System → Open config backups; Save data shows backup count vs keep limit.
+
 ## 2026-11-20 — GPU blit timing on FPS overlay
 
 - D3D11 timestamp queries around the present blit; overlay shows `GPU blit ~N ms` when resolved.

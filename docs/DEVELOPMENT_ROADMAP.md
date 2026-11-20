@@ -109,6 +109,11 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — Config backups folder + save backup count
+
+- System → Open config backups; save backup count vs keep limit.
+- Next: Win native checklist; packaging auto-download.
+
 ### 2026-11-20 — GPU blit timing on FPS overlay
 
 - D3D11 TIMESTAMP + DISJOINT around present blit; resolved one frame late.

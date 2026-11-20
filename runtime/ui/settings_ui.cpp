@@ -697,6 +697,15 @@ void SystemTab(SettingsHost host)
     if (ImGui::Button("Open user data folder"))
         Shell_OpenFolder(Platform_UserDir());
     Help("Opens the folder that holds config.ini, the log, screenshots, and (by default) save backups.");
+    ImGui::SameLine();
+    if (ImGui::Button("Open config backups"))
+    {
+        fs::path dir = Platform_UserDir() / "config_backups";
+        std::error_code ec;
+        fs::create_directories(dir, ec);
+        Shell_OpenFolder(dir);
+    }
+    Help("Timestamped copies of config.ini written before Settings Reset (newest 20 kept).");
     ImGui::TextDisabled("Settings file: %s", Config_Path().c_str());
 
     ImGui::SeparatorText("Reset");
@@ -888,6 +897,12 @@ void SystemTab(SettingsHost host)
     }
     Help("Copies the current save tree into save_backups/<timestamp>/ next to your saves.");
     auto backups = nand_paths::ListBackups();
+    if (backups.empty())
+        ImGui::TextDisabled("No save backups yet.");
+    else if (g_config.saveBackupKeep > 0)
+        ImGui::TextDisabled("%d save backup(s) · keep %d", (int)backups.size(), g_config.saveBackupKeep);
+    else
+        ImGui::TextDisabled("%d save backup(s) · keep unlimited", (int)backups.size());
     static int restoreIdx = 0;
     if (restoreIdx >= (int)backups.size()) restoreIdx = 0;
     ImGui::BeginDisabled(backups.empty());
