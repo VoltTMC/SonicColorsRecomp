@@ -25,3 +25,6 @@ struct VerifyProgress
 DataStatus Install_QuickCheck(const std::filesystem::path& data, std::string& problem);
 // SHA-1 of every file (reads the whole 3.3 GB). Returns Ok if canceled before a problem.
 DataStatus Install_FullCheck(const std::filesystem::path& data, VerifyProgress& progress, std::string& problem);
+// Windowless integrity check for --verify-data. Prints progress lines.
+// quickOnly: size + main.dol SHA only. Returns 0 Ok, 1 Missing/Corrupt.
+int Install_VerifyCli(const std::filesystem::path& data, bool quickOnly = false);

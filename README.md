@@ -23,7 +23,7 @@ Download a package from [Releases](https://github.com/VoltTMC/SonicColorsRecomp/
 
 The launcher installs from **your own** disc image (ISO / RVZ / WIA / WBFS). Do not redistribute game files.
 
-Useful flags: `--help`, `--version`, `--portable`, `--check-updates`, `--download-update`, `--save-diagnostics`, `--list-gamepads`, `--prepare --game <disc>`.
+Useful flags: `--help`, `--version`, `--portable`, `--check-updates`, `--download-update`, `--save-diagnostics`, `--list-gamepads`, `--verify-data`, `--prepare --game <disc>`.
 If the game goes black after a graphics driver update, try System → Clear shader cache.
 
 ## Status (2026-11-20)

@@ -116,6 +116,10 @@ static void PrintUsage()
         "  --prepare               Windowless install from --game/--iso into --data\n"
         "                          (or the default game/extracted/DATA). Prints progress\n"
         "                          lines; no UI. Used by RecompLauncher Easy Setup.\n"
+        "  --verify-data           Windowless integrity check of --data (or config/\n"
+        "                          default extracted DATA). Full SHA-1 of every file;\n"
+        "                          progress lines. Exit 0 = intact, 1 = missing/damaged.\n"
+        "  --verify-data-quick     Same as --verify-data but size + main.dol only (fast).\n"
         "  --nand DIR              Host NAND / save directory for this run\n"
         "  --mods DIR              Mods directory override\n"
         "  --nobox                 Suppress message boxes / dialogs\n"
@@ -255,7 +259,7 @@ int main(int argc, char** argv)
     std::string nandDir;   // --nand: separate save data (test runs)
     // command line overrides for this run only (never written to config.ini)
     bool fps60 = false, singleCore = false, skipLauncher = false, showFps = false, showHints = false;
-    bool prepare = false, saveDiagnostics = false;
+    bool prepare = false, saveDiagnostics = false, verifyData = false, verifyDataQuick = false;
     int scaleOverride = 0;
     int fpsOverride = -1;   // --frame-rate 30|60|0; --60fps sets 60
     auto applyGamePath = [&](const std::string& g) {
@@ -276,6 +280,8 @@ int main(int argc, char** argv)
         else if (a == "--game" && i + 1 < argc) applyGamePath(argv[++i]);
         else if (a.size() > 7 && a.compare(0, 7, "--game=") == 0) applyGamePath(a.substr(7));
         else if (a == "--prepare") prepare = true;
+        else if (a == "--verify-data") verifyData = true;
+        else if (a == "--verify-data-quick") verifyDataQuick = true;
         else if (a == "--save-diagnostics") saveDiagnostics = true;
         else if (a == "--verbose") g_logLevel = 0;
         else if (a == "--show-fps") showFps = true;
@@ -418,6 +424,12 @@ int main(int argc, char** argv)
             LOG_INFO("prepare: wrote data={} iso={}", g_config.dataDir, g_config.isoPath);
         }
         return rc;
+    }
+
+    if (verifyData || verifyDataQuick)
+    {
+        std::filesystem::path dest = dataDir.empty() ? installDest : std::filesystem::path(dataDir);
+        return Install_VerifyCli(dest, verifyDataQuick);
     }
 
     // Launcher on every start (settings, install / repair the game data); TAS runs,

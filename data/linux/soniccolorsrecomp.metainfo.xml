@@ -14,8 +14,8 @@
       You must supply your own legally obtained Europe / PAL (SNCP8P) game data.
     </p>
     <p>
-      Works with RecompLauncher Easy Setup, optional update downloads, save backups,
-      FPS overlay, and diagnostic reports for troubleshooting.
+      Works with RecompLauncher Easy Setup, optional update downloads and Install &amp; relaunch,
+      save backups, FPS overlay, shader-cache recovery, and diagnostic reports for troubleshooting.
     </p>
   </description>
   <url type="homepage">https://github.com/VoltTMC/SonicColorsRecomp</url>
@@ -28,8 +28,12 @@
   <keywords>
     <keyword>sonic</keyword>
     <keyword>colors</keyword>
+    <keyword>colours</keyword>
     <keyword>wii</keyword>
     <keyword>recomp</keyword>
+    <keyword>recomplauncher</keyword>
+    <keyword>pal</keyword>
+    <keyword>sncp8p</keyword>
   </keywords>
   <recommends>
     <control>gamepad</control>

@@ -2,9 +2,12 @@
 #include "releases.h"
 #include "../platform/sha1.h"
 
+#include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <span>
+#include <thread>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -130,4 +133,63 @@ DataStatus Install_FullCheck(const fs::path& data, VerifyProgress& progress, std
     }
     if (bad > 1) problem += " (and " + std::to_string(bad - 1) + " more)";
     return bad ? DataStatus::Corrupt : DataStatus::Ok;
+}
+
+int Install_VerifyCli(const fs::path& data, bool quickOnly)
+{
+    std::printf("progress 0.0 Checking game data\n");
+    std::fflush(stdout);
+    std::string problem;
+    if (quickOnly)
+    {
+        const DataStatus st = Install_QuickCheck(data, problem);
+        if (st == DataStatus::Ok)
+        {
+            std::printf("progress 1.0 Game data intact\n");
+            std::fflush(stdout);
+            return 0;
+        }
+        std::fprintf(stderr, "verify-data: %s%s\n",
+                     st == DataStatus::Missing ? "not installed" : "damaged",
+                     problem.empty() ? "" : (": " + problem).c_str());
+        return 1;
+    }
+
+    VerifyProgress progress;
+    DataStatus result = DataStatus::Corrupt;
+    std::atomic<bool> finished{ false };
+    std::thread worker([&] {
+        result = Install_FullCheck(data, progress, problem);
+        finished = true;
+    });
+    uint64_t lastPct = 0;
+    while (!finished)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        const uint64_t total = progress.total.load();
+        const uint64_t done = progress.done.load();
+        if (total > 0)
+        {
+            uint64_t pct = done * 100 / total;
+            if (pct > 99) pct = 99;
+            if (pct != lastPct)
+            {
+                lastPct = pct;
+                std::printf("progress %.2f Verifying game files (%llu%%)\n", pct / 100.0,
+                            (unsigned long long)pct);
+                std::fflush(stdout);
+            }
+        }
+    }
+    worker.join();
+    if (result != DataStatus::Ok)
+    {
+        std::fprintf(stderr, "verify-data: %s%s\n",
+                     result == DataStatus::Missing ? "not installed" : "damaged",
+                     problem.empty() ? "" : (": " + problem).c_str());
+        return 1;
+    }
+    std::printf("progress 1.0 Game data intact\n");
+    std::fflush(stdout);
+    return 0;
 }

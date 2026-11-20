@@ -109,6 +109,11 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — --verify-data CLI
+
+- `--verify-data` / `--verify-data-quick` for support and automation; AppStream keywords.
+- Next: Win native checklist; Recomp Achievements; signed builds.
+
 ### 2026-11-20 — Clear shader cache
 
 - Confirmed clear of user shadercache; Windows package.ps1 / README mention.

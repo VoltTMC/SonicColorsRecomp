@@ -51,8 +51,12 @@ ok "--help"
 echo "$help_out" | grep -Fq -- "--prepare" || fail "--help missing --prepare"
 echo "$help_out" | grep -Fq -- "--download-update" || fail "--help missing --download-update"
 echo "$help_out" | grep -Fq -- "--save-diagnostics" || fail "--help missing --save-diagnostics"
+echo "$help_out" | grep -Fq -- "--verify-data" || fail "--help missing --verify-data"
 echo "$help_out" | grep -Fq -- "--game" || fail "--help missing --game"
-ok "help flags (prepare/game/download-update/save-diagnostics)"
+ok "help flags (prepare/game/download-update/save-diagnostics/verify-data)"
+verify_out=$(SCR_PORTABLE=1 "$appdir/AppRun" --portable --verify-data-quick --nobox 2>&1) || true
+echo "$verify_out" | grep -Eqi 'not installed|progress|intact|damaged' || fail "--verify-data-quick unexpected: $verify_out"
+ok "--verify-data-quick"
 
 diag_out=$(SCR_PORTABLE=1 "$appdir/AppRun" --portable --save-diagnostics --nobox 2>&1) || fail "--save-diagnostics exited non-zero: $diag_out"
 echo "$diag_out" | grep -Fq "scr_diag_" || fail "--save-diagnostics missing report path: $diag_out"

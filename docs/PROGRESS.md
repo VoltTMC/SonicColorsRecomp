@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — --verify-data CLI
+
+- Windowless full/quick integrity check with progress lines; AppStream keywords refreshed.
+
 ## 2026-11-20 — Clear shader cache
 
 - System → Clear shader cache… (user folder only); package.ps1 TESTING + README sync.
