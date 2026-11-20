@@ -159,6 +159,10 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 - Last windowed size saved on quit; minimize pauses with focus-loss option.
 - Next: Win native checklist; Recomp Achievements; signed builds.
 
+### 2026-11-20 — Release v0.3.2 (hotfix)
+
+- AppImage + Windows zip: updater install fix + Music Library catalog packaging.
+
 ### 2026-11-20 — Windows Music Library catalog packaging
 
 - Ship `mods/music/catalog.json` in Windows ZIP / AppDir; harden DefaultDir + prepare manifest save.

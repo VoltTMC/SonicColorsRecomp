@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — Release v0.3.2 (hotfix)
+
+- Hotfix packages: Windows auto-update install + Music Library `catalog.json` in redistributables (plus v0.3.1 tab click fix lineage).
+
 ## 2026-11-20 — Fix Windows Music Library empty catalog / missing manifest
 
 - Root cause: Windows redistributable omitted `mods/music/catalog.json` (Linux repo runs had it on disk).
