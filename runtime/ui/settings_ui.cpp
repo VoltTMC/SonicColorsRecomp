@@ -716,6 +716,15 @@ void SystemTab(SettingsHost host)
             UpdateCheck_OpenDownloadFolder();
         const std::string updateMsg = UpdateCheck_Message();
         if (!updateMsg.empty()) ImGui::TextWrapped("%s", updateMsg.c_str());
+        if (UpdateCheck_NewerAvailable())
+        {
+            const std::string notes = UpdateCheck_Notes();
+            if (!notes.empty())
+            {
+                ImGui::SeparatorText("What's new");
+                ImGui::TextWrapped("%s", notes.c_str());
+            }
+        }
         if (UpdateCheck_DownloadBusy() || UpdateCheck_DownloadDone())
         {
             const float p = UpdateCheck_DownloadProgress();
@@ -989,6 +998,25 @@ std::string SettingsUI_WriteDiagnosticReport(std::string& error)
     {
         error = "Write failed for " + path.string();
         return {};
+    }
+    // Keep the newest 20 diagnostic reports.
+    {
+        std::vector<fs::path> reports;
+        for (const auto& e : fs::directory_iterator(dir, ec))
+        {
+            if (ec || !e.is_regular_file()) continue;
+            const auto name = e.path().filename().string();
+            if (name.starts_with("scr_diag_") && name.ends_with(".txt"))
+                reports.push_back(e.path());
+        }
+        std::sort(reports.begin(), reports.end(), [](const fs::path& a, const fs::path& b) {
+            return a.filename().string() > b.filename().string();
+        });
+        for (size_t i = 20; i < reports.size(); i++)
+        {
+            fs::remove(reports[i], ec);
+            ec.clear();
+        }
     }
     return path.string();
 }

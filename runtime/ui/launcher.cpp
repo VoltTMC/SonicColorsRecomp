@@ -209,7 +209,7 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
             ImGui::Spacing();
         }
     }
-    if (UpdateCheck_NewerAvailable())
+        if (UpdateCheck_NewerAvailable())
     {
         ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.35f, 1.f), "%s", UpdateCheck_Message().c_str());
         ImGui::SameLine();
@@ -219,6 +219,13 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
         if (ImGui::SmallButton("Download package"))
             UpdateCheck_StartDownload();
         ImGui::EndDisabled();
+        const std::string notes = UpdateCheck_Notes();
+        if (!notes.empty())
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.75f, 0.75f, 0.70f, 1.f));
+            ImGui::TextWrapped("%s", notes.c_str());
+            ImGui::PopStyleColor();
+        }
         if (UpdateCheck_DownloadBusy() || UpdateCheck_DownloadDone())
         {
             const float p = UpdateCheck_DownloadProgress();

@@ -23,6 +23,7 @@ namespace
 {
 std::mutex s_mu;
 std::string s_msg;
+std::string s_notes;
 std::string s_url = "https://github.com/VoltTMC/SonicColorsRecomp/releases";
 std::string s_assetUrl;
 std::string s_assetName;
@@ -114,6 +115,64 @@ void MakeExecutableIfAppImage(const fs::path& path)
                     fs::perm_options::add, ec);
 #endif
 }
+
+// Strip common Markdown noise and cap length for UI / CLI.
+std::string SoftenReleaseBody(std::string body, size_t maxChars = 900)
+{
+    for (char& c : body)
+        if (c == '\r') c = '\n';
+    // Drop HTML comments and collapse 3+ newlines.
+    std::string out;
+    out.reserve(body.size());
+    for (size_t i = 0; i < body.size();)
+    {
+        if (i + 3 < body.size() && body[i] == '<' && body[i + 1] == '!' && body[i + 2] == '-' && body[i + 3] == '-')
+        {
+            const auto end = body.find("-->", i + 4);
+            i = end == std::string::npos ? body.size() : end + 3;
+            continue;
+        }
+        out.push_back(body[i++]);
+    }
+    // Lightweight markdown: headings / bullets → plain lines.
+    std::string plain;
+    plain.reserve(out.size());
+    for (size_t i = 0; i < out.size();)
+    {
+        if (out[i] == '#' || out[i] == '*' || out[i] == '-' || out[i] == '>')
+        {
+            while (i < out.size() && (out[i] == '#' || out[i] == '*' || out[i] == '-' || out[i] == '>' || out[i] == ' '))
+                ++i;
+            continue;
+        }
+        if (out[i] == '[')
+        {
+            const auto close = out.find(']', i + 1);
+            if (close != std::string::npos)
+            {
+                plain.append(out, i + 1, close - i - 1);
+                i = close + 1;
+                if (i < out.size() && out[i] == '(')
+                {
+                    const auto end = out.find(')', i + 1);
+                    i = end == std::string::npos ? out.size() : end + 1;
+                }
+                continue;
+            }
+        }
+        plain.push_back(out[i++]);
+    }
+    while (!plain.empty() && (plain.back() == '\n' || plain.back() == ' '))
+        plain.pop_back();
+    if (plain.size() > maxChars)
+    {
+        plain.resize(maxChars);
+        while (!plain.empty() && plain.back() != ' ' && plain.back() != '\n')
+            plain.pop_back();
+        plain += "…";
+    }
+    return plain;
+}
 }   // namespace
 
 void UpdateCheck_Start(bool force)
@@ -131,12 +190,13 @@ void UpdateCheck_Start(bool force)
     {
         std::lock_guard lk(s_mu);
         s_msg = "Checking GitHub Releases…";
+        s_notes.clear();
         s_assetUrl.clear();
         s_assetName.clear();
         s_assetSize = 0;
     }
     std::thread([] {
-        std::string body, err, msg;
+        std::string body, err, msg, notes;
         std::string url = "https://github.com/VoltTMC/SonicColorsRecomp/releases";
         std::string assetUrl, assetName;
         uint64_t assetSize = 0;
@@ -164,6 +224,7 @@ void UpdateCheck_Start(bool force)
                     msg = std::format("Latest release is {} (this build: {}).", tag, local);
                     if (!assetName.empty())
                         msg += std::format(" Package: {}.", assetName);
+                    notes = SoftenReleaseBody(j.value("body", ""));
                 }
             }
             catch (...)
@@ -174,6 +235,7 @@ void UpdateCheck_Start(bool force)
         {
             std::lock_guard lk(s_mu);
             s_msg = std::move(msg);
+            s_notes = std::move(notes);
             s_url = std::move(url);
             s_assetUrl = std::move(assetUrl);
             s_assetName = std::move(assetName);
@@ -193,6 +255,12 @@ std::string UpdateCheck_Message()
 {
     std::lock_guard lk(s_mu);
     return s_msg;
+}
+
+std::string UpdateCheck_Notes()
+{
+    std::lock_guard lk(s_mu);
+    return s_notes;
 }
 
 std::string UpdateCheck_ReleasesUrl()

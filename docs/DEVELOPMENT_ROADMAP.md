@@ -109,6 +109,11 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — Update notes + diagnostics prune
+
+- Softened release `body` on Play/Settings when newer; prune diagnostic reports to 20.
+- Next: Win native checklist; optional auto-install / Recomp Achievements.
+
 ### 2026-11-20 — Richer diagnostics + CLI
 
 - Diagnostic reports add free space / `.1.log` / crash marker; `--save-diagnostics` for scripts.

@@ -17,8 +17,8 @@ cp -a "$ROOT/dist/AppDir/." "$DEST/"
 cat >"$DEST/TESTING.txt" <<'EOF'
 Sonic Colors Recomp — Linux test build (no game data included)
 
-You must own Sonic Colors (Wii) PAL SNCP8P. Extract your disc on the test machine
-(wit EXTRACT … --DEST game/SNCP8P/ or use the in-launcher installer).
+You must own Sonic Colors (Wii) Europe / PAL SNCP8P (USA/Japan discs are not supported yet).
+Use the in-launcher installer, RecompLauncher Easy Setup, or wit EXTRACT to game/SNCP8P/.
 
 Run the launcher:
   ./AppRun
@@ -33,6 +33,8 @@ Config / saves / logs: ~/.local/share/SonicColorsRecomp
 Useful flags:
   ./AppRun --portable
   ./AppRun --list-audio-devices
+  ./AppRun --check-updates
+  ./AppRun --save-diagnostics
   ./AppRun --help
   ./AppRun --version
 

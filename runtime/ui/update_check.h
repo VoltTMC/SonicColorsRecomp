@@ -9,6 +9,8 @@ bool UpdateCheck_Busy();
 bool UpdateCheck_HasResult();
 bool UpdateCheck_NewerAvailable();
 std::string UpdateCheck_Message();
+// Plain-text release notes excerpt when a newer tag exists (empty otherwise).
+std::string UpdateCheck_Notes();
 std::string UpdateCheck_ReleasesUrl();
 void UpdateCheck_OpenReleases();
 

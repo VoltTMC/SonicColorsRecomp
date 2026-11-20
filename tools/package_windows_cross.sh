@@ -108,15 +108,21 @@ deps_txt=$stage/RUNTIME_DEPS.txt
 cat > "$stage/TESTING.txt" <<'EOF'
 Sonic Colors Recomp — Windows build (no game data included)
 
-You must own Sonic Colors (Wii) PAL SNCP8P.
+You must own Sonic Colors (Wii) Europe / PAL SNCP8P (USA/Japan discs are not supported yet).
 
-1. Run SonicColorsRecomp.exe
-2. Use the launcher to Install / locate your extracted disc data
+1. Run SonicColorsRecomp.exe (or use RecompLauncher Easy Setup)
+2. Install from your own disc image (ISO / RVZ / WIA / WBFS / GCZ)
 3. Play
 
 This ZIP includes portable.txt, so config, saves, and logs are written next to the
 executable. For an installed layout without portable.txt, user data goes under
 %APPDATA%\\SonicColorsRecomp (or set SCR_USER_DIR / pass --portable).
+
+Useful:
+  SonicColorsRecomp.exe --help
+  SonicColorsRecomp.exe --check-updates
+  SonicColorsRecomp.exe --save-diagnostics
+  docs\\windows-native-checklist.md
 
 Do not redistribute copyrighted game files with this package.
 EOF

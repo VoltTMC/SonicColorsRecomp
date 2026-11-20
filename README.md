@@ -23,6 +23,8 @@ Download a package from [Releases](https://github.com/VoltTMC/SonicColorsRecomp/
 
 The launcher installs from **your own** disc image (ISO / RVZ / WIA / WBFS). Do not redistribute game files.
 
+Useful flags: `--help`, `--version`, `--portable`, `--check-updates`, `--download-update`, `--save-diagnostics`, `--prepare --game <disc>`.
+
 ## Status (2026-11-20)
 
 | Area | State |
@@ -32,7 +34,7 @@ The launcher installs from **your own** disc image (ISO / RVZ / WIA / WBFS). Do 
 | Boot → title → Tropical Resort Act 1 | **Verified** (Linux) |
 | Windows | Cross-build + Wine smoke; **native** Windows play still checklist-open |
 | Music Library (launcher) | Catalog, preview, WAV export, file-based replacement prep |
-| PC polish | Launcher, video/input/mod profiles, FPS overlay (Present ms + draws/XFB), input hint glyphs, save backup on Play/write + retention, Music Library filter persist, update check, volumes, F12 PNG — see [`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md) |
+| PC polish | Launcher, RecompLauncher Easy Setup, update download + release notes, diagnostics (`--save-diagnostics`), log rotation, crash recovery banner, free-space install check, FPS overlay, save backups — see [`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md) |
 | Known deferred | H7 black-world after stomp; AP1 opening spiral at 60 Hz; H8 in-game music listen |
 | Full-game matrix | **Not** claimed — many stages / abilities `NT` |
 

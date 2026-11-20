@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Update notes + diagnostics prune
+
+- Newer-release banner / Settings show softened GitHub release notes.
+- Keep newest 20 `diagnostics/scr_diag_*.txt`; TESTING/README CLI sync.
+
 ## 2026-11-20 — Richer diagnostics + CLI
 
 - Reports include host/portable, free space, data path, abnormal-exit marker, `.1.log` tail.
