@@ -74,6 +74,10 @@ struct Config
     // [Music]
     bool musicModsEnabled = true;
     std::string musicModsDir;   // empty: mods/music next to the exe / repo
+    int musicFilterCat = 0;     // Music Library Category combo (0 = All)
+    int musicFilterVar = 0;     // 0 All, 1 Main, 2 FX
+    int musicFilterRepl = 0;    // 0 All, 1 Replaced, 2 Original
+    int musicFilterWorld = 0;   // Music Library World combo (0 = All)
 };
 
 extern Config g_config;

@@ -109,6 +109,11 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — Persist Music Library filters
+
+- `filter_cat/var/repl/world` in config.ini; kept across Settings Reset.
+- Next: Win native checklist; D3D timestamp queries.
+
 ### 2026-11-20 — Win32 audio remaster toast
 
 - Match Linux toast on IMMNotificationClient remaster; parity matrix updated (native still UNVERIFIED).

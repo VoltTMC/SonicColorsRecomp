@@ -727,6 +727,10 @@ void SystemTab(SettingsHost host)
             defaults.mods = keepPaths.mods;
             defaults.musicModsEnabled = keepPaths.musicModsEnabled;
             defaults.musicModsDir = keepPaths.musicModsDir;
+            defaults.musicFilterCat = keepPaths.musicFilterCat;
+            defaults.musicFilterVar = keepPaths.musicFilterVar;
+            defaults.musicFilterRepl = keepPaths.musicFilterRepl;
+            defaults.musicFilterWorld = keepPaths.musicFilterWorld;
             defaults.texturePackDir = keepPaths.texturePackDir;
             // Keep the auto-backup preference across Reset (it is a safety setting).
             defaults.autoBackupSavesOnLaunch = keepPaths.autoBackupSavesOnLaunch;

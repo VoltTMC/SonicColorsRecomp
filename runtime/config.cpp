@@ -133,6 +133,10 @@ std::string Config_Text(const Config& c)
     s += "\n[Music]\n";
     s += "; custom stage WAV replacements (launcher Music Mods tab). Empty dir → mods/music\n";
     s += std::format("enabled = {}\nmusic_dir = {}\n", Bool(c.musicModsEnabled), c.musicModsDir);
+    s += "; Music Library filter combos (0 = All). Search text is not persisted.\n";
+    s += std::format("filter_cat = {}\nfilter_var = {}\nfilter_repl = {}\nfilter_world = {}\n",
+                     std::clamp(c.musicFilterCat, 0, 7), std::clamp(c.musicFilterVar, 0, 2),
+                     std::clamp(c.musicFilterRepl, 0, 2), std::clamp(c.musicFilterWorld, 0, 7));
     return s;
 }
 
@@ -717,6 +721,10 @@ void Config_Load(const std::string& path)
         {
             if (key == "enabled") c.musicModsEnabled = ParseBool(val);
             else if (key == "music_dir") c.musicModsDir = val;
+            else if (key == "filter_cat") c.musicFilterCat = std::clamp(atoi(val.c_str()), 0, 7);
+            else if (key == "filter_var") c.musicFilterVar = std::clamp(atoi(val.c_str()), 0, 2);
+            else if (key == "filter_repl") c.musicFilterRepl = std::clamp(atoi(val.c_str()), 0, 2);
+            else if (key == "filter_world") c.musicFilterWorld = std::clamp(atoi(val.c_str()), 0, 7);
         }
     }
     AudioOut_ApplyVolumes(g_config.masterVolume, g_config.speakerVolume);

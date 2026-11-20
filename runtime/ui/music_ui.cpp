@@ -703,6 +703,23 @@ void DrawPreviewTransport()
 
 void DrawFilterBar(float availW)
 {
+    static bool filtersLoaded = false;
+    if (!filtersLoaded)
+    {
+        filtersLoaded = true;
+        s_filterCat = std::clamp(g_config.musicFilterCat, 0, (int)IM_ARRAYSIZE(kCats) - 1);
+        s_filterVar = std::clamp(g_config.musicFilterVar, 0, 2);
+        s_filterRepl = std::clamp(g_config.musicFilterRepl, 0, 2);
+        s_filterWorld = std::clamp(g_config.musicFilterWorld, 0, (int)IM_ARRAYSIZE(kWorlds) - 1);
+    }
+    auto saveFilters = [] {
+        g_config.musicFilterCat = s_filterCat;
+        g_config.musicFilterVar = s_filterVar;
+        g_config.musicFilterRepl = s_filterRepl;
+        g_config.musicFilterWorld = s_filterWorld;
+        Config_Save();
+    };
+
     const float comboW = std::clamp(availW * 0.18f, ImGui::GetFontSize() * 7.f, ImGui::GetFontSize() * 12.f);
     ImGui::SetNextItemWidth(std::min(availW, ImGui::GetFontSize() * 18.f));
     ImGui::InputTextWithHint("##search", "Search label / file / cue / stage", s_search, sizeof(s_search));
@@ -715,16 +732,16 @@ void DrawFilterBar(float availW)
     };
     maybeBreak(comboW + 80);
     ImGui::SetNextItemWidth(comboW);
-    ImGui::Combo("Category", &s_filterCat, kCats, IM_ARRAYSIZE(kCats));
+    if (ImGui::Combo("Category", &s_filterCat, kCats, IM_ARRAYSIZE(kCats))) saveFilters();
     maybeBreak(comboW + 80);
     ImGui::SetNextItemWidth(comboW * 0.85f);
-    ImGui::Combo("Variant", &s_filterVar, "All\0Main\0FX\0");
+    if (ImGui::Combo("Variant", &s_filterVar, "All\0Main\0FX\0")) saveFilters();
     maybeBreak(comboW + 80);
     ImGui::SetNextItemWidth(comboW);
-    ImGui::Combo("Replaced", &s_filterRepl, "All\0Replaced\0Original\0");
+    if (ImGui::Combo("Replaced", &s_filterRepl, "All\0Replaced\0Original\0")) saveFilters();
     maybeBreak(comboW + 80);
     ImGui::SetNextItemWidth(comboW * 1.2f);
-    ImGui::Combo("World", &s_filterWorld, kWorlds, IM_ARRAYSIZE(kWorlds));
+    if (ImGui::Combo("World", &s_filterWorld, kWorlds, IM_ARRAYSIZE(kWorlds))) saveFilters();
 }
 
 std::string SuggestedExportName(const MusicCatalogAsset& asset)

@@ -24,7 +24,7 @@ The launcher installs from **your own** disc image (ISO / RVZ / WIA / WBFS). Do 
 | Boot → title → Tropical Resort Act 1 | **Verified** (Linux) |
 | Windows | Cross-build + Wine smoke; **native** Windows play still checklist-open |
 | Music Library (launcher) | Catalog, preview, WAV export, file-based replacement prep |
-| PC polish | Launcher, video/input/mod profiles, FPS overlay, input hints, auto save backup, update check, volumes, F12 PNG — see [`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md) |
+| PC polish | Launcher, video/input/mod profiles, FPS overlay (Present ms + draws/XFB), input hint glyphs, save backup on Play/write + retention, Music Library filter persist, update check, volumes, F12 PNG — see [`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md) |
 | Known deferred | H7 black-world after stomp; AP1 opening spiral at 60 Hz; H8 in-game music listen |
 | Full-game matrix | **Not** claimed — many stages / abilities `NT` |
 
