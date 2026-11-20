@@ -1,6 +1,7 @@
 #include "settings_ui.h"
 #include "music_ui.h"
 #include "overlay.h"
+#include "update_check.h"
 #include "../platform/platform.h"
 #include "../config.h"
 #include "../audio/audio_out.h"
@@ -12,7 +13,6 @@
 #include "../log.h"
 #include "mods_ui.h"
 #include "../version.h"
-#include "../net/http.h"
 #include "../platform/input.h"
 #include "../platform/ui.h"
 
@@ -21,15 +21,12 @@
 #include <fstream>
 
 #include <imgui.h>
-#include <nlohmann/json.hpp>
 
 #include <algorithm>
-#include <atomic>
 #include <filesystem>
 #include <format>
 #include <mutex>
 #include <string>
-#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -764,72 +761,17 @@ void SystemTab(SettingsHost host)
 
     ImGui::SeparatorText("Updates");
     {
-        static std::string updateMsg;
-        static std::string updateUrl = "https://github.com/VoltTMC/SonicColorsRecomp/releases";
-        static std::mutex updateMu;
-        static std::atomic<bool> updateBusy{ false };
         ImGui::TextDisabled("This build: %s", g_version);
-        ImGui::BeginDisabled(updateBusy.load());
+        ImGui::BeginDisabled(UpdateCheck_Busy());
         if (ImGui::Button("Check for updates"))
-        {
-            updateBusy = true;
-            {
-                std::lock_guard lk(updateMu);
-                updateMsg = "Checking GitHub Releases…";
-            }
-            std::thread([] {
-                std::string body, err, msg, url = "https://github.com/VoltTMC/SonicColorsRecomp/releases";
-                const bool ok = Http_Get(
-                    "https://api.github.com/repos/VoltTMC/SonicColorsRecomp/releases/latest", body, err);
-                if (!ok)
-                    msg = "Update check failed: " + (err.empty() ? "network error" : err);
-                else
-                {
-                    try
-                    {
-                        auto j = nlohmann::json::parse(body);
-                        const std::string tag = j.value("tag_name", "");
-                        url = j.value("html_url", url);
-                        auto norm = [](std::string s) {
-                            if (!s.empty() && (s[0] == 'v' || s[0] == 'V')) s.erase(0, 1);
-                            const auto dash = s.find('-');
-                            if (dash != std::string::npos) s.resize(dash);
-                            return s;
-                        };
-                        const std::string local(g_version);
-                        if (tag.empty())
-                            msg = "No release tag in the API response.";
-                        else if (norm(tag) == norm(local))
-                            msg = std::format("Up to date (latest {}).", tag);
-                        else
-                            msg = std::format(
-                                "Latest release is {} (this build: {}). Open Releases to download.", tag, local);
-                    }
-                    catch (...)
-                    {
-                        msg = "Could not parse GitHub release info.";
-                    }
-                }
-                {
-                    std::lock_guard lk(updateMu);
-                    updateMsg = std::move(msg);
-                    updateUrl = std::move(url);
-                }
-                updateBusy = false;
-            }).detach();
-        }
+            UpdateCheck_Start(true);
         ImGui::EndDisabled();
         Help("Asks GitHub for the latest published release tag. Does not download or install anything.");
         ImGui::SameLine();
         if (ImGui::Button("Open Releases page"))
-        {
-            std::lock_guard lk(updateMu);
-            Shell_OpenUrl(updateUrl);
-        }
-        {
-            std::lock_guard lk(updateMu);
-            if (!updateMsg.empty()) ImGui::TextWrapped("%s", updateMsg.c_str());
-        }
+            UpdateCheck_OpenReleases();
+        const std::string updateMsg = UpdateCheck_Message();
+        if (!updateMsg.empty()) ImGui::TextWrapped("%s", updateMsg.c_str());
     }
 
     ImGui::SeparatorText("Diagnostics");

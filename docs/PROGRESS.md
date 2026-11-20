@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — Play-tab update availability hint
+
+- Shared GitHub Releases tag check; Play shows a banner + Open Releases when a newer tag exists.
+
 ## 2026-11-20 — Screenshot retention
 
 - `[System] screenshot_keep` (default 100) prunes oldest PNGs after F12.

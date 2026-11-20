@@ -5,6 +5,7 @@
 #include "music_ui.h"
 #include "ui_image.h"
 #include "ui_shot.h"
+#include "update_check.h"
 #include "../audio/audio_out.h"
 #include "../config.h"
 #include "../mods/mods.h"
@@ -176,7 +177,17 @@ void StartVerify(State& st)
 
 void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path& installDest)
 {
+    UpdateCheck_Start(false);   // one background tag check per launcher session
     ImGui::Spacing();
+    if (UpdateCheck_NewerAvailable())
+    {
+        ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.35f, 1.f), "%s", UpdateCheck_Message().c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Open Releases"))
+            UpdateCheck_OpenReleases();
+        ImGui::TextDisabled("Download is manual — nothing is installed automatically.");
+        ImGui::Spacing();
+    }
     const ImVec4 green(0.45f, 0.80f, 0.40f, 1), red(0.90f, 0.40f, 0.30f, 1);
     switch (st.status)
     {
