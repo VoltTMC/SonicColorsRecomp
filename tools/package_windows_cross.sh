@@ -53,6 +53,9 @@ if [ -f "$out/music_asset.exe" ]; then
 fi
 cp -f "$root/tools/music_asset.cmd" "$stage/tools/" 2>/dev/null || true
 cp -f "$root/tools/MUSIC_ASSET_WINDOWS.txt" "$stage/tools/" 2>/dev/null || true
+cp -f "$root/tools/music_deps_setup.cmd" "$stage/tools/" 2>/dev/null || true
+mkdir -p "$stage/tools/bin"
+cp -f "$root/tools/bin/README.md" "$stage/tools/bin/" 2>/dev/null || true
 if [ -d "$root/tools/music_asset_pkg" ]; then
     mkdir -p "$stage/tools/music_asset_pkg"
     cp -a "$root/tools/music_asset_pkg/." "$stage/tools/music_asset_pkg/"

@@ -57,7 +57,13 @@ def main(argv: list[str] | None = None) -> int:
     bx.add_argument("--bits", type=int, choices=(16, 24), default=16)
     bx.add_argument("--overwrite", action="store_true")
 
+    sub.add_parser("doctor", help="Report Music Library host dependencies and which ops they unlock")
+
     args = ap.parse_args(argv)
+    if args.cmd == "doctor":
+        from .doctor import main_print
+
+        return main_print()
     if args.cmd == "inventory":
         from .mapping import STAGE_AAX
         for st, (main, fx) in STAGE_AAX.items():

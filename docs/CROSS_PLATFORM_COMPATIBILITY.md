@@ -8,7 +8,28 @@ Evidence: `[auto]` automated · `[source]` code review · `[wine]` Wine · `[nat
 
 Companion docs: `WINDOWS_FEATURE_PARITY.md`, `windows-native-checklist.md`, `MUSIC_MODDING.md`.
 
-Last updated: 2026-11-20 (post v0.3.2 music/updater path fixes + AppImage music_asset packaging).
+Last updated: 2026-11-20 (Music Library doctor / tools/bin / music_deps_setup).
+
+---
+
+## Music Library dependency map
+
+| Operation | Python | cricodecs | vgmstream | FFmpeg | Packaged-only? |
+|-----------|--------|-----------|-----------|--------|----------------|
+| Browse catalog | — | — | — | — | Yes (`catalog.json`) |
+| Replacement WAV preview | — | — | — | — | Yes (in-process) |
+| A/B (replacement side) | — | — | — | — | Yes |
+| Original preview | required | extract AAX | decode WAV | — | No |
+| Export original WAV | required | extract | decode | optional normalize | No |
+| Prepare (WAV→ADX/AAX→CPK) | required | ADX/AAX/CPK | — | resample 48 kHz | No |
+| Rebuild catalog from CPK | required | required | — | — | No (not needed if catalog ships) |
+| Cache / `current.json` | via prepare | via prepare | — | via prepare | After Prepare only |
+
+Discovery order: `tools/bin` (and `SCR_MUSIC_BIN`) → system `PATH`. Setup: `tools/music_deps_setup.sh` / `.cmd`. Report: `music_asset doctor` / Music UI **Check tools**.
+
+**Bundling policy:** packages ship `music_asset*` + `tools/bin/README.md` + setup helpers only. Do **not** redistribute GPL FFmpeg, system Python, or cricodecs inside the ZIP/AppImage; place ISC vgmstream-cli and an LGPL FFmpeg build in `tools/bin/` when desired.
+
+Evidence: `[auto]` `music_deps_test.sh` (doctor JSON + `tools/bin` preference); `[auto]` `SCR_MUSIC_PIPELINE=1` → `music_pipeline_smoke.sh` (prepare + payload proof on Linux host with deps).
 
 ---
 
@@ -37,7 +58,8 @@ Last updated: 2026-11-20 (post v0.3.2 music/updater path fixes + AppImage music_
 | Music catalog browse | PASS `[auto]` | PASS `[auto]` | PASS package | `catalog.json` in both packages |
 | Music original CPK discovery | PASS `[auto]` | PASS `[auto]` | PASS `[auto]` | `MusicPaths_*` / `scr_music_paths_test` |
 | Music replacement cache status | PASS `[source]` | PASS `[source]` | PASS `[source]` | Clarified “not prepared yet” |
-| Music prepare / preview / export | PARTIAL | PARTIAL | PARTIAL | Needs host Python + cricodecs + vgmstream + ffmpeg |
+| Music prepare / preview / export | PARTIAL | PARTIAL | PARTIAL | Host deps; `music_asset doctor` + `tools/bin` drop-ins + `music_deps_setup` |
+| Music dependency doctor | PASS `[auto]` | PASS `[source]` | PASS `[auto]` | `tools/music_deps_test.sh` |
 | Auto-update check + download | PASS `[source]` | PASS `[source]` | PASS `[source]` | Shared `update_check` |
 | Auto-update install | PASS AppImage `[source]` | PASS helper `[source]` | UNVERIFIED native | Win: `apply_update.ps1`; Linux: AppImage replace |
 | Crash / diagnostics | PASS | PASS `[source]` | UNVERIFIED | Win dump richer |
@@ -114,7 +136,7 @@ Last updated: 2026-11-20 (post v0.3.2 music/updater path fixes + AppImage music_
 | UI “CPK cache: not built” | Looked like a hard failure | Clarify: cache is from Prepare; originals use game CPK |
 | Windows `apply_update.cmd` `%%ZIP%%` | Download OK, install fail | `apply_update.ps1` with embedded paths |
 | Launcher tab `forceTab` stuck | Tabs not clickable | Dedicated `bootFrames` |
-| Host music toolchain not bundled | Prepare/preview/export PARTIAL both OS | Documented; intentional size/licence limit |
+| Host music toolchain not bundled | Prepare/preview/export PARTIAL both OS | Doctor + setup scripts + optional `tools/bin` drop-ins; no GPL FFmpeg in packages |
 
 ---
 
@@ -160,5 +182,6 @@ Follow `docs/windows-native-checklist.md`. Items marked UNVERIFIED above stay UN
 
 | Date | Change |
 |------|--------|
+| 2026-11-20 | Music deps doctor, `tools/bin` discovery, music_deps_setup, Music UI Check tools |
 | 2026-11-20 | Initial `CROSS_PLATFORM_COMPATIBILITY.md`; AppImage ships `music_asset`; `package_cross_check.sh`; MusicTool prefers exe dir |
 | 2026-11-20 | MusicPaths + catalog packaging + updater PS1 + tab click (see PROGRESS.md) |

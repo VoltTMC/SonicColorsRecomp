@@ -97,8 +97,25 @@ WAV → 48 kHz PCM → CRI ADX → AAX (template segments, UTF data_alignment=8)
 
 ## Requirements
 
-- `ffmpeg`, `vgmstream-cli` on `PATH`
-- `.venv-music` with **cricodecs**
+| Operation | Python | cricodecs | vgmstream | ffmpeg |
+|-----------|--------|-----------|-----------|--------|
+| Browse catalog | — | — | — | — |
+| Replacement WAV preview | — | — | — | — |
+| Original preview | yes | yes | yes | — |
+| Export original WAV | yes | yes | yes | sometimes |
+| Prepare replacements | yes | yes | — | yes |
+
+Discovery order for ffmpeg/vgmstream: `tools/bin/` → `SCR_MUSIC_BIN` → `PATH`.
+
+```bash
+./tools/music_deps_setup.sh          # Linux: .venv-music + cricodecs
+./tools/music_asset doctor           # JSON capability report
+# Optional: copy LGPL ffmpeg + ISC vgmstream-cli into tools/bin/
+```
+
+Windows: `tools\music_deps_setup.cmd` then `tools\music_asset.exe doctor`.
+
+Redistributables intentionally do **not** ship FFmpeg (often GPL), Python, or cricodecs.
 
 ## Automated prepare check
 

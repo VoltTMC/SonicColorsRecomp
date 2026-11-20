@@ -9,21 +9,23 @@ The Music Library uses `tools/music_asset.exe` (or `music_asset.cmd`) to:
 
 Required (same roles as Linux):
   1. Python 3.11+ on PATH (`python` / `py -3`)
-  2. `pip install cricodecs`
-  3. `vgmstream-cli` on PATH (preview / export)
-  4. `ffmpeg` on PATH (WAV resampling / AAX encode)
+  2. cricodecs (via tools\music_deps_setup.cmd → .venv-music)
+  3. vgmstream-cli — PATH or drop into tools\bin\
+  4. ffmpeg — PATH or drop into tools\bin\ (prefer an LGPL build)
 
-Optional project venv:
-  py -3 -m venv .venv-music
-  .venv-music\Scripts\pip install cricodecs
+Quick setup:
+  tools\music_deps_setup.cmd
+  tools\music_asset.exe doctor
 
 The redistributable ZIP ships:
   - `mods/music/catalog.json` (full Music Library inventory; required to browse tracks)
   - `tools/music_asset.exe`, `tools/music_asset.cmd`, and `tools/music_asset_pkg/`
+  - `tools/music_deps_setup.cmd`, `tools/bin/README.md`
 
-It does not bundle Python, cricodecs, vgmstream, or ffmpeg (licensing / size).
+It does not bundle Python, cricodecs, vgmstream, or ffmpeg (licence / size).
 Without them, browsing the catalog and replacement *playback* of already prepared
-WAVs still works; original decode / export / CPK prepare will report a clear error.
+WAVs still works; original decode / export / CPK prepare will report a clear error
+(Music tab → Check tools).
 
 `manifest.toml` and `tracks/` are created next to the catalog when you assign
 replacements in the Music tab (not shipped).

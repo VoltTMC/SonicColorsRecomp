@@ -3,20 +3,17 @@
 from __future__ import annotations
 
 import hashlib
-import shutil
 import subprocess
 from pathlib import Path
 
-from .cricodecs_env import ensure_cricodecs, which_ffmpeg
+from .cricodecs_env import ensure_cricodecs
 from .cpk_patch import sha256_file
 
 
 def which_vgmstream() -> str | None:
-    for name in ("vgmstream-cli", "vgmstream_cli", "vgmstream123"):
-        p = shutil.which(name)
-        if p:
-            return p
-    return None
+    from .doctor import which_vgmstream as _which
+
+    return _which()
 
 
 def preview_cache_key(cpk_sha: str, internal_path: str) -> str:

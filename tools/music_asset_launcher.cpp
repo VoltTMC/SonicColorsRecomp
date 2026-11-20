@@ -93,6 +93,9 @@ static fs::path FindPython(const fs::path& root)
             return fs::path(buf);
     }
 #else
+    // Prefer real system interpreters over IDE AppImages that hijack `python3` on PATH.
+    for (const char* cand : { "/usr/bin/python3", "/usr/local/bin/python3", "/bin/python3" })
+        if (ExistsFile(cand)) return cand;
     for (const char* name : { "python3", "python" })
     {
         if (const char* pathEnv = getenv("PATH"))
@@ -104,7 +107,18 @@ static fs::path FindPython(const fs::path& root)
                 size_t end = path.find(':', start);
                 fs::path dir = path.substr(start, end == std::string::npos ? std::string::npos : end - start);
                 fs::path cand = dir / name;
-                if (ExistsFile(cand)) return cand;
+                if (ExistsFile(cand))
+                {
+                    // Skip Cursor/VS Code AppImage wrappers
+                    const std::string s = cand.string();
+                    if (s.find("Cursor") != std::string::npos || s.find("code") != std::string::npos)
+                    {
+                        if (end == std::string::npos) break;
+                        start = end + 1;
+                        continue;
+                    }
+                    return cand;
+                }
                 if (end == std::string::npos) break;
                 start = end + 1;
             }

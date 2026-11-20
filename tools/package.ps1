@@ -27,6 +27,28 @@ Copy-Item $catalog $musicDst -Force
 $musicReadme = Join-Path $root "mods\music\README.md"
 if (Test-Path $musicReadme) { Copy-Item $musicReadme $musicDst -Force }
 
+# music_asset helper + optional tools/bin drop-ins (see tools\bin\README.md)
+$toolsDst = Join-Path $dist "tools"
+New-Item -ItemType Directory -Force $toolsDst | Out-Null
+$assetExe = Join-Path $root "out\music_asset.exe"
+if (Test-Path $assetExe) { Copy-Item $assetExe $toolsDst -Force }
+foreach ($f in @("music_asset.cmd", "MUSIC_ASSET_WINDOWS.txt", "music_deps_setup.cmd")) {
+    $src = Join-Path $root "tools\$f"
+    if (Test-Path $src) { Copy-Item $src $toolsDst -Force }
+}
+$pkgSrc = Join-Path $root "tools\music_asset_pkg"
+if (Test-Path $pkgSrc) {
+    $pkgDst = Join-Path $toolsDst "music_asset_pkg"
+    New-Item -ItemType Directory -Force $pkgDst | Out-Null
+    Copy-Item -Recurse -Force (Join-Path $pkgSrc "*") $pkgDst
+    Remove-Item -Force (Join-Path $pkgDst "test_music_asset.py") -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force (Join-Path $pkgDst "__pycache__") -ErrorAction SilentlyContinue
+}
+$binDst = Join-Path $toolsDst "bin"
+New-Item -ItemType Directory -Force $binDst | Out-Null
+$binReadme = Join-Path $root "tools\bin\README.md"
+if (Test-Path $binReadme) { Copy-Item $binReadme $binDst -Force }
+
 # GPL-2.0 and third-party notices (build copies many into out/licenses)
 $licDst = Join-Path $dist "licenses"
 New-Item -ItemType Directory -Force $licDst | Out-Null

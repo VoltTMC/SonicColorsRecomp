@@ -11,6 +11,7 @@
 #include "../platform/ui.h"
 
 #include <imgui.h>
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -22,6 +23,7 @@
 #include <format>
 #include <fstream>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -91,6 +93,8 @@ std::string s_prepLog;
 std::mutex s_prepMu;
 std::string s_cacheSummary;
 std::mutex s_cacheMu;
+std::string s_depsSummary;
+std::mutex s_depsMu;
 
 std::string s_selectedId;
 std::string s_editSyncedId;
@@ -131,6 +135,69 @@ void RefreshCacheSummary()
     s_cacheSummary = st.summary;
     if (!st.detail.empty() && st.summary.find(st.detail) == std::string::npos)
         s_cacheSummary += " — " + st.detail;
+}
+
+void RefreshDepsDoctor()
+{
+    const fs::path tool = FindMusicAssetTool();
+    std::string summary;
+    if (tool.empty())
+        summary = "music_asset tool missing — cannot check host dependencies";
+    else
+    {
+        const fs::path outJson = PreviewCache() / "doctor.json";
+        const fs::path outErr = PreviewCache() / "doctor.err";
+        fs::create_directories(PreviewCache());
+        int rc = -1;
+        MusicTool_Run({ "doctor" }, outJson, outErr, rc);
+        try
+        {
+            std::ifstream in(outJson);
+            auto j = nlohmann::json::parse(in, nullptr, false);
+            if (!j.is_object())
+                throw std::runtime_error("invalid doctor JSON");
+            std::vector<std::string> missing;
+            auto depOk = [&](const char* name) {
+                return j.contains("deps") && j["deps"].contains(name) && j["deps"][name].value("ok", false);
+            };
+            if (!depOk("cricodecs")) missing.push_back("cricodecs");
+            if (!depOk("ffmpeg")) missing.push_back("ffmpeg");
+            if (!depOk("vgmstream")) missing.push_back("vgmstream");
+            if (missing.empty())
+                summary = "Host tools OK (cricodecs/ffmpeg/vgmstream)";
+            else
+            {
+                summary = "Missing: ";
+                for (size_t i = 0; i < missing.size(); i++)
+                {
+                    if (i) summary += ", ";
+                    summary += missing[i];
+                }
+                summary += " — run tools/music_deps_setup; optional tools/bin drop-ins";
+            }
+            if (j.contains("blocked") && j["blocked"].is_array() && !j["blocked"].empty())
+            {
+                summary += " | blocked: ";
+                bool first = true;
+                for (auto& b : j["blocked"])
+                {
+                    if (!first) summary += ", ";
+                    first = false;
+                    summary += b.get<std::string>();
+                }
+            }
+        }
+        catch (...)
+        {
+            std::ifstream er(outErr);
+            std::string es((std::istreambuf_iterator<char>(er)), std::istreambuf_iterator<char>());
+            if (es.size() > 180) es.resize(180);
+            summary = rc != 0 ? ("doctor failed" + (es.empty() ? "" : (": " + es)))
+                              : "doctor returned unreadable JSON";
+        }
+    }
+    std::lock_guard lk(s_depsMu);
+    s_depsSummary = std::move(summary);
 }
 
 MusicAssetMapping* FindMapping(const std::string& path)
@@ -1005,6 +1072,17 @@ void MusicUI_Draw(SettingsHost host, const char*& help)
         Hover("Replacement CPK cache is created by Prepare after you assign WAV replacements. "
               "Original previews/export read the untouched game CPK and do not need this cache.");
     }
+    {
+        std::lock_guard lk(s_depsMu);
+        if (!s_depsSummary.empty())
+        {
+            const bool ok = s_depsSummary.find("Host tools OK") != std::string::npos;
+            ImGui::TextColored(ok ? ImVec4(0.45f, 0.85f, 0.55f, 1.f) : ImVec4(0.95f, 0.70f, 0.35f, 1.f), "%s",
+                               s_depsSummary.c_str());
+            Hover("music_asset doctor — missing host deps block original preview/export/Prepare. "
+                  "Replacement WAV preview and catalog browsing do not need them.");
+        }
+    }
     if (!compact && !s_statusMsg.empty())
         ImGui::TextWrapped("%s", s_statusMsg.c_str());
     else if (compact && !s_statusMsg.empty())
@@ -1023,6 +1101,14 @@ void MusicUI_Draw(SettingsHost host, const char*& help)
     }
 
     if (ImGui::Button("Refresh")) Reload();
+    ImGui::SameLine();
+    if (ImGui::Button("Check tools"))
+    {
+        RefreshDepsDoctor();
+        std::lock_guard lk(s_depsMu);
+        s_statusMsg = s_depsSummary;
+    }
+    Hover("Run music_asset doctor (cricodecs / ffmpeg / vgmstream).");
     ImGui::SameLine();
     if (ImGui::Button("Open folder")) Shell_OpenFolder(s_dir);
     ImGui::SameLine();

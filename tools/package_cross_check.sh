@@ -35,7 +35,26 @@ stage=$tmpdir/SonicColorsRecomp
 [ -f "$stage/mods/music/catalog.json" ] || fail "catalog.json missing from Windows zip"
 ok "Windows package layout ($win)"
 
+[ -f "$appdir/usr/bin/tools/bin/README.md" ] || fail "AppDir tools/bin/README.md missing"
+[ -f "$stage/tools/bin/README.md" ] || fail "Windows tools/bin/README.md missing"
+[ -f "$stage/tools/music_deps_setup.cmd" ] || fail "Windows music_deps_setup.cmd missing"
+ok "tools/bin + setup helpers present"
+
+if command -v python3 >/dev/null; then
+    export PYTHONPATH="$root/tools${PYTHONPATH:+:$PYTHONPATH}"
+    # Prefer project venv site-packages when present
+    if [ -d "$root/.venv-music/lib" ]; then
+        sp=$(echo "$root"/.venv-music/lib/python*/site-packages)
+        export PYTHONPATH="$sp:$PYTHONPATH"
+    fi
+    "$root/tools/music_deps_test.sh"
+    ok "music_deps_test"
+else
+    echo "SKIP music_deps_test (no python3)"
+fi
+
 echo "== Parity notes =="
-echo "Both packages ship mods/music/catalog.json and tools/music_asset*."
-echo "Prepare/preview/export still need host Python + cricodecs + vgmstream + ffmpeg."
+echo "Both packages ship catalog.json, music_asset*, tools/bin/README, setup helpers."
+echo "Prepare/preview/export still need host Python + cricodecs + vgmstream + ffmpeg"
+echo "(drop-ins in tools/bin or PATH; setup via music_deps_setup)."
 echo "package_cross_check OK"

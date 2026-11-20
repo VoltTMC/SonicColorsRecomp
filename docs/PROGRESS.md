@@ -1,5 +1,12 @@
 # Progress log
 
+## 2026-11-20 — Music Library host dependency doctor + setup
+
+- Dependency map: catalog/replacement WAV preview need no host tools; originals need cricodecs+vgmstream; prepare needs cricodecs+ffmpeg.
+- `music_asset doctor` JSON report; search `tools/bin` before PATH; `music_deps_setup` for local cricodecs venv.
+- Music tab **Check tools**; packages ship `tools/bin/README` + setup scripts. Do not bundle GPL FFmpeg.
+- `tools/music_deps_test.sh`; launcher prefers `/usr/bin/python3` over IDE AppImages.
+
 ## 2026-11-20 — Cross-platform compatibility audit pass
 
 - Added `docs/CROSS_PLATFORM_COMPATIBILITY.md` (honest PASS/PARTIAL/UNVERIFIED matrix).
