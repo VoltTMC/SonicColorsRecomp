@@ -63,6 +63,7 @@ what you can prove — note that in any report.
 - [ ] `--portable` forces exe-local
 - [ ] Reset settings creates `config_backups\config_*.ini`
 - [ ] Auto save backup on launch (optional) writes `save_backups\`
+- [ ] Auto save backup after write (optional) after stage clear / menu save; prune respects Keep N
 - [ ] Mod profile Save/Load under `mod_profiles\`
 
 ## Record

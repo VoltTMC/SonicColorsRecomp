@@ -1,5 +1,11 @@
 # Progress log
 
+## 2026-11-20 — Save backup on write + retention
+
+- `[System] auto_backup_saves_on_write` — deferred backup after NAND flush (stage clear / menu save).
+- `[System] save_backup_keep` — prune oldest `save_backups/` folders (default 20; 0 = unlimited).
+- Debounced 2s + 60s cooldown; toast “Save backed up”; launch backups also prune.
+
 ## 2026-11-20 — Persist settings sub-tab
 
 - `[System] settings_tab` remembers Video/Input/Audio/System across sessions.

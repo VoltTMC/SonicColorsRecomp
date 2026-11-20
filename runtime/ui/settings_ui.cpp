@@ -643,6 +643,14 @@ void SystemTab(SettingsHost host)
           "Corner prompts for Jump / Slash / Pause (pad button + keyboard) while playing.");
     Check(host, "Backup saves when starting the game", c.autoBackupSavesOnLaunch, false,
           "Before each Play, copy the save tree into save_backups/<timestamp>/. Skipped for --nand test runs.");
+    Check(host, "Backup saves after the game writes them", c.autoBackupSavesOnWrite, false,
+          "After a stage clear or menu save (NAND flush), copy the save tree. Debounced; at most once per minute.");
+    {
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10);
+        if (ImGui::SliderInt("Keep save backups", &c.saveBackupKeep, 0, 50, "%d (0 = all)"))
+            Changed(host, false);
+        Help("Oldest timestamped folders under save_backups/ are removed after a new backup. 0 = keep all.");
+    }
     {
         float pct = c.uiScale * 100.0f;
         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14);
@@ -722,6 +730,8 @@ void SystemTab(SettingsHost host)
             defaults.texturePackDir = keepPaths.texturePackDir;
             // Keep the auto-backup preference across Reset (it is a safety setting).
             defaults.autoBackupSavesOnLaunch = keepPaths.autoBackupSavesOnLaunch;
+            defaults.autoBackupSavesOnWrite = keepPaths.autoBackupSavesOnWrite;
+            defaults.saveBackupKeep = keepPaths.saveBackupKeep;
             defaults.launcherTab = keepPaths.launcherTab;
             defaults.settingsTab = keepPaths.settingsTab;
             defaults.launcherWidth = keepPaths.launcherWidth;

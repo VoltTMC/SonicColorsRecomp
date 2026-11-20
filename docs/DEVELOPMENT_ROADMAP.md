@@ -42,7 +42,7 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 | 13 | QoL | Controller prompt glyphs in overlay | Text hints **Done**; glyph art open |
 | 14 | Accessibility | Remappable F1/F12 / UI scale | **Done** (UI scale + F-key hotkeys) |
 | 15 | Mods | Mod profiles (enable sets) | **Done** (2026-11-20) |
-| 16 | Saves | Auto-backup on launch (config) | **Done** (2026-11-20); stage-clear still open |
+| 16 | Saves | Auto-backup on launch + after write + retention | **Done** (2026-11-20) |
 | 17 | Packaging | Auto-updater / version check | Check-for-updates **Done**; auto-download open |
 | 18 | Launcher | Resize / HiDPI stress-test checklist | Size persist + PERFORMANCE.md smoke **Done** |
 | 19 | Runtime | In-game performance overlay (CPU/GPU) | FPS+ms+1%+guest+RSS+audio **Done**; GPU counters open |
@@ -108,6 +108,11 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 ---
 
 ## Session log
+
+### 2026-11-20 — Save backup on write + retention
+
+- `auto_backup_saves_on_write` + `save_backup_keep`; prune after launch/write backups.
+- Next: Win native checklist items; GPU counters; glyph art for prompts.
 
 ### 2026-11-20 — Video profiles + Play recovery
 

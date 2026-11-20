@@ -97,6 +97,24 @@ inline std::vector<fs::path> ListBackupsIn(const fs::path& root)
     return out;
 }
 
+// Keep the newest `keep` timestamp folders under save_backups/. 0 = unlimited.
+// Returns how many directories were removed.
+inline size_t PruneBackupsIn(const fs::path& root, int keep)
+{
+    if (keep <= 0) return 0;
+    auto listed = ListBackupsIn(root);   // newest-first
+    if ((int)listed.size() <= keep) return 0;
+    size_t removed = 0;
+    std::error_code ec;
+    for (size_t i = (size_t)keep; i < listed.size(); i++)
+    {
+        fs::remove_all(listed[i], ec);
+        if (!ec) removed++;
+        ec.clear();
+    }
+    return removed;
+}
+
 inline bool RestoreTree(const fs::path& root, const fs::path& backup, std::string& error)
 {
     if (backup.empty() || !fs::is_directory(backup))

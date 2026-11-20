@@ -244,9 +244,13 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
         ImGui::Text("Display: %s · internal %dx · %s · UI %.0f%%", fps, g_config.internalScale,
                     g_config.vsync ? "VSync on" : "VSync off", g_config.uiScale * 100.0f);
         const std::string& dev = AudioOut_CurrentDeviceName();
+        const char* bak =
+            g_config.autoBackupSavesOnLaunch && g_config.autoBackupSavesOnWrite ? " · save backup on Play+write"
+            : g_config.autoBackupSavesOnLaunch                                 ? " · save backup on Play"
+            : g_config.autoBackupSavesOnWrite                                  ? " · save backup on write"
+                                                                               : "";
         ImGui::Text("Audio: %s · master %.0f%%%s",
-                    dev.empty() ? "system default" : dev.c_str(), g_config.masterVolume * 100.0f,
-                    g_config.autoBackupSavesOnLaunch ? " · save backup on Play" : "");
+                    dev.empty() ? "system default" : dev.c_str(), g_config.masterVolume * 100.0f, bak);
         const int pads = Pad_Count();
         if (pads <= 0)
             ImGui::TextDisabled("Controllers: none connected");

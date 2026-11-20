@@ -4,6 +4,7 @@
 #include "../log.h"
 #include "../platform/platform.h"
 #include "../platform/window.h"
+#include "../ios/nand_autosave.h"
 #include "../ui/overlay.h"
 
 #include <algorithm>
@@ -225,6 +226,7 @@ void Video_Present(ID3D11ShaderResourceView* srv, float u0, float v0, float u1, 
         g_ctx->PSSetShaderResources(0, 1, &nullSrv);
     }
     Overlay_Render(w, h);   // in-game settings, drawn over the game while it keeps running
+    NandAutosave_Tick();
     HRESULT hr = s_swapchain->Present(g_videoConfig.vsync ? 1 : 0, 0);
     if (FAILED(hr))
     {

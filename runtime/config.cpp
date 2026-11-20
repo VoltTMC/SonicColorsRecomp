@@ -78,6 +78,10 @@ std::string Config_Text(const Config& c)
     s += std::format("show_input_hints = {}\n", Bool(c.showInputHints));
     s += "; copy the save tree into save_backups/ each time the game starts (Play)\n";
     s += std::format("auto_backup_saves_on_launch = {}\n", Bool(c.autoBackupSavesOnLaunch));
+    s += "; copy after the game writes save data (stage clear / menu save); debounced + 60s cooldown\n";
+    s += std::format("auto_backup_saves_on_write = {}\n", Bool(c.autoBackupSavesOnWrite));
+    s += "; how many timestamped save_backups/ folders to keep (0 = unlimited)\n";
+    s += std::format("save_backup_keep = {}\n", std::clamp(c.saveBackupKeep, 0, 200));
     s += "; launcher and in-game settings UI scale (0.75–1.50)\n";
     s += std::format("ui_scale = {:.2f}\n", c.uiScale);
     s += "; host hotkeys (F1–F12). Escape still closes the settings overlay.\n";
@@ -645,6 +649,8 @@ void Config_Load(const std::string& path)
             else if (key == "show_fps_overlay") c.showFpsOverlay = ParseBool(val);
             else if (key == "show_input_hints") c.showInputHints = ParseBool(val);
             else if (key == "auto_backup_saves_on_launch") c.autoBackupSavesOnLaunch = ParseBool(val);
+            else if (key == "auto_backup_saves_on_write") c.autoBackupSavesOnWrite = ParseBool(val);
+            else if (key == "save_backup_keep") c.saveBackupKeep = std::clamp(atoi(val.c_str()), 0, 200);
             else if (key == "ui_scale")
                 c.uiScale = std::clamp(std::strtof(val.c_str(), nullptr), 0.75f, 1.50f);
             else if (key == "hotkey_settings") c.hotkeySettings = Config_HotkeyName(val, "F1");

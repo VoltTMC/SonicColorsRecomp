@@ -357,7 +357,14 @@ int main(int argc, char** argv)
         std::filesystem::path dest;
         std::string err;
         if (nand_backup::BackupTree(std::filesystem::path(s_nand), dest, err))
+        {
             LOG_INFO("auto save backup: {}", dest.string());
+            if (g_config.saveBackupKeep > 0)
+            {
+                size_t n = nand_backup::PruneBackupsIn(std::filesystem::path(s_nand), g_config.saveBackupKeep);
+                if (n) LOG_INFO("pruned {} old save backup(s); keeping {}", n, g_config.saveBackupKeep);
+            }
+        }
         else
             LOG_INFO("auto save backup skipped: {}", err);
     }

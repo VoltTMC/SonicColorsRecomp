@@ -31,6 +31,8 @@ struct Config
     bool showFpsOverlay = false;     // on-screen FPS while playing (host present rate)
     bool showInputHints = false;     // corner prompts for Jump / Slash / Pause binds
     bool autoBackupSavesOnLaunch = false; // copy save tree to save_backups/ before each Play
+    bool autoBackupSavesOnWrite = false;  // copy after NAND flush (stage clear / menu save), debounced
+    int saveBackupKeep = 20;              // max save_backups/ folders to keep (0 = unlimited)
     float uiScale = 1.0f;                // launcher + overlay text/UI scale (0.75–1.50)
     // Host UI hotkeys (F1–F12 names). Escape still closes the overlay.
     std::string hotkeySettings = "F1";

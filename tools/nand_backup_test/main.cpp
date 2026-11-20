@@ -68,6 +68,23 @@ int main()
     fs::path ignored;
     CHECK(!nand_backup::BackupTree(empty, ignored, err));
 
+    // Prune keeps newest N; older folders are removed.
+    {
+        fs::path bak3 = tmp / "save_backups" / "20000101_000000";
+        fs::create_directories(bak3 / "title", ec);
+        {
+            std::ofstream f(bak3 / "title" / "x.bin");
+            f << "old";
+        }
+        CHECK(nand_backup::ListBackupsIn(tmp).size() >= 3);
+        size_t pruned = nand_backup::PruneBackupsIn(tmp, 2);
+        CHECK(pruned >= 1);
+        auto kept = nand_backup::ListBackupsIn(tmp);
+        CHECK(kept.size() == 2);
+        CHECK(kept.front().filename() == "99991231_235959");
+        CHECK(!fs::exists(bak3, ec));
+    }
+
     fs::remove_all(tmp, ec);
     if (g_fail)
     {

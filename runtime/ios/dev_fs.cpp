@@ -2,6 +2,7 @@
 #include "../config.h"
 #include "ios.h"
 #include "fs_atomic.h"
+#include "nand_autosave.h"
 #include "../kernel/memory.h"
 #include "../log.h"
 #include "../region.h"
@@ -105,6 +106,7 @@ private:
         if (!Fs_WriteFileAtomic(hp, m_data.data(), m_data.size()))
             return;
         m_dirty = false;
+        NandAutosave_OnFlush();
     }
 
     uint32_t m_mode;
