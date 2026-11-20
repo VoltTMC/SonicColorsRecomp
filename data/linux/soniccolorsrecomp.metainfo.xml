@@ -42,6 +42,11 @@
   </recommends>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.3.5" date="2026-11-20">
+      <description>
+        <p>Hotfix: Windows Music Library process launch (CreateProcess error 87 / prepare rc=127). Unicode environment flag for music_asset and hardened Platform_RunProcess redirects.</p>
+      </description>
+    </release>
     <release version="0.3.4" date="2026-11-20">
       <description>
         <p>Hotfix: Windows primary download is now a per-user installer (Setup.exe). User data lives under AppData; optional portable ZIP is no longer the main Windows package.</p>

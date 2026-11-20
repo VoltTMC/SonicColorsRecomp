@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — Release v0.3.5 (hotfix)
+
+- Windows Music Library: fix `CreateProcess` error 87 / `PREPARE FAILED (rc=127)` (`CREATE_UNICODE_ENVIRONMENT` + NUL std handles). `scr_run_process_test` added.
+
 ## 2026-11-20 — Music Library host dependency doctor + setup
 
 - Dependency map: catalog/replacement WAV preview need no host tools; originals need cricodecs+vgmstream; prepare needs cricodecs+ffmpeg.
