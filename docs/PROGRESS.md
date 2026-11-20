@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — Versioned window titles + RecompLauncher settings
+
+- Launcher/game titles show `g_version`; RecompLauncher gains pause/hints/backup settings + Open diagnostics.
+
 ## 2026-11-20 — --verify-data CLI
 
 - Windowless full/quick integrity check with progress lines; AppStream keywords refreshed.

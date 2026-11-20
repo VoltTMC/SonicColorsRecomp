@@ -174,6 +174,36 @@
         { "label": "On", "set": { "show_fps_overlay": "true" } }
       ],
       "defaults": { "show_fps_overlay": "false" }
+    },
+    {
+      "id": "pause_on_focus_loss",
+      "label": "Pause when unfocused",
+      "help": "Freeze the game when another window has focus or the game is minimized. Audio mutes and rumble stops.",
+      "choices": [
+        { "label": "Off", "set": { "pause_on_focus_loss": "false" } },
+        { "label": "On", "set": { "pause_on_focus_loss": "true" } }
+      ],
+      "defaults": { "pause_on_focus_loss": "false" }
+    },
+    {
+      "id": "show_input_hints",
+      "label": "Input hints",
+      "help": "Corner prompts for Jump / Slash / Pause while playing.",
+      "choices": [
+        { "label": "Off", "set": { "show_input_hints": "false" } },
+        { "label": "On", "set": { "show_input_hints": "true" } }
+      ],
+      "defaults": { "show_input_hints": "false" }
+    },
+    {
+      "id": "auto_backup_saves_on_launch",
+      "label": "Backup saves on Play",
+      "help": "Copy the save tree into save_backups/ each time you start the game.",
+      "choices": [
+        { "label": "Off", "set": { "auto_backup_saves_on_launch": "false" } },
+        { "label": "On", "set": { "auto_backup_saves_on_launch": "true" } }
+      ],
+      "defaults": { "auto_backup_saves_on_launch": "false" }
     }
   ],
   "folders": {
@@ -186,6 +216,11 @@
       { "path": "{install}", "if": "{install}/SonicColorsRecomp.log" },
       { "path": "{local}/SonicColorsRecomp" },
       { "path": "{config}/SonicColorsRecomp" }
+    ],
+    "diagnostics": [
+      { "path": "{install}/diagnostics", "if": "{install}/portable.txt" },
+      { "path": "{local}/SonicColorsRecomp/diagnostics" },
+      { "path": "{config}/SonicColorsRecomp/diagnostics" }
     ],
     "game": [
       { "path": "{install}/game/extracted/DATA" }
@@ -207,6 +242,12 @@
       "label": "Open saves",
       "help": "Host NAND / save tree.",
       "open": "saves"
+    },
+    {
+      "id": "open_diagnostics",
+      "label": "Open diagnostics",
+      "help": "Folder with scr_diag_*.txt support reports.",
+      "open": "diagnostics"
     }
   ],
   "looks": {

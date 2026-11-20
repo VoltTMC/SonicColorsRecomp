@@ -3,8 +3,12 @@
 #include "../../config.h"
 #include "../../log.h"
 #include "../../ui/overlay.h"
+#include "../../version.h"
 
 #include <atomic>
+#include <format>
+#include <string>
+#include <string_view>
 #include <thread>
 #include <windows.h>
 
@@ -160,8 +164,11 @@ static void WindowThread(WindowParams* p)
     RegisterClassW(&wc);
     RECT r{ 0, 0, p->width, p->height };
     AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
-    // Window class keeps the legacy name for ABI; the title is user-visible branding.
-    s_hwnd = CreateWindowW(L"SonicColorsRecomp", L"Sonic Colors - Recompiled", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+    // Window class keeps the legacy name for ABI; the title is user-visible branding + build.
+    const std::string titleUtf8 = std::format("Sonic Colors - Recompiled ({})", std::string_view{g_version});
+    std::wstring title(MultiByteToWideChar(CP_UTF8, 0, titleUtf8.data(), (int)titleUtf8.size(), nullptr, 0), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, titleUtf8.data(), (int)titleUtf8.size(), title.data(), (int)title.size());
+    s_hwnd = CreateWindowW(L"SonicColorsRecomp", title.c_str(), WS_OVERLAPPEDWINDOW | WS_VISIBLE,
                            CW_USEDEFAULT, CW_USEDEFAULT, r.right - r.left, r.bottom - r.top, nullptr, nullptr, wc.hInstance, nullptr);
     if (s_hwnd)
     {

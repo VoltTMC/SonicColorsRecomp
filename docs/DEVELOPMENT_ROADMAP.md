@@ -37,7 +37,7 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 | 8 | Video | Graphics presets | **Done** |
 | 9 | Audio | H8 in-game music audibility confirmation | PART |
 | 10 | Parity | Native Win WASAPI / DPI / pad checklist | UNVERIFIED |
-| 11 | Launcher | First-run setup wizard polish | Improved (portable status + screenshots folder) |
+| 11 | Launcher | First-run setup wizard polish | Improved (portable status + versioned titles + RecompLauncher settings) |
 | 12 | Performance | Frame-time / startup benchmarks doc | **Done** (`docs/PERFORMANCE.md`) |
 | 13 | QoL | Controller prompt glyphs in overlay | **Done** (coloured pad chips + key glyphs) |
 | 14 | Accessibility | Remappable F1/F12 / UI scale | **Done** (UI scale + F-key hotkeys) |
@@ -108,6 +108,11 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 ---
 
 ## Session log
+
+### 2026-11-20 — Versioned window titles + RecompLauncher settings
+
+- Titles include build version; RecompLauncher pause/hints/backup + diagnostics action.
+- Next: Win native checklist; Recomp Achievements; signed builds.
 
 ### 2026-11-20 — --verify-data CLI
 

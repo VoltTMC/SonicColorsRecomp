@@ -29,6 +29,9 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <format>
+#include <string>
+#include <string_view>
 #include <thread>
 
 namespace fs = std::filesystem;
@@ -523,7 +526,8 @@ bool Launcher_Run(std::string& dataDir, const std::string& isoPath, const fs::pa
     // room for the mod browser (within the screen)
     const int launchW = std::clamp(g_config.launcherWidth, 800, 3840);
     const int launchH = std::clamp(g_config.launcherHeight, 560, 2160);
-    HWND hwnd = (HWND)UiWindow_Create("Sonic Colors - Recompiled", launchW, launchH);
+    const std::string launchTitle = std::format("Sonic Colors - Recompiled ({})", std::string_view{g_version});
+    HWND hwnd = (HWND)UiWindow_Create(launchTitle.c_str(), launchW, launchH);
     if (!hwnd)
     {
         // UI screenshot / automated GUI tests must not fall through into the game.

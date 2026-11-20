@@ -7,8 +7,12 @@
 #include "../../config.h"
 #include "../../log.h"
 #include "../../ui/overlay.h"
+#include "../../version.h"
 
 #include <atomic>
+#include <format>
+#include <string>
+#include <string_view>
 
 static SDL_Window* s_window = nullptr;
 static std::atomic<bool> s_resized{ false };
@@ -91,7 +95,8 @@ static void CreateOnMain(void* userdata)
         return;
     }
     // Create windowed first, then apply mode + fullscreen — exclusive needs a window/display.
-    s_window = SDL_CreateWindow("Sonic Colors - Recompiled", p->width, p->height,
+    const std::string title = std::format("Sonic Colors - Recompiled ({})", std::string_view{g_version});
+    s_window = SDL_CreateWindow(title.c_str(), p->width, p->height,
                                 SDL_WINDOW_RESIZABLE | SDL_WINDOW_VULKAN | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (!s_window)
     {
