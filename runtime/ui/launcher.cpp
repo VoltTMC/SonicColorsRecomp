@@ -775,6 +775,7 @@ bool Launcher_Run(std::string& dataDir, const std::string& isoPath, const fs::pa
         if (shot && ++frames > 5 && Platform_TickMs() >= shotAt)
         {
             UI_SaveBoundTarget(s_dev, s_ctx, shot);
+            LOG_INFO("launcher: SCR_UI_SHOT saved to {} — quitting without starting the game", shot);
             s_quit = true;
         }
         s_swap->Present(1, 0);

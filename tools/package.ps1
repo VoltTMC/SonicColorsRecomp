@@ -36,6 +36,15 @@ foreach ($f in @("music_asset.cmd", "MUSIC_ASSET_WINDOWS.txt", "music_deps_setup
     $src = Join-Path $root "tools\$f"
     if (Test-Path $src) { Copy-Item $src $toolsDst -Force }
 }
+# MinGW (or other) runtime DLLs must sit beside music_asset.exe, not only the main exe.
+Get-ChildItem (Join-Path $root "out\*.dll") -ErrorAction SilentlyContinue | ForEach-Object {
+    Copy-Item $_.FullName $dist -Force
+    if (Test-Path $assetExe) { Copy-Item $_.FullName $toolsDst -Force }
+}
+$pthread = Join-Path $dist "libwinpthread-1.dll"
+if ((Test-Path $assetExe) -and (Test-Path $pthread)) {
+    Copy-Item $pthread $toolsDst -Force
+}
 $pkgSrc = Join-Path $root "tools\music_asset_pkg"
 if (Test-Path $pkgSrc) {
     $pkgDst = Join-Path $toolsDst "music_asset_pkg"

@@ -36,9 +36,33 @@ stage=$tmpdir/SonicColorsRecomp
 ok "Windows package layout ($win)"
 
 [ -f "$appdir/usr/bin/tools/bin/README.md" ] || fail "AppDir tools/bin/README.md missing"
+[ -f "$appdir/usr/bin/tools/music_deps_setup.sh" ] || fail "AppDir music_deps_setup.sh missing"
 [ -f "$stage/tools/bin/README.md" ] || fail "Windows tools/bin/README.md missing"
 [ -f "$stage/tools/music_deps_setup.cmd" ] || fail "Windows music_deps_setup.cmd missing"
+# MinGW music_asset.exe needs winpthread beside it (not only next to the main exe).
+if [ -f "$stage/tools/music_asset.exe" ]; then
+    [ -f "$stage/tools/libwinpthread-1.dll" ] \
+        || fail "Windows tools/libwinpthread-1.dll missing (music_asset.exe cannot load)"
+fi
 ok "tools/bin + setup helpers present"
+
+if command -v wine >/dev/null && [ -f "$stage/tools/music_asset.exe" ]; then
+    set +e
+    wine_err=$(mktemp)
+    wine_out=$(WINEDEBUG=-all wine "$stage/tools/music_asset.exe" doctor 2>"$wine_err")
+    wine_rc=$?
+    set -e
+    if echo "$wine_out" | grep -Fq '"operations"'; then
+        ok "Wine music_asset doctor (rc=$wine_rc)"
+    elif grep -qi 'libwinpthread\|Importing dlls\|c0000135' "$wine_err"; then
+        rm -f "$wine_err"
+        fail "Wine music_asset.exe failed to load (missing MinGW DLL beside tools/)"
+    else
+        # DLL load OK; Wine often lacks a Windows Python — that is not a packaging failure.
+        ok "Wine music_asset.exe loads (doctor needs Windows Python; rc=$wine_rc)"
+    fi
+    rm -f "$wine_err"
+fi
 
 if command -v python3 >/dev/null; then
     export PYTHONPATH="$root/tools${PYTHONPATH:+:$PYTHONPATH}"

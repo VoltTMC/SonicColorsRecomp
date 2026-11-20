@@ -9,6 +9,8 @@
 
 ## 2026-11-20 — Cross-platform compatibility audit pass
 
+- Ship `libwinpthread-1.dll` next to `tools/music_asset.exe` (Windows DLL search is exe-dir first).
+- `package_cross_check` Wine-loads `music_asset.exe`; `SCR_UI_SHOT` smoke accepts save or headless abort.
 - Added `docs/CROSS_PLATFORM_COMPATIBILITY.md` (honest PASS/PARTIAL/UNVERIFIED matrix).
 - AppImage now ships `tools/music_asset` + `music_asset_pkg` (parity with Windows ZIP).
 - `MusicTool_Find` prefers exe dir over cwd; `tools/package_cross_check.sh` covers both packages.

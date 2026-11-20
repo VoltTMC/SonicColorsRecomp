@@ -86,9 +86,15 @@ pad_out=$("$appdir/AppRun" --list-gamepads 2>&1) || fail "--list-gamepads exited
 echo "$pad_out" | grep -Eq '^pads: [0-9]+$' || fail "--list-gamepads missing pads count: $pad_out"
 ok "--list-gamepads"
 
-# Headless launcher must abort when UI shot env is set (no accidental game boot).
+# UI shot must not boot the game: headless aborts, or with a display saves BMP and quits.
+rm -f /tmp/scr_package_smoke.bmp
 shot_out=$(SCR_UI_SHOT=/tmp/scr_package_smoke.bmp "$appdir/AppRun" --nobox 2>&1 || true)
-echo "$shot_out" | grep -qi "aborting\|SCR_UI_SHOT\|BKR_UI_SHOT\|no window" || fail "shot abort not detected: $shot_out"
-ok "SCR_UI_SHOT abort"
+if echo "$shot_out" | grep -qi "aborting\|SCR_UI_SHOT\|BKR_UI_SHOT\|no window"; then
+    ok "SCR_UI_SHOT abort/save"
+elif [ -f /tmp/scr_package_smoke.bmp ]; then
+    ok "SCR_UI_SHOT saved BMP"
+else
+    fail "shot abort/save not detected: $shot_out"
+fi
 
 echo "package_smoke OK ($appdir)"

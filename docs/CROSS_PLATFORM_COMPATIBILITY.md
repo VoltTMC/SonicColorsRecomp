@@ -88,7 +88,7 @@ Evidence: `[auto]` `music_deps_test.sh` (doctor JSON + `tools/bin` preference); 
 | Feature | Linux | Windows | Status | Required action |
 |---------|-------|---------|--------|-----------------|
 | Ship `catalog.json` | PASS | PASS | PASS `[auto]` | Both packages |
-| Ship `music_asset` helper | PASS AppDir | PASS ZIP | PASS `[auto]` | Host deps still required |
+| Ship `music_asset` helper | PASS AppDir | PASS ZIP | PASS `[auto]` | Win: `tools/libwinpthread-1.dll` beside helper; host Python still required |
 | Locate `manifest.toml` | PASS | PASS `[source]` | PASS `[source]` | Created on Assign Replacement |
 | Browse full catalog (~114) | PASS | PASS package | UNVERIFIED UI | Clean ZIP unzip test |
 | Locate original CPK | PASS | PASS `[auto]` | PASS `[auto]` | Portable `exe/game/...` |
@@ -137,6 +137,7 @@ Evidence: `[auto]` `music_deps_test.sh` (doctor JSON + `tools/bin` preference); 
 | Windows `apply_update.cmd` `%%ZIP%%` | Download OK, install fail | `apply_update.ps1` with embedded paths |
 | Launcher tab `forceTab` stuck | Tabs not clickable | Dedicated `bootFrames` |
 | Host music toolchain not bundled | Prepare/preview/export PARTIAL both OS | Doctor + setup scripts + optional `tools/bin` drop-ins; no GPL FFmpeg in packages |
+| `music_asset.exe` MinGW DLL next to main exe only | Helper failed to load under Wine/clean ZIP (`libwinpthread-1.dll`) | Also ship winpthread under `tools/` |
 
 ---
 
@@ -182,6 +183,7 @@ Follow `docs/windows-native-checklist.md`. Items marked UNVERIFIED above stay UN
 
 | Date | Change |
 |------|--------|
+| 2026-11-20 | Ship `libwinpthread-1.dll` next to `tools/music_asset.exe`; Wine doctor smoke in `package_cross_check` |
 | 2026-11-20 | Music deps doctor, `tools/bin` discovery, music_deps_setup, Music UI Check tools |
 | 2026-11-20 | Initial `CROSS_PLATFORM_COMPATIBILITY.md`; AppImage ships `music_asset`; `package_cross_check.sh`; MusicTool prefers exe dir |
 | 2026-11-20 | MusicPaths + catalog packaging + updater PS1 + tab click (see PROGRESS.md) |

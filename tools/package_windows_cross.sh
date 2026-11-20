@@ -87,6 +87,15 @@ if x86_64-w64-mingw32-objdump -p "$exe" 2>/dev/null | grep -qi 'libwinpthread'; 
         if [ -f "$cand" ]; then cp -f "$cand" "$stage/"; break; fi
     done
 fi
+# music_asset.exe is under tools/; Windows loads DLLs from that directory first — copy
+# MinGW runtimes next to it as well (parent-folder DLL is not searched automatically).
+if [ -f "$stage/tools/music_asset.exe" ]; then
+    if x86_64-w64-mingw32-objdump -p "$stage/tools/music_asset.exe" 2>/dev/null | grep -qi 'libwinpthread'; then
+        for cand in "$stage/libwinpthread-1.dll" /usr/x86_64-w64-mingw32/bin/libwinpthread-1.dll "$out/libwinpthread-1.dll"; do
+            if [ -f "$cand" ]; then cp -f "$cand" "$stage/tools/"; break; fi
+        done
+    fi
+fi
 # Prebuilt nod.dll is MSVC-built and needs VCRUNTIME140.dll (Wine does not ship it by default).
 if [ -f "$stage/nod.dll" ] || [ -f "$out/nod.dll" ]; then
     if ! ls "$stage"/[Vv][Cc][Rr][Uu][Nn][Tt][Ii][Mm][Ee]140.dll >/dev/null 2>&1; then
