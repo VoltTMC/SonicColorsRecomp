@@ -3,6 +3,7 @@
 #include "../audio/music_paths.h"
 #include "../audio/music_manifest.h"
 #include "../audio/music_tool.h"
+#include "../audio/music_deps.h"
 #include "../audio/wav_file.h"
 #include "../config.h"
 #include "../env.h"
@@ -95,6 +96,7 @@ std::string s_cacheSummary;
 std::mutex s_cacheMu;
 std::string s_depsSummary;
 std::mutex s_depsMu;
+bool s_musicDepsAutoStarted = false;
 
 std::string s_selectedId;
 std::string s_editSyncedId;
@@ -181,7 +183,7 @@ void RefreshDepsDoctor()
                     if (i) summary += ", ";
                     summary += problems[i];
                 }
-                summary += " — music_deps_setup + tools/bin (Check tools again after)";
+                summary += " — Install Music tools (or tools/bin drop-ins), then Check tools again";
             }
             if (j.contains("ready") && j["ready"].is_array() && !j["ready"].empty())
             {
@@ -446,6 +448,9 @@ void RequestOriginalPreview(const MusicCatalogAsset& asset)
         s_statusMsg = "Original preview already decoding…";
         return;
     }
+#ifdef _WIN32
+    if (MusicDeps_BlocksHostOps()) MusicDeps_EnsureAsync(false);
+#endif
     const fs::path tool = FindMusicAssetTool();
     const fs::path cpk = OriginalCpk();
     if (tool.empty() || !fs::exists(cpk))
@@ -611,6 +616,9 @@ bool SaveAssets()
 
 void StartPrepareAsync()
 {
+#ifdef _WIN32
+    if (MusicDeps_BlocksHostOps()) MusicDeps_EnsureAsync(false);
+#endif
     if (s_prepRunning.exchange(true)) return;
     {
         std::lock_guard lk(s_prepMu);
@@ -853,6 +861,9 @@ void RequestExportOriginal(const MusicCatalogAsset& asset)
         s_statusMsg = "Export already running…";
         return;
     }
+#ifdef _WIN32
+    if (MusicDeps_BlocksHostOps()) MusicDeps_EnsureAsync(false);
+#endif
     const fs::path tool = FindMusicAssetTool();
     const fs::path cpk = OriginalCpk();
     if (tool.empty() || !fs::exists(cpk))
@@ -1129,6 +1140,56 @@ void MusicUI_Draw(SettingsHost host, const char*& help)
         ImGui::BulletText("Then assign WAV replacements, preview A/B, and Prepare.");
         ImGui::Spacing();
     }
+
+#ifdef _WIN32
+    // Auto-start managed dependency install once when the Music tab is shown.
+    if (!s_musicDepsAutoStarted)
+    {
+        s_musicDepsAutoStarted = true;
+        if (MusicDeps_BlocksHostOps()) MusicDeps_EnsureAsync(false);
+    }
+    {
+        const MusicDepsStatus st = MusicDeps_Status();
+        auto& prog = MusicDeps_Progress();
+        if (st.supported)
+        {
+            if (prog.running.load())
+            {
+                const int phase = prog.phase.load();
+                const char* phaseName = phase == 1   ? "Downloading"
+                                        : phase == 2 ? "Verifying"
+                                        : phase == 3 ? "Extracting"
+                                        : phase == 4 ? "Configuring"
+                                                     : "Working";
+                const uint64_t done = prog.bytesDone.load();
+                const uint64_t total = prog.bytesTotal.load();
+                ImGui::TextColored(ImVec4(0.55f, 0.75f, 0.95f, 1.f), "Music tools: %s…", phaseName);
+                if (total > 0)
+                    ImGui::ProgressBar((float)done / (float)total, ImVec2(-1, 0),
+                                       std::format("{:.1f} / {:.1f} MB", done / 1e6, total / 1e6).c_str());
+                else
+                    ImGui::ProgressBar(-1.f * (float)ImGui::GetTime(), ImVec2(-1, 0), "…");
+                if (ImGui::SmallButton("Cancel install")) MusicDeps_Cancel();
+            }
+            else if (!st.ready)
+            {
+                ImGui::TextColored(ImVec4(0.95f, 0.70f, 0.35f, 1.f), "%s",
+                                   st.message.empty() ? "Music host tools not ready" : st.message.c_str());
+                if (!st.lastError.empty()) ImGui::TextWrapped("%s", st.lastError.c_str());
+                if (ImGui::Button("Install Music tools")) MusicDeps_EnsureAsync(true);
+                Hover("Downloads pinned Python, cricodecs, vgmstream, and LGPL FFmpeg into "
+                      "%LOCALAPPDATA%\\SonicColorsRecomp\\dependencies (no admin / no PATH edits).");
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Open deps folder") && !st.root.empty()) Shell_OpenFolder(st.root);
+            }
+            else
+            {
+                ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.55f, 1.f), "Managed Music tools ready");
+                Hover(st.managedBin.c_str());
+            }
+        }
+    }
+#endif
 
     if (ImGui::Button("Refresh")) Reload();
     ImGui::SameLine();

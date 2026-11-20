@@ -215,6 +215,44 @@ set -e
 echo "$prev_out" | grep -Fq preview-missing-ok || fail "missing vgmstream error incomplete: $prev_out"
 ok "missing vgmstream reports searched paths"
 
+# --- managed bin discovery (SCR_MUSIC_MANAGED_BIN) ---
+managed="$tmpdir/managed bin"
+mkdir -p "$managed"
+printf '#!/bin/sh\necho "vgmstream-cli 9.9-managed"\nexit 0\n' > "$managed/vgmstream-cli"
+chmod +x "$managed/vgmstream-cli"
+set +e
+man_out=$(
+  unset SCR_MUSIC_BIN
+  SCR_MUSIC_APP_BIN_ONLY=1 SCR_MUSIC_MANAGED_BIN="$managed" PYTHONPATH="$root/tools" \
+    "$PY" -c '
+from music_asset_pkg.doctor import find_in_app
+path, searched = find_in_app(["vgmstream-cli", "vgmstream-cli.exe"])
+assert path and path.endswith("vgmstream-cli"), (path, searched)
+assert any("managed bin" in s for s in searched), searched
+print(path)
+' 2>&1
+)
+set -e
+echo "$man_out" | grep -Fq "$managed/vgmstream-cli" || fail "managed bin miss: $man_out"
+ok "SCR_MUSIC_MANAGED_BIN discovery"
+
+# --- pinned Windows music deps manifest ---
+manf="$root/data/music_deps_manifest.json"
+[ -f "$manf" ] || fail "data/music_deps_manifest.json missing"
+python3 -c '
+import json,sys
+from pathlib import Path
+m=json.loads(Path(sys.argv[1]).read_text())
+assert m.get("schema")==1
+ids={p["id"] for p in m["packages"]}
+assert ids=={"python_embed","cricodecs","vgmstream","ffmpeg_lgpl"}, ids
+for p in m["packages"]:
+    assert len(p["sha256"])==64 and p["url"].startswith("https://"), p["id"]
+    assert "lgpl" in p["url"].lower() or p["id"]!="ffmpeg_lgpl"
+print("manifest packages", sorted(ids))
+' "$manf" || fail "music_deps_manifest invalid"
+ok "music_deps_manifest.json pinned + https"
+
 if [ "${SCR_MUSIC_PIPELINE:-0}" = 1 ]; then
     if [ -f "$root/game/SNCP8P/files/sonic2010_0.cpk" ] && command -v vgmstream-cli >/dev/null \
         && "$PY" -c 'import cricodecs' 2>/dev/null; then

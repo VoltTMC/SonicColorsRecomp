@@ -1,5 +1,11 @@
 # Progress log
 
+## 2026-11-20 — Windows Music Library automatic dependency manager
+
+- Pinned `data/music_deps_manifest.json` (Python embed 3.12.8, cricodecs 1.2.0, vgmstream r2168, BtbN LGPL FFmpeg).
+- Downloads into `%LOCALAPPDATA%\SonicColorsRecomp\dependencies`; Music tab Install/progress UI; user `tools/bin` still overrides.
+- Not bundled in Setup/ZIP (runtime download + license notes in `licenses/MUSIC_DEPS_RUNTIME.txt`). Native clean-Windows E2E still UNVERIFIED.
+
 ## 2026-11-20 — Windows vgmstream discovery for Music preview
 
 - Root cause: `SCR_MUSIC_BIN` set only via CRT `_putenv_s` was invisible to `CreateProcess` children; preview error said “not found on PATH” even for AppData/`tools/bin` drop-ins.

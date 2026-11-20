@@ -7,12 +7,17 @@ The Music Library uses `tools/music_asset.exe` (or `music_asset.cmd`) to:
   - export original WAV
   - prepare patched CPK replacements (cricodecs)
 
-Required (same roles as Linux):
+Required (same roles as Linux) — preferred path on Windows:
+  Open the launcher Music tab → **Install Music tools**
+  Downloads pinned Python embed + cricodecs + vgmstream + LGPL FFmpeg into
+    %LOCALAPPDATA%\SonicColorsRecomp\dependencies\
+  (see data\music_deps_manifest.json and licenses\MUSIC_DEPS_RUNTIME.txt)
+
+Manual / developer fallback:
   1. Python 3.11+ on PATH (`python` / `py -3`)
   2. cricodecs (via tools\music_deps_setup.cmd → .venv-music)
-  3. vgmstream-cli.exe — drop into %APPDATA%\SonicColorsRecomp\tools\bin (installed)
-     or tools\bin\ (portable), or on PATH. No reboot needed after copying.
-  4. ffmpeg — PATH or drop into tools\bin\ (prefer an LGPL build)
+  3. vgmstream-cli.exe — %APPDATA%\SonicColorsRecomp\tools\bin or tools\bin\
+  4. ffmpeg.exe — same drop-in folders (prefer an LGPL build)
 
 Installed app (Setup.exe — preferred):
   Drop-ins → %APPDATA%\SonicColorsRecomp\tools\bin
@@ -24,17 +29,18 @@ Portable ZIP:
   Venv     → .venv-music next to the install root
 
 Quick setup:
-  1. tools\music_deps_setup.cmd
-  2. Copy ffmpeg.exe + vgmstream-cli.exe into the drop-in folder above
-  3. tools\music_asset.exe doctor   or Music tab → Check tools
+  1. Music tab → Install Music tools (recommended)
+  2. Or tools\music_deps_setup.cmd + manual ffmpeg/vgmstream drop-ins
+  3. Music tab → Check tools
 
 Works immediately (no host tools): browse catalog, replacement WAV preview,
 play with an already-prepared music_mods cache.
 
 Needs setup: original preview/export (cricodecs+vgmstream); Prepare (cricodecs+ffmpeg).
 
-Packages ship catalog.json, music_asset*, music_deps_setup, tools/bin/README,
-libwinpthread beside music_asset.exe. They do not ship Python/cricodecs/ffmpeg/vgmstream.
+Packages ship catalog.json, music_asset*, music_deps_manifest.json, music_deps_setup,
+tools/bin/README, libwinpthread beside music_asset.exe. They do not ship
+Python/cricodecs/ffmpeg/vgmstream binaries (Windows downloads them on demand).
 See docs\WINDOWS_INSTALLER.md.
 
 `manifest.toml` and `tracks/` are created next to the catalog when you assign

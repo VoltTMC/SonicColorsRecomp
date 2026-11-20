@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "platform": "windows-x86_64",
+  "notes": "Pinned Music Library host tools for Windows auto-setup. Not shipped inside Setup/ZIP; downloaded at runtime into %LOCALAPPDATA%\\SonicColorsRecomp\\dependencies. User drop-ins in %APPDATA%\\SonicColorsRecomp\\tools\\bin still win.",
+  "packages": [
+    {
+      "id": "python_embed",
+      "version": "3.12.8",
+      "purpose": "Host interpreter for music_asset_pkg",
+      "license": "PSF-2.0",
+      "url": "https://www.python.org/ftp/python/3.12.8/python-3.12.8-embed-amd64.zip",
+      "sha256": "8d3f33be9eb810f23c102f08475af2854e50484b8e4e06275e937be61ce3d2fb",
+      "archive": "zip",
+      "extract_to": "python/3.12.8",
+      "exe_relative": "python.exe",
+      "ops": ["preview_original", "export_original", "prepare_replacements", "catalog_rebuild"]
+    },
+    {
+      "id": "cricodecs",
+      "version": "1.2.0",
+      "purpose": "ADX/AAX/CPK codecs (Python wheel)",
+      "license": "MIT",
+      "url": "https://files.pythonhosted.org/packages/c8/9d/ba8776e6cdf753c88c5e2119a542207d0b62c27a7dcd052569f20cba729e/cricodecs-1.2.0-cp312-cp312-win_amd64.whl",
+      "sha256": "ee6cfab8b17fffdb6fc0be73769b00b23ef4e5cf4839e698da564e305927f5f4",
+      "archive": "wheel",
+      "extract_to": "python/3.12.8/Lib/site-packages",
+      "requires": ["python_embed"],
+      "ops": ["preview_original", "export_original", "prepare_replacements", "catalog_rebuild"]
+    },
+    {
+      "id": "vgmstream",
+      "version": "r2168",
+      "purpose": "Decode original AAX to WAV for preview/export",
+      "license": "ISC",
+      "url": "https://github.com/vgmstream/vgmstream/releases/download/r2168/vgmstream-win64.zip",
+      "sha256": "692d45070852a35c1fa42726aa3c9de528e44eec925d37d99b1074256b99a229",
+      "archive": "zip",
+      "extract_to": "vgmstream/r2168",
+      "bin_glob": ["vgmstream-cli.exe", "*.dll"],
+      "exe_relative": "vgmstream-cli.exe",
+      "ops": ["preview_original", "export_original"]
+    },
+    {
+      "id": "ffmpeg_lgpl",
+      "version": "n8.1.3-39-g660b5aa7db",
+      "purpose": "WAV resample / PCM normalize for Prepare (LGPL shared build)",
+      "license": "LGPL-2.1-or-later",
+      "license_note": "BtbN FFmpeg-Builds win64 lgpl-shared. Runtime download only; not redistributed inside Setup/ZIP.",
+      "url": "https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/autobuild-2026-11-20-12-40/ffmpeg-n8.1.3-39-g660b5aa7db-win64-lgpl-shared-8.1.zip",
+      "sha256": "bf6109642e7da71905cadcb0b8dbab8c2a0a72f8a1a4c88c2dbcda771aa358cd",
+      "archive": "zip",
+      "extract_to": "ffmpeg/n8.1.3-39-g660b5aa7db",
+      "bin_subdir": "ffmpeg-n8.1.3-39-g660b5aa7db-win64-lgpl-shared-8.1/bin",
+      "bin_glob": ["ffmpeg.exe", "*.dll"],
+      "exe_relative": "ffmpeg-n8.1.3-39-g660b5aa7db-win64-lgpl-shared-8.1/bin/ffmpeg.exe",
+      "ops": ["prepare_replacements", "export_original"]
+    }
+  ]
+}

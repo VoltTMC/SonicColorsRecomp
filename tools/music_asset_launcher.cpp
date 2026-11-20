@@ -92,6 +92,13 @@ static fs::path FindPython(const fs::path& root)
         if (ExistsFile(p)) return p;
 
 #ifdef _WIN32
+    // Launcher-managed embeddable Python (%LOCALAPPDATA%\SonicColorsRecomp\dependencies\...).
+    if (const wchar_t* localapp = _wgetenv(L"LOCALAPPDATA"))
+    {
+        const fs::path managed =
+            fs::path(localapp) / L"SonicColorsRecomp" / L"dependencies" / L"python" / L"3.12.8" / L"python.exe";
+        if (ExistsFile(managed)) return managed;
+    }
     // Installed layout: Music venv under %APPDATA%\SonicColorsRecomp (not beside the exe).
     if (const wchar_t* appdata = _wgetenv(L"APPDATA"))
     {

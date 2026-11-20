@@ -36,6 +36,9 @@ printf 'Sonic Colors Recomp installed layout\nversion=%s\n' "$version" > "$stage
 
 cp "$root/README.md" "$stage/" 2>/dev/null || true
 cp "$root/recomplauncher.json" "$stage/"
+mkdir -p "$stage/data" "$stage/licenses"
+[ -f "$root/data/music_deps_manifest.json" ] && cp -f "$root/data/music_deps_manifest.json" "$stage/data/"
+[ -f "$root/licenses/MUSIC_DEPS_RUNTIME.txt" ] && cp -f "$root/licenses/MUSIC_DEPS_RUNTIME.txt" "$stage/licenses/"
 if [ -f "$root/docs/WINDOWS_FEATURE_PARITY.md" ]; then
     mkdir -p "$stage/docs"
     cp "$root/docs/WINDOWS_FEATURE_PARITY.md" "$stage/docs/"

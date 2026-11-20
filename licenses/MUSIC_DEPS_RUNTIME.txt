@@ -1,0 +1,22 @@
+Sonic Colors Recomp — Music Library runtime dependencies (Windows auto-setup)
+==============================================================================
+
+The Windows launcher may download the following into
+  %LOCALAPPDATA%\SonicColorsRecomp\dependencies\
+when Music Library host tools are missing. They are NOT shipped inside the
+Setup.exe / portable ZIP redistributables.
+
+| Package        | Upstream                         | License              |
+|----------------|----------------------------------|----------------------|
+| Python embed   | python.org                       | PSF License          |
+| cricodecs      | PyPI (cricodecs)                 | MIT                  |
+| vgmstream      | github.com/vgmstream/vgmstream   | ISC (see COPYING)    |
+| FFmpeg (LGPL)  | BtbN/FFmpeg-Builds lgpl-shared   | LGPL-2.1-or-later    |
+
+Pinned URLs and SHA-256 digests live in data/music_deps_manifest.json.
+User-provided tools in %APPDATA%\SonicColorsRecomp\tools\bin override managed copies.
+
+FFmpeg is obtained as an LGPL shared build specifically so the application package
+itself does not redistribute a GPL-only FFmpeg binary. Runtime download still
+carries LGPL obligations for the copy installed on the user's machine (object
+files / attribution as applicable to that build).

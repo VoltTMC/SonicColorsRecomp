@@ -21,6 +21,7 @@ Silent / automation: `/VERYSILENT` installs cleanly with no portable path. Optio
 | Application (binaries, catalog, packaged tools) | Install dir (e.g. `%LOCALAPPDATA%\Programs\Sonic Colors Recomp`) |
 | User data (config, NAND/saves, mods, Music Library) | `%APPDATA%\SonicColorsRecomp` |
 | Music drop-in tools (ffmpeg, vgmstream) | `%APPDATA%\SonicColorsRecomp\tools\bin` |
+| Managed Music deps (auto Install Music tools) | `%LOCALAPPDATA%\SonicColorsRecomp\dependencies` |
 | Game data extracted by the launcher | `%APPDATA%\SonicColorsRecomp\game\…` |
 
 The install tree contains `installed.txt` and **must not** contain `portable.txt`.

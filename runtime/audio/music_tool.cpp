@@ -1,4 +1,5 @@
 #include "music_tool.h"
+#include "music_deps.h"
 #include "../platform/platform.h"
 
 #include <cstdio>
@@ -85,6 +86,7 @@ bool MusicTool_Run(const std::vector<std::string>& args,
     // On Windows, CreateProcess inherits the Win32 env block — SetEnvironmentVariableW
     // is required; _putenv_s alone does not update what child processes see.
     const fs::path userBin = Platform_MusicToolsBinDir();
+    MusicDeps_ApplyEnv();
 #ifdef _WIN32
     SetEnvironmentVariableW(L"SCR_MUSIC_BIN", userBin.wstring().c_str());
     // Narrow CRT copy for in-process getenv; Win32 block above is what CreateProcess inherits.

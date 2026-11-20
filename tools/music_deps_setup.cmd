@@ -50,7 +50,12 @@ echo == Verifying with music_asset doctor ==
 type "%TEMP%\scr_music_doctor.json"
 echo.
 "%VENV%\Scripts\python.exe" -c "import json;d=json.load(open(r'%TEMP%\scr_music_doctor.json',encoding='utf-8'));print('Ready:', ', '.join(d.get('ready') or []) or '(none)');print('Blocked:', ', '.join(d.get('blocked') or []) or '(none)');[print('Next:', s) for s in (d.get('setup') or {}).get('steps') or []]"
-echo OK: cricodecs venv ready. Place ffmpeg.exe + vgmstream-cli.exe in:
+echo OK: cricodecs venv ready.
+echo.
+echo Preferred: open the launcher Music tab and use "Install Music tools" to download
+echo pinned Python/cricodecs/vgmstream/LGPL FFmpeg into:
+echo   %%LOCALAPPDATA%%\SonicColorsRecomp\dependencies
+echo Or place ffmpeg.exe + vgmstream-cli.exe manually in:
 echo   %BIN%
-echo Re-check: tools\music_asset.exe doctor   or Music tab - Check tools
+echo Re-check: Music tab - Check tools / Install Music tools
 exit /b 0

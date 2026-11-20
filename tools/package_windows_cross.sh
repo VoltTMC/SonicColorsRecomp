@@ -54,6 +54,9 @@ fi
 cp -f "$root/tools/music_asset.cmd" "$stage/tools/" 2>/dev/null || true
 cp -f "$root/tools/MUSIC_ASSET_WINDOWS.txt" "$stage/tools/" 2>/dev/null || true
 cp -f "$root/tools/music_deps_setup.cmd" "$stage/tools/" 2>/dev/null || true
+mkdir -p "$stage/data" "$stage/licenses"
+[ -f "$root/data/music_deps_manifest.json" ] && cp -f "$root/data/music_deps_manifest.json" "$stage/data/"
+[ -f "$root/licenses/MUSIC_DEPS_RUNTIME.txt" ] && cp -f "$root/licenses/MUSIC_DEPS_RUNTIME.txt" "$stage/licenses/"
 mkdir -p "$stage/tools/bin"
 cp -f "$root/tools/bin/README.md" "$stage/tools/bin/" 2>/dev/null || true
 if [ -d "$root/tools/music_asset_pkg" ]; then

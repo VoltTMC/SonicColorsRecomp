@@ -25,7 +25,7 @@ Last updated: 2026-11-20 (doctor exec validation + clean-env music_deps_test).
 | Prepare (WAV→ADX/AAX→CPK) | required | ADX/AAX/CPK | — | resample 48 kHz | No |
 | Rebuild catalog from CPK | required | required | — | — | No (not needed if catalog ships) |
 
-Discovery: `SCR_MUSIC_BIN` → packaged `tools/bin` → user-data `tools/bin` → `PATH`. Doctor **runs** each binary (`ok` / `missing` / `unusable`) and lists `searched` dirs on failure. Windows launcher sets `SCR_MUSIC_BIN` with `SetEnvironmentVariableW` (not CRT `_putenv` alone) so Music preview children inherit it. Setup: `music_deps_setup` → drop-ins → **Check tools**. Isolation: `SCR_MUSIC_APP_BIN_ONLY=1`.
+Discovery: `SCR_MUSIC_BIN` → user `tools/bin` → managed `%LOCALAPPDATA%\…\dependencies\current\bin` → packaged `tools/bin` → `PATH`. Doctor **runs** each binary (`ok` / `missing` / `unusable`) and lists `searched` dirs. Windows: Music tab **Install Music tools** downloads pinned Python/cricodecs/vgmstream/LGPL FFmpeg (`data/music_deps_manifest.json`) into LOCALAPPDATA (not shipped in Setup/ZIP). `SetEnvironmentVariableW` for `SCR_MUSIC_BIN` / `SCR_MUSIC_MANAGED_BIN` / `SCR_MUSIC_PYTHON`. Isolation: `SCR_MUSIC_APP_BIN_ONLY=1`.
 
 **Bundling policy:** no GPL FFmpeg / Python / cricodecs in ZIP/AppImage.
 
@@ -100,7 +100,7 @@ Discovery: `SCR_MUSIC_BIN` → packaged `tools/bin` → user-data `tools/bin` �
 | Browse full catalog (~114) | PASS | PASS package | UNVERIFIED UI | Clean ZIP unzip test |
 | Locate original CPK | PASS | PASS `[auto]` | PASS `[auto]` | Portable `exe/game/...` |
 | Replacement CPK cache (`current.json`) | PASS | PASS `[source]` | PASS `[source]` | Only after Prepare |
-| Original preview | PARTIAL | PARTIAL → discovery+launch fixed `[source]`/`[wine]` | PARTIAL | Needs host vgmstream drop-in; native preview UNVERIFIED |
+| Original preview | PARTIAL | PARTIAL → managed deps `[source]` | PARTIAL | Auto Install Music tools on Windows; native E2E UNVERIFIED |
 | Replacement WAV preview | PASS `[source]` | PASS `[source]` | UNVERIFIED | No CPK cache needed |
 | A/B compare | PASS `[source]` | PASS `[source]` | UNVERIFIED | |
 | Export original WAV | PARTIAL | PARTIAL → launch fixed `[wine]` | PARTIAL | Same as preview |
@@ -195,6 +195,7 @@ Follow `docs/windows-native-checklist.md`. Items marked UNVERIFIED above stay UN
 
 | Date | Change |
 |------|--------|
+| 2026-11-20 | Windows Music auto deps manager: pinned manifest → LOCALAPPDATA downloads (Python/cricodecs/vgmstream/LGPL FFmpeg); Music tab Install UI; native E2E UNVERIFIED |
 | 2026-11-20 | Fix Windows vgmstream discovery: Win32 `SCR_MUSIC_BIN` env, `.exe` names, searched-path errors; CreateProcess 87 fix remains in v0.3.5 |
 | 2026-11-20 | Fix Windows Music `CreateProcess` 87: Unicode env flag in `music_asset` + NUL std handles in `Platform_RunProcess`; `scr_run_process_test` (Linux + Wine) |
 | 2026-11-20 | Windows per-user Inno installer (`installed.txt` → AppData); portable ZIP optional; user-data music tools |

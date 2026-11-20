@@ -68,8 +68,10 @@ stage() {   # stage <AppDir>: everything except the shader cache
         rm -rf "$bin/tools/music_asset_pkg/__pycache__"
     fi
     cp -f "$root/tools/music_deps_setup.sh" "$bin/tools/" 2>/dev/null || true
-    mkdir -p "$bin/tools/bin"
+    mkdir -p "$bin/tools/bin" "$bin/data"
     cp -f "$root/tools/bin/README.md" "$bin/tools/bin/" 2>/dev/null || true
+    [ -f "$root/data/music_deps_manifest.json" ] && cp -f "$root/data/music_deps_manifest.json" "$bin/data/"
+    [ -f "$root/licenses/MUSIC_DEPS_RUNTIME.txt" ] && cp -f "$root/licenses/MUSIC_DEPS_RUNTIME.txt" "$lic/"
 
     cp "$root/licenses/BlackKnightRecomp-GPL-2.0.txt" "$lic/LICENSE"
     cp "$root/README.md" "$lic/README.md"

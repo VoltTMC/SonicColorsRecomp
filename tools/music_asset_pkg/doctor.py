@@ -28,6 +28,7 @@ def _bin_dirs() -> list[Path]:
     """
     dirs: list[Path] = []
     env_bin = Path(os.environ["SCR_MUSIC_BIN"]) if os.environ.get("SCR_MUSIC_BIN") else None
+    managed = Path(os.environ["SCR_MUSIC_MANAGED_BIN"]) if os.environ.get("SCR_MUSIC_MANAGED_BIN") else None
     appdata = os.environ.get("APPDATA") or os.environ.get("XDG_DATA_HOME")
     localapp = os.environ.get("LOCALAPPDATA")
     xdg = os.environ.get("XDG_DATA_HOME")
@@ -41,13 +42,16 @@ def _bin_dirs() -> list[Path]:
         user.append(Path(appdata) / "SonicColorsRecomp" / "tools" / "bin")
     if localapp:
         user.append(Path(localapp) / "SonicColorsRecomp" / "tools" / "bin")
+        # Launcher-managed downloads (Windows auto-setup).
+        user.append(Path(localapp) / "SonicColorsRecomp" / "dependencies" / "current" / "bin")
     if xdg and not appdata:
         user.append(Path(xdg) / "SonicColorsRecomp" / "tools" / "bin")
     # Linux default when XDG_DATA_HOME unset
     if os.name != "nt" and not xdg:
         user.append(Path.home() / ".local" / "share" / "SonicColorsRecomp" / "tools" / "bin")
 
-    for d in [env_bin, *packaged, *user]:
+    # Priority: SCR_MUSIC_BIN → user tools/bin → managed deps → packaged tools/bin → PATH
+    for d in [env_bin, *user, managed, *packaged]:
         if not d:
             continue
         try:
@@ -477,9 +481,15 @@ def doctor() -> dict:
             "venv_hint_windows": "tools\\music_deps_setup.cmd",
             "steps": _setup_steps(deps, blocked),
             "bundling": (
-                "Installers/redistributables do not ship FFmpeg (often GPL), vgmstream, Python, or cricodecs. "
-                "On installed Windows, place tools in %APPDATA%\\SonicColorsRecomp\\tools\\bin "
-                "(survives updates). Portable builds may use tools/bin/. Run music_deps_setup for cricodecs."
+                "Installers/redistributables do not ship FFmpeg, vgmstream, Python, or cricodecs. "
+                "On Windows the launcher can download pinned LGPL FFmpeg + vgmstream + Python embed + cricodecs "
+                "into %LOCALAPPDATA%\\SonicColorsRecomp\\dependencies. "
+                "User drop-ins in %APPDATA%\\SonicColorsRecomp\\tools\\bin still override managed copies."
+            ),
+            "managed_root": (
+                str(Path(os.environ["LOCALAPPDATA"]) / "SonicColorsRecomp" / "dependencies")
+                if os.environ.get("LOCALAPPDATA")
+                else None
             ),
         },
     }
