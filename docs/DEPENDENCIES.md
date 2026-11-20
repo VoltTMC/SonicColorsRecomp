@@ -27,6 +27,6 @@ the prebuilt `nod.dll` (not MSVC `nod_static.lib`).
 
 ## Local references (not vendored)
 
-- Decompilation (read-only): `/home/volt/Decomp/sonic2010-sncp8p` — symbols, splits, DOL hash
-- Original ISO (never modified): `/home/volt/Decomp/sonic2010-sncp8p/orig/SNCP8P/Sonic2010 [SNCP8P].iso` (also `/home/volt/Documents/Sonic2010 [SNCP8P].iso`)
-- DOL SHA-1: `8b606ee1ff822bf8288e492646cf94af374a078e`
+- Matching decompilation tree (read-only, **not** in this repo): used for symbols / splits / DOL hash only
+- Disc images and extracted `game/` data stay on the developer machine and are **gitignored** — never commit or publish them
+- Expected SNCP8P `main.dol` SHA-1: `8b606ee1ff822bf8288e492646cf94af374a078e`
