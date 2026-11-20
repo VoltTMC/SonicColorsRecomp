@@ -50,6 +50,52 @@ void Log_Open(const char* path)
 
 const std::string& Log_Path() { return s_logPath; }
 
+namespace
+{
+fs::path AbnormalExitPath()
+{
+    if (s_logPath.empty()) return {};
+    return fs::path(s_logPath).parent_path() / "last_abnormal_exit.txt";
+}
+}   // namespace
+
+void Log_MarkAbnormalExit(const char* reason)
+{
+    const fs::path p = AbnormalExitPath();
+    if (p.empty()) return;
+    FILE* f = _fsopen(p.string().c_str(), "w", _SH_DENYWR);
+    if (!f) return;
+    fprintf(f, "%s\n", reason && reason[0] ? reason : "abnormal exit");
+    fflush(f);
+    fclose(f);
+}
+
+bool Log_TakeAbnormalExit(std::string& reason)
+{
+    reason.clear();
+    const fs::path p = AbnormalExitPath();
+    if (p.empty()) return false;
+    std::error_code ec;
+    if (!fs::is_regular_file(p, ec)) return false;
+    FILE* f = _fsopen(p.string().c_str(), "r", _SH_DENYWR);
+    if (!f)
+    {
+        fs::remove(p, ec);
+        return false;
+    }
+    char buf[512] = {};
+    if (fgets(buf, sizeof(buf), f))
+    {
+        reason = buf;
+        while (!reason.empty() && (reason.back() == '\n' || reason.back() == '\r'))
+            reason.pop_back();
+    }
+    fclose(f);
+    fs::remove(p, ec);
+    if (reason.empty()) reason = "Previous session ended abnormally.";
+    return true;
+}
+
 void Log_Write(int level, const std::string& s)
 {
     if (level < g_logLevel)
@@ -69,6 +115,7 @@ void Fatal(const std::string& s)
 {
     Log_Write(3, "FATAL: " + s);
     fflush(stdout);
+    Log_MarkAbnormalExit(("FATAL: " + s).c_str());
     if (!g_noMessageBox) Platform_ErrorBox("Sonic Colors - Recompiled — fatal error", s);
     { void Gamepad_StopRumble(); Gamepad_StopRumble(); }
     Platform_ExitProcess(1);

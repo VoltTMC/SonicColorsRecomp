@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Previous-crash banner
+
+- Crash/FATAL writes `last_abnormal_exit.txt`; Play shows a banner with Open log folder / Dismiss.
+- Crash dialogs mention log rotation (`.1.log` after relaunch). `package_smoke` checks new CLI help flags.
+
 ## 2026-11-20 — Wrong-region disc messaging
 
 - USA (SNCE*) / Japan (SNCJ*) discs get explicit “not supported yet” errors on install, verify, and region select.

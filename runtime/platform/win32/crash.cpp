@@ -137,8 +137,13 @@ static LONG CrashReport(EXCEPTION_POINTERS* ep)
     if (g_curThread)
         Crash_DumpContext(g_curThread->ctx);
     fflush(stdout);
+    Log_MarkAbnormalExit("Host crash — see SonicColorsRecomp.log (becomes .1.log on next launch).");
     extern bool g_noMessageBox;
-    if (!g_noMessageBox) MessageBoxA(nullptr, "The game crashed. See SonicColorsRecomp.log for details.", "Sonic Colors - Recompiled", MB_ICONERROR);
+    if (!g_noMessageBox)
+        MessageBoxA(nullptr,
+                    "The game crashed. Details are in SonicColorsRecomp.log "
+                    "(kept as .1.log on the next launch).",
+                    "Sonic Colors - Recompiled", MB_ICONERROR);
     return 0;
 }
 

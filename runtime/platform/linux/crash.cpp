@@ -66,8 +66,12 @@ static void CrashHandler(int sig, siginfo_t* si, void* uc)
     }
     if (g_curThread) Crash_DumpContext(g_curThread->ctx);
     fflush(stdout);
+    Log_MarkAbnormalExit("Host crash — see SonicColorsRecomp.log (becomes .1.log on next launch).");
     Gamepad_StopRumble();
-    if (!g_noMessageBox) Platform_ErrorBox("Sonic Colors - Recompiled", "The game crashed. See SonicColorsRecomp.log for details.");
+    if (!g_noMessageBox)
+        Platform_ErrorBox("Sonic Colors - Recompiled",
+                          "The game crashed. Details are in SonicColorsRecomp.log "
+                          "(kept as .1.log on the next launch).");
     _exit(2);
 }
 

@@ -179,6 +179,36 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
 {
     UpdateCheck_Start(false);   // one background tag check per launcher session
     ImGui::Spacing();
+    {
+        static std::string abnormal;
+        static bool abnormalChecked = false;
+        if (!abnormalChecked)
+        {
+            abnormalChecked = true;
+            Log_TakeAbnormalExit(abnormal);
+        }
+        if (!abnormal.empty())
+        {
+            ImGui::TextColored(ImVec4(0.95f, 0.45f, 0.35f, 1.f), "Previous session ended abnormally.");
+            ImGui::TextWrapped("%s", abnormal.c_str());
+            if (ImGui::SmallButton("Open log folder##crash"))
+            {
+                const std::string& logPath = Log_Path();
+                if (!logPath.empty())
+                {
+                    fs::path p(logPath);
+                    Shell_OpenFolder(p.has_parent_path() ? p.parent_path() : p);
+                }
+                else
+                    Shell_OpenFolder(Platform_UserDir());
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Dismiss##crash"))
+                abnormal.clear();
+            ImGui::TextDisabled("Crash details are usually in SonicColorsRecomp.1.log after the restart.");
+            ImGui::Spacing();
+        }
+    }
     if (UpdateCheck_NewerAvailable())
     {
         ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.35f, 1.f), "%s", UpdateCheck_Message().c_str());

@@ -109,6 +109,11 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — Previous-crash banner
+
+- Abnormal-exit marker + Play recovery banner; package_smoke covers `--prepare` / `--game` / `--download-update` help.
+- Next: Win native checklist; optional auto-install / Recomp Achievements.
+
 ### 2026-11-20 — Wrong-region disc messaging
 
 - `Release_UnsupportedMessage` names USA/Japan Colors discs; wired through install/verify/region/UI.
