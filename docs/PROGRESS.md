@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Native checklist + launcher status polish
+
+- Expanded `docs/windows-native-checklist.md` for profiles, FPS overlay, UI scale, backups.
+- Launcher Current settings shows UI scale and auto-backup hint.
+
 ## 2026-11-20 — UI scale
 
 - `[System] ui_scale` (75–150%) for launcher + overlay; System slider; config_test roundtrip.

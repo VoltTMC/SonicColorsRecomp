@@ -220,11 +220,12 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
     {
         const char* fps =
             g_config.frameRate == 30 ? "30 FPS" : g_config.frameRate == 60 ? "60 FPS" : "Uncapped";
-        ImGui::Text("Display: %s · internal %dx · %s", fps, g_config.internalScale,
-                    g_config.vsync ? "VSync on" : "VSync off");
+        ImGui::Text("Display: %s · internal %dx · %s · UI %.0f%%", fps, g_config.internalScale,
+                    g_config.vsync ? "VSync on" : "VSync off", g_config.uiScale * 100.0f);
         const std::string& dev = AudioOut_CurrentDeviceName();
-        ImGui::Text("Audio: %s · master %.0f%%",
-                    dev.empty() ? "system default" : dev.c_str(), g_config.masterVolume * 100.0f);
+        ImGui::Text("Audio: %s · master %.0f%%%s",
+                    dev.empty() ? "system default" : dev.c_str(), g_config.masterVolume * 100.0f,
+                    g_config.autoBackupSavesOnLaunch ? " · save backup on Play" : "");
         const int pads = Pad_Count();
         if (pads <= 0)
             ImGui::TextDisabled("Controllers: none connected");

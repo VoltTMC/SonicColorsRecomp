@@ -34,14 +34,20 @@ what you can prove — note that in any report.
 ## Input
 
 - [ ] Keyboard + rebinding
-- [ ] XInput pad detect / disconnect / reconnect
+- [ ] Stick / trigger dead zones feel correct
+- [ ] Save / load an **input profile** (Settings → Input)
+- [ ] XInput pad detect / disconnect / reconnect (+ toast)
 - [ ] Dual pads if available
 - [ ] Launcher and in-game focus
+- [ ] Pause-on-focus-loss: game freezes, audio mutes, rumble stops
 
 ## Display
 
 - [ ] Windowed, resize, borderless fullscreen
 - [ ] VSync on/off; frame rate 30 / 60 / uncapped
+- [ ] Graphics presets (Performance / Balanced / Quality)
+- [ ] FPS overlay (System toggle or `--show-fps`)
+- [ ] UI scale 75% / 150% (launcher + F1 overlay)
 - [ ] Move between monitors; DPI change (125% / 150%)
 
 ## User data
@@ -49,6 +55,9 @@ what you can prove — note that in any report.
 - [ ] With `portable.txt`: data next to exe
 - [ ] Without `portable.txt` (rename aside): `%APPDATA%\SonicColorsRecomp`
 - [ ] `--portable` forces exe-local
+- [ ] Reset settings creates `config_backups\config_*.ini`
+- [ ] Auto save backup on launch (optional) writes `save_backups\`
+- [ ] Mod profile Save/Load under `mod_profiles\`
 
 ## Record
 
