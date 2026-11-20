@@ -98,6 +98,13 @@ std::string Config_ModProfileText(const Config& c);
 bool Config_ApplyModProfileText(const std::string& text, Config& c);
 bool Config_SaveModProfile(const std::string& name, std::string* outPath = nullptr);
 bool Config_LoadModProfile(const std::string& name);
+// Video/graphics profiles under user_data/video_profiles/<name>.ini
+std::filesystem::path Config_VideoProfilesDir();
+std::vector<std::string> Config_ListVideoProfiles();
+std::string Config_VideoProfileText(const Config& c);
+bool Config_ApplyVideoProfileText(const std::string& text, Config& c);
+bool Config_SaveVideoProfile(const std::string& name, std::string* outPath = nullptr);
+bool Config_LoadVideoProfile(const std::string& name);
 const std::string& Config_Path();
 std::string Config_Text(const Config& c);
 // Resolve an F1–F12 hotkey name to a virtual-key code (fallback if empty/invalid).

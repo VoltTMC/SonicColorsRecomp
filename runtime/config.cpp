@@ -418,6 +418,130 @@ bool Config_LoadModProfile(const std::string& name)
     return true;
 }
 
+std::filesystem::path Config_VideoProfilesDir()
+{
+    return Platform_UserDir() / "video_profiles";
+}
+
+std::vector<std::string> Config_ListVideoProfiles()
+{
+    namespace fs = std::filesystem;
+    std::vector<std::string> names;
+    std::error_code ec;
+    fs::path dir = Config_VideoProfilesDir();
+    if (!fs::is_directory(dir, ec)) return names;
+    for (auto& e : fs::directory_iterator(dir, ec))
+    {
+        if (!e.is_regular_file(ec)) continue;
+        if (e.path().extension() != ".ini") continue;
+        names.push_back(e.path().stem().string());
+    }
+    std::sort(names.begin(), names.end());
+    return names;
+}
+
+std::string Config_VideoProfileText(const Config& c)
+{
+    std::string s;
+    s += "; Sonic Colors Recomp video profile (display + rendering)\n\n[Video]\n";
+    s += std::format("frame_rate = {}\n", c.frameRate);
+    s += std::format("host_fps_cap = {}\n", c.hostFpsCap);
+    s += std::format("internal_scale = {}\n", c.internalScale);
+    s += std::format("window_width = {}\nwindow_height = {}\n", c.windowWidth, c.windowHeight);
+    s += std::format("fullscreen = {}\n", Bool(c.fullscreen));
+    s += std::format("exclusive_fullscreen = {}\n", Bool(c.exclusiveFullscreen));
+    s += std::format("vsync = {}\n", Bool(c.vsync));
+    s += std::format("widescreen = {}\n", Bool(c.widescreen));
+    s += std::format("integer_scale = {}\n", Bool(c.integerScale));
+    s += std::format("anisotropy = {}\n", c.anisotropy);
+    s += std::format("gpu_thread = {}\n", Bool(c.gpuThread));
+    s += std::format("async_shaders = {}\n", Bool(c.asyncShaders));
+    s += std::format("texture_pack = {}\n", Bool(c.texturePack));
+    return s;
+}
+
+bool Config_ApplyVideoProfileText(const std::string& text, Config& c)
+{
+    std::istringstream in(text);
+    std::string line, section;
+    bool any = false;
+    while (std::getline(in, line))
+    {
+        line = Trim(line);
+        if (line.empty() || line[0] == ';' || line[0] == '#') continue;
+        if (line[0] == '[')
+        {
+            section = Lower(Trim(line.substr(1, line.find(']') - 1)));
+            continue;
+        }
+        size_t eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        std::string key = Lower(Trim(line.substr(0, eq)));
+        std::string val = Trim(line.substr(eq + 1));
+        if (section != "video") continue;
+        any = true;
+        if (key == "frame_rate")
+        {
+            int v = atoi(val.c_str());
+            c.frameRate = (v <= 0) ? 0 : (v >= 60 ? 60 : 30);
+        }
+        else if (key == "host_fps_cap") c.hostFpsCap = std::clamp(atoi(val.c_str()), 0, 1000);
+        else if (key == "internal_scale") c.internalScale = std::clamp(atoi(val.c_str()), 1, 8);
+        else if (key == "window_width") c.windowWidth = std::max(320, atoi(val.c_str()));
+        else if (key == "window_height") c.windowHeight = std::max(240, atoi(val.c_str()));
+        else if (key == "fullscreen") c.fullscreen = ParseBool(val);
+        else if (key == "exclusive_fullscreen") c.exclusiveFullscreen = ParseBool(val);
+        else if (key == "vsync") c.vsync = ParseBool(val);
+        else if (key == "widescreen") c.widescreen = ParseBool(val);
+        else if (key == "integer_scale") c.integerScale = ParseBool(val);
+        else if (key == "anisotropy") c.anisotropy = std::clamp(atoi(val.c_str()), 1, 16);
+        else if (key == "gpu_thread") c.gpuThread = ParseBool(val);
+        else if (key == "async_shaders") c.asyncShaders = ParseBool(val);
+        else if (key == "texture_pack") c.texturePack = ParseBool(val);
+    }
+    return any;
+}
+
+bool Config_SaveVideoProfile(const std::string& name, std::string* outPath)
+{
+    namespace fs = std::filesystem;
+    const std::string safe = SanitizeProfileName(name);
+    std::error_code ec;
+    fs::path dir = Config_VideoProfilesDir();
+    fs::create_directories(dir, ec);
+    if (ec) { LOG_WARN("config: cannot create {}: {}", dir.string(), ec.message()); return false; }
+    fs::path dest = dir / (safe + ".ini");
+    fs::path tmp = dest;
+    tmp += ".tmp";
+    {
+        std::ofstream f(tmp);
+        if (!f) return false;
+        f << Config_VideoProfileText(g_config);
+    }
+    if (!Platform_ReplaceFile(tmp.string(), dest.string()))
+    {
+        fs::remove(tmp, ec);
+        return false;
+    }
+    if (outPath) *outPath = dest.string();
+    LOG_INFO("config: saved video profile {}", dest.string());
+    return true;
+}
+
+bool Config_LoadVideoProfile(const std::string& name)
+{
+    namespace fs = std::filesystem;
+    const std::string safe = SanitizeProfileName(name);
+    fs::path path = Config_VideoProfilesDir() / (safe + ".ini");
+    std::ifstream f(path);
+    if (!f) { LOG_WARN("config: video profile not found: {}", path.string()); return false; }
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    if (!Config_ApplyVideoProfileText(ss.str(), g_config)) return false;
+    LOG_INFO("config: loaded video profile {}", path.string());
+    return true;
+}
+
 bool Config_Save()
 {
     if (s_path.empty()) return false;

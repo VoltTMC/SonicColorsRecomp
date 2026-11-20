@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Video profiles + Play recovery links
+
+- Named video/graphics profiles under `video_profiles/`; Video tab Save/Load.
+- Play tab: Open Releases when data missing; Open log + Releases when corrupt.
+
 ## 2026-11-20 — `--show-hints` + HiDPI checklist
 
 - CLI `--show-hints` for this-run input prompts; PERFORMANCE.md HiDPI/resize smoke steps.

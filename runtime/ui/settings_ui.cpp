@@ -180,6 +180,52 @@ void VideoTab(SettingsHost host)
              "Frame rate and window size are unchanged. Further tweaks switch to Custom.");
     }
 
+    ImGui::SeparatorText("Video profiles");
+    Help("Save or load display/rendering sets under user_data/video_profiles/ (includes frame rate and window size).");
+    {
+        static char profileName[48] = "default";
+        static int selected = 0;
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14);
+        ImGui::InputText("Profile name##video", profileName, sizeof(profileName));
+        if (ImGui::Button("Save video profile"))
+        {
+            std::string path;
+            if (Config_SaveVideoProfile(profileName, &path))
+            {
+                Overlay_Toast(std::format("Saved video profile {}", fs::path(path).stem().string()).c_str());
+                Changed(host, false);
+            }
+            else
+                Overlay_Toast("Could not save video profile");
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Open profiles folder##video"))
+            Shell_OpenFolder(Config_VideoProfilesDir());
+        std::vector<std::string> profiles = Config_ListVideoProfiles();
+        if (profiles.empty())
+            ImGui::TextDisabled("No saved video profiles yet.");
+        else
+        {
+            if (selected >= (int)profiles.size()) selected = 0;
+            std::vector<const char*> items;
+            items.reserve(profiles.size());
+            for (auto& p : profiles) items.push_back(p.c_str());
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14);
+            ImGui::Combo("Load video profile", &selected, items.data(), (int)items.size());
+            ImGui::SameLine();
+            if (ImGui::Button("Load##videoprofile"))
+            {
+                if (Config_LoadVideoProfile(profiles[selected]))
+                {
+                    Overlay_Toast(std::format("Loaded video profile {}", profiles[selected]).c_str());
+                    Changed(host, true);
+                }
+                else
+                    Overlay_Toast("Could not load video profile");
+            }
+        }
+    }
+
     ImGui::SeparatorText("Display");
     Check(host, "Fullscreen", c.fullscreen, false,
           "Enter fullscreen. Host fullscreen hotkey (default F11) or Alt+Enter also toggle it.");

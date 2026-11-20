@@ -109,10 +109,14 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — Video profiles + Play recovery
+
+- `video_profiles/` Save/Load; missing/corrupt Play-tab recovery links.
+- Next: Win native checklist items; GPU counters; glyph art for prompts.
+
 ### 2026-11-20 — Perf overlay detail + input hints
 
 - Guest Hz / RSS / audio underruns on FPS overlay; on-screen Jump/Slash/Pause hints.
-- Next: Win native checklist items; GPU counters; glyph art for prompts.
 
 ### 2026-11-20 — Launcher size + FPS detail + update check
 

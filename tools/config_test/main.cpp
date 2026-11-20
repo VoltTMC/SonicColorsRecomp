@@ -178,6 +178,21 @@ int main()
     CHECK(g_config.mods.size() == 2);
     CHECK(g_config.mods[0].folder == "alpha" && g_config.mods[0].enabled);
     CHECK(g_config.mods[1].folder == "beta" && !g_config.mods[1].enabled);
+
+    g_config.internalScale = 5;
+    g_config.vsync = true;
+    g_config.frameRate = 60;
+    g_config.anisotropy = 8;
+    CHECK(Config_SaveVideoProfile("unit_video", nullptr));
+    g_config.internalScale = 1;
+    g_config.vsync = false;
+    g_config.frameRate = 30;
+    g_config.anisotropy = 1;
+    CHECK(Config_LoadVideoProfile("unit_video"));
+    CHECK(g_config.internalScale == 5);
+    CHECK(g_config.vsync);
+    CHECK(g_config.frameRate == 60);
+    CHECK(g_config.anisotropy == 8);
     fs::remove_all(g_userDir, ec);
 
     fs::remove(tmp, ec);

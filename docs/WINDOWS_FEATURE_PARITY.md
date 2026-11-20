@@ -83,6 +83,8 @@ Last updated: 2026-11-20 (continuous improvement audit; stick deadzone; spiral g
 | On-screen input hints | yes | yes | FULL `[source]` | Jump/Slash/Pause pad+key text |
 | Check for updates (GitHub) | yes | yes | FULL `[source]` | Tag compare only; no auto-install |
 | Play-tab quick folders | yes | yes | FULL `[source]` | Game data / user data / mods |
+| Video/graphics profiles | yes | yes | FULL `[source]` | `user_data/video_profiles/*.ini` |
+| Play-tab recovery links | yes | yes | FULL `[source]` | Releases / log when missing/corrupt |
 | Rumble | yes | yes | UNVERIFIED | `[native]` |
 | Hot-plug toasts | yes | yes | FULL `[source]` | — |
 | Launcher home / Play | yes | yes | FULL `[source]` | Version on home (2026-11-20) |

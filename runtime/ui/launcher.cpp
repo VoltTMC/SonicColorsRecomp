@@ -199,12 +199,32 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
             ImGui::TextDisabled("Disc image found nearby: %s", isoPath.c_str());
         else
             ImGui::TextDisabled("No disc image found next to the game — you will be asked to pick one.");
+        ImGui::Spacing();
+        if (ImGui::Button("Open Releases page##missing"))
+            Shell_OpenUrl("https://github.com/VoltTMC/SonicColorsRecomp/releases");
+        ImGui::TextDisabled("Need a newer build of this recomp? Releases has packages (not the Wii disc).");
     }
     else if (st.status == DataStatus::Corrupt)
     {
         ImGui::TextWrapped("Use \"Reinstall from disc image...\" below (preferred) or \"Check all game files\". "
                            "Supported release: %s. A wit EXTRACT folder also works if main.dol matches.",
                            kReleaseNames);
+        ImGui::Spacing();
+        if (ImGui::Button("Open log folder"))
+        {
+            const std::string& logPath = Log_Path();
+            if (!logPath.empty())
+            {
+                fs::path p(logPath);
+                Shell_OpenFolder(p.has_parent_path() ? p.parent_path() : p);
+            }
+            else
+                Shell_OpenFolder(Platform_UserDir());
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Open Releases page"))
+            Shell_OpenUrl("https://github.com/VoltTMC/SonicColorsRecomp/releases");
+        ImGui::TextDisabled("Logs help diagnose a bad install; Releases has the latest builds.");
     }
     if (st.status == DataStatus::Ok)
     {
