@@ -8,8 +8,11 @@ An optional **portable ZIP** remains available for advanced users.
 1. Run `SonicColorsRecomp-Setup-v*.exe`.
 2. Default location: `%LOCALAPPDATA%\Programs\Sonic Colors Recomp`  
    (no Administrator elevation required).
-3. Optional: import data from a previous portable ZIP folder (copies into AppData; originals kept).
-4. Launch from the Start Menu.
+3. **Fresh install is the default.** You do **not** need a portable folder.
+4. Optional: on the “Existing portable data” page, choose migrate and only then pick your old ZIP folder (copies into AppData; originals kept).
+5. Launch from the Start Menu.
+
+Silent / automation: `/VERYSILENT` installs cleanly with no portable path. Optional migrate: `/PORTABLEDIR="D:\path\to\old\portable"`.
 
 ### Paths
 
@@ -56,4 +59,10 @@ Inno Setup is bootstrapped under Wine into `tools/vendor/innosetup/` when needed
 
 ## Migration from portable
 
-The Setup wizard can copy `config.ini`, `nand/`, `mods/`, `music_mods/`, profiles, `game/`, and `tools/bin` into AppData. It does **not** delete the portable folder. Regenerable caches (`shadercache`, `music_preview`, `downloads`) are skipped.
+Migration is **opt-in** (wizard radio or `/PORTABLEDIR=`). New users never see a mandatory portable-directory prompt.
+
+When selected, Setup copies `config.ini`, `nand/`, `mods/`, `music_mods/`, profiles, `game/`, and `tools/bin` into AppData. It does **not** delete the portable folder. Regenerable caches (`shadercache`, `music_preview`, `downloads`) are skipped. Invalid folders show an error in the GUI (or are skipped under silent `/PORTABLEDIR=` so install still completes).
+
+```bash
+./tools/package_windows_installer_test.sh   # Wine: fresh / migrate / bad-migrate / Unicode path
+```

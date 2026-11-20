@@ -172,9 +172,20 @@ if ! ensure_inno; then
     exit 0
 fi
 
-stage_win=$(winepath -w "$stage" 2>/dev/null || echo "Z:$stage")
-out_win=$(winepath -w "$root/dist" 2>/dev/null || echo "Z:$root/dist")
-iss_win=$(winepath -w "$iss" 2>/dev/null || echo "Z:$iss")
+# Map a host path to a Wine Z: path. Prefer winepath when it returns a real drive path.
+wine_win_path() {
+    local p=$1 out
+    out=$(WINEDEBUG=-all winepath -w "$p" 2>/dev/null || true)
+    if printf '%s' "$out" | grep -Eq '^[A-Za-z]:\\'; then
+        printf '%s\n' "$out"
+    else
+        # Avoid echo -e eating \v in paths like /home/volt/...
+        python3 -c 'import sys; print("Z:" + sys.argv[1].replace("/", "\\\\"))' "$p"
+    fi
+}
+stage_win=$(wine_win_path "$stage")
+out_win=$(wine_win_path "$root/dist")
+iss_win=$(wine_win_path "$iss")
 
 # Write a tiny wrapper .iss that #defines paths (avoids Wine eating /D flags).
 wrap=$root/dist/_scr_setup_wrap.iss
@@ -185,7 +196,7 @@ cat >"$wrap" <<EOF
 #define OutputBase "SonicColorsRecomp-Setup"
 #include "$iss_win"
 EOF
-wrap_win=$(winepath -w "$wrap" 2>/dev/null || echo "Z:$wrap")
+wrap_win=$(wine_win_path "$wrap")
 
 echo "Compiling installer with $iscc …"
 set +e

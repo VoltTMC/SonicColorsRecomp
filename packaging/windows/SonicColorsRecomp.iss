@@ -2,6 +2,7 @@
 ; Built by tools/package_windows_installer.sh from a staged install tree (no portable.txt).
 ;
 ; AppId is stable across versions so Windows upgrades the same Apps & Features entry.
+; Fresh install is the default; portable migration is optional and never required.
 
 #define MyAppName "Sonic Colors Recomp"
 #define MyAppNameShort "SonicColorsRecomp"
@@ -56,6 +57,7 @@ RestartApplications=no
 DirExistsWarning=no
 UsePreviousAppDir=yes
 UsePreviousGroup=yes
+AllowNoIcons=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -78,7 +80,8 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 
 [Code]
 var
-  MigratePage: TInputDirWizardPage;
+  MigrateChoicePage: TInputOptionWizardPage;
+  MigrateDirPage: TInputDirWizardPage;
 
 function IsUpgrade(): Boolean;
 begin
@@ -86,22 +89,114 @@ begin
          or RegKeyExists(HKLM, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#MyAppId}_is1');
 end;
 
+function CmdMigrateDir(): string;
+begin
+  { Optional silent/CLI override. Avoid param names containing "MIGRATE" (Setup aborts).
+    Example: Setup.exe /VERYSILENT /PORTABLEDIR="D:\old\portable" }
+  Result := Trim(ExpandConstant('{param:PORTABLEDIR}'));
+end;
+
+function WantMigrate(): Boolean;
+begin
+  if CmdMigrateDir() <> '' then
+  begin
+    Result := True;
+    Exit;
+  end;
+  { Index 0 = fresh install (default); index 1 = migrate from portable. }
+  Result := Assigned(MigrateChoicePage) and (MigrateChoicePage.SelectedValueIndex = 1);
+end;
+
+function LooksLikePortableRoot(const Dir: string): Boolean;
+begin
+  Result := DirExists(Dir) and FileExists(AddBackslash(Dir) + '{#MyAppExeName}');
+end;
+
+function SelectedPortableRoot(): string;
+begin
+  Result := CmdMigrateDir();
+  if Result <> '' then Exit;
+  if Assigned(MigrateDirPage) then
+    Result := Trim(MigrateDirPage.Values[0]);
+end;
+
 procedure InitializeWizard();
 begin
-  MigratePage := CreateInputDirPage(wpSelectDir,
-    'Import portable data (optional)',
-    'If you previously used the portable ZIP, you can copy saves and mods into the installed user-data folder.',
-    'Select your old portable folder (the folder that contains SonicColorsRecomp.exe).' + #13#10 +
-    'Data is copied into %APPDATA%\SonicColorsRecomp — the original folder is left intact.',
+  MigrateChoicePage := CreateInputOptionPage(wpSelectDir,
+    'Existing portable data',
+    'Most people can skip this step.',
+    'If you previously ran Sonic Colors Recomp from a portable ZIP folder, you can copy that data into the normal user-data location. New users should leave the default selected.',
+    True, False);
+  MigrateChoicePage.Add('Fresh install (recommended) — no portable folder needed');
+  MigrateChoicePage.Add('Migrate data from an existing portable installation');
+  MigrateChoicePage.SelectedValueIndex := 0;
+
+  MigrateDirPage := CreateInputDirPage(MigrateChoicePage.ID,
+    'Portable folder',
+    'Select the folder that contains your old portable copy.',
+    'Choose the folder that contains SonicColorsRecomp.exe (often also portable.txt).' + #13#10 +
+    'Data is copied into %APPDATA%\SonicColorsRecomp. The original folder is not deleted.',
     False, '');
-  MigratePage.Add('Portable folder');
+  MigrateDirPage.Add('Portable folder');
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   Result := False;
-  if PageID = MigratePage.ID then
-    Result := IsUpgrade();
+  { Upgrades already have AppData — never force migration. }
+  if IsUpgrade() then
+  begin
+    if (PageID = MigrateChoicePage.ID) or (PageID = MigrateDirPage.ID) then
+      Result := True;
+    Exit;
+  end;
+  { Silent /PORTABLEDIR= already has a path — skip both migrate wizard pages. }
+  if CmdMigrateDir() <> '' then
+  begin
+    if (PageID = MigrateChoicePage.ID) or (PageID = MigrateDirPage.ID) then
+      Result := True;
+    Exit;
+  end;
+  { Directory browse page only when the user opted into migration in the GUI. }
+  if PageID = MigrateDirPage.ID then
+    Result := not WantMigrate();
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  PortableRoot: string;
+begin
+  Result := True;
+  if CurPageID <> MigrateDirPage.ID then
+    Exit;
+  if not WantMigrate() then
+    Exit;
+
+  PortableRoot := SelectedPortableRoot();
+  if PortableRoot = '' then
+  begin
+    MsgBox('Choose your old portable folder, or go Back and select Fresh install.',
+      mbError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+  if not DirExists(PortableRoot) then
+  begin
+    MsgBox('That folder does not exist:' + #13#10 + PortableRoot + #13#10 + #13#10 +
+      'Pick another folder, or go Back and choose Fresh install.',
+      mbError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+  if not LooksLikePortableRoot(PortableRoot) then
+  begin
+    MsgBox('That folder does not look like a Sonic Colors Recomp install.' + #13#10 + #13#10 +
+      'Expected file: ' + AddBackslash(PortableRoot) + '{#MyAppExeName}' + #13#10 + #13#10 +
+      'Pick the folder that contains the game executable, or go Back and choose Fresh install.',
+      mbError, MB_OK);
+    Result := False;
+    Exit;
+  end;
 end;
 
 procedure CopyTreeIfExists(const Src, Dst: string);
@@ -120,9 +215,16 @@ var
   PortableRoot, UserData: string;
 begin
   if CurStep <> ssPostInstall then Exit;
-  PortableRoot := Trim(MigratePage.Values[0]);
-  if (PortableRoot = '') or (not DirExists(PortableRoot)) then Exit;
-  if not FileExists(AddBackslash(PortableRoot) + '{#MyAppExeName}') then Exit;
+  { Fresh install (default) and silent installs without /PORTABLEDIR=: no portable folder. }
+  if not WantMigrate() then Exit;
+
+  PortableRoot := SelectedPortableRoot();
+  if (PortableRoot = '') or (not LooksLikePortableRoot(PortableRoot)) then
+  begin
+    { Invalid /PORTABLEDIR= must not abort the install — skip copy and continue clean. }
+    Log('Migrate skipped: portable root missing or invalid: ' + PortableRoot);
+    Exit;
+  end;
 
   UserData := ExpandConstant('{userappdata}\SonicColorsRecomp');
   ForceDirectories(UserData);

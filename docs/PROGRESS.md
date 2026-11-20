@@ -23,6 +23,11 @@
 - Root cause (Windows prepare/preview): `OriginalCpk()` missed portable `exe/game/...` layout; Music UI cache preferred cwd while game used UserDir — Prepare and Play could disagree.
 - Shared `MusicPaths_*` for CPK + cache/preview roots; clearer status text; prepare writes `current.json` even for use-original; `scr_music_paths_test`.
 
+## 2026-11-20 — Installer: portable migrate is optional
+
+- Fresh install is the default; portable folder only requested after opt-in migrate.
+- Wine tests: `package_windows_installer_test.sh` (fresh /MIGRATE / invalid / Unicode).
+
 ## 2026-11-20 — Release v0.3.4 (hotfix)
 
 - Windows primary asset is `SonicColorsRecomp-Setup-v*.exe` (per-user Inno). Install-layout zip retained for in-app updates only.

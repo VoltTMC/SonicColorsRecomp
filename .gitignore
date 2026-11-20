@@ -32,6 +32,8 @@ compile_commands.json
 
 # Bootstrapped Windows packaging tools (Inno Setup under Wine)
 /tools/vendor/
+/dist/.wine-scr-installer-test/
+/dist/_portable_migrate_src/
 
 # Game data (copyrighted)
 /game/
