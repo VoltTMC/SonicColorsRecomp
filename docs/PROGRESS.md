@@ -23,6 +23,10 @@
 - Root cause (Windows prepare/preview): `OriginalCpk()` missed portable `exe/game/...` layout; Music UI cache preferred cwd while game used UserDir — Prepare and Play could disagree.
 - Shared `MusicPaths_*` for CPK + cache/preview roots; clearer status text; prepare writes `current.json` even for use-original; `scr_music_paths_test`.
 
+## 2026-11-20 — Release v0.3.3 (hotfix)
+
+- Hotfix packages: Music Library doctor/setup, `tools/bin` drop-ins, winpthread beside `music_asset.exe`, clean-env dependency tests.
+
 ## 2026-11-20 — Release v0.3.2 (hotfix)
 
 - Hotfix packages: Windows auto-update install + Music Library `catalog.json` in redistributables (plus v0.3.1 tab click fix lineage).

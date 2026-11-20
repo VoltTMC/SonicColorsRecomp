@@ -167,6 +167,10 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 - Shared MusicPaths for original CPK + music_mods cache; UI no longer treats “cache not built” as blocking originals.
 
+### 2026-11-20 — Release v0.3.3 (hotfix)
+
+- AppImage + Windows zip: Music Library dependency doctor/setup, tools/bin discovery, music_asset MinGW DLL next to helper.
+
 ### 2026-11-20 — Release v0.3.2 (hotfix)
 
 - AppImage + Windows zip: updater install fix + Music Library catalog packaging.

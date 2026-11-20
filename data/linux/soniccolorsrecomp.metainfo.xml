@@ -42,6 +42,11 @@
   </recommends>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.3.3" date="2026-11-20">
+      <description>
+        <p>Hotfix: Music Library dependency doctor/setup, tools/bin discovery, Windows music_asset MinGW DLL packaging, and cleaner Check tools diagnostics.</p>
+      </description>
+    </release>
     <release version="0.3.2" date="2026-11-20">
       <description>
         <p>Hotfix: Windows auto-update install after download, and Music Library catalog.json shipped in redistributables.</p>
