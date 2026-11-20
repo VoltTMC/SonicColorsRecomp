@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — Richer diagnostic reports
+
+- Diagnostics include save backup count, screenshot_keep, and last update-check message.
+
 ## 2026-11-20 — Play-tab update availability hint
 
 - Shared GitHub Releases tag check; Play shows a banner + Open Releases when a newer tag exists.

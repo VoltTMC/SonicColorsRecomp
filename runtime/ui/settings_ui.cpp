@@ -598,6 +598,11 @@ std::string WriteDiagnosticReport(std::string& error)
     }
     out << "master_volume: " << g_config.masterVolume << "\n";
     out << "frame_rate: " << g_config.frameRate << " host_fps_cap: " << g_config.hostFpsCap << "\n";
+    out << "save_backups: " << nand_paths::ListBackups().size()
+        << " (keep " << g_config.saveBackupKeep << ")\n";
+    out << "screenshot_keep: " << g_config.screenshotKeep << "\n";
+    if (UpdateCheck_HasResult())
+        out << "update_check: " << UpdateCheck_Message() << "\n";
     out << "\n--- config.ini ---\n";
     out << Config_Text(g_config);
     out << "\n--- log (last 200 lines) ---\n";
