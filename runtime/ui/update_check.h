@@ -34,3 +34,10 @@ bool UpdateCheck_DownloadedPackageIsAppImage();
 bool UpdateCheck_CanApplyAppImage();
 // Copy downloaded AppImage over $APPIMAGE and relaunch (never returns on success).
 bool UpdateCheck_ApplyAppImageAndRelaunch(std::string& err);
+// True when a downloaded Windows zip can replace this portable install (exe dir writable).
+bool UpdateCheck_CanApplyWindowsZip();
+// Write a deferred apply script, quit this process, extract/replace, relaunch (exits on success).
+bool UpdateCheck_ApplyWindowsZipAndRelaunch(std::string& err);
+// AppImage or Windows zip apply available for this download + install layout.
+bool UpdateCheck_CanApplyUpdate();
+bool UpdateCheck_ApplyUpdateAndRelaunch(std::string& err);

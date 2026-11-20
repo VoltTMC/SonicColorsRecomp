@@ -501,3 +501,116 @@ bool UpdateCheck_ApplyAppImageAndRelaunch(std::string& err)
     err = "Relaunch failed.";
     return false;
 }
+
+bool UpdateCheck_DownloadedPackageIsZip()
+{
+    const std::string path = UpdateCheck_DownloadPath();
+    if (path.size() < 4) return false;
+    std::string lower = path;
+    for (char& c : lower) c = (char)std::tolower((unsigned char)c);
+    return lower.ends_with(".zip");
+}
+
+bool UpdateCheck_CanApplyWindowsZip()
+{
+#ifdef _WIN32
+    if (!UpdateCheck_DownloadOk() || !UpdateCheck_DownloadedPackageIsZip()) return false;
+    const std::string dl = UpdateCheck_DownloadPath();
+    if (dl.empty() || !fs::is_regular_file(dl)) return false;
+    const fs::path exeDir = Platform_ExeDir();
+    const fs::path probe = exeDir / ".scr_write_probe";
+    FILE* f = std::fopen(probe.string().c_str(), "wb");
+    if (!f) return false;
+    std::fclose(f);
+    std::error_code ec;
+    fs::remove(probe, ec);
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool UpdateCheck_ApplyWindowsZipAndRelaunch(std::string& err)
+{
+    err.clear();
+    if (!UpdateCheck_CanApplyWindowsZip())
+    {
+        err = "Zip update apply needs a writable install folder (portable.zip layout).";
+        return false;
+    }
+#ifdef _WIN32
+    const fs::path zip(UpdateCheck_DownloadPath());
+    const fs::path dest = Platform_ExeDir();
+    const fs::path script = Platform_UserDir() / "downloads" / "apply_update.cmd";
+    std::error_code ec;
+    fs::create_directories(script.parent_path(), ec);
+    {
+        FILE* f = std::fopen(script.string().c_str(), "wb");
+        if (!f)
+        {
+            err = "Could not write apply_update.cmd";
+            return false;
+        }
+        // Wait for this PID to exit, expand the zip, copy SonicColorsRecomp\ (or flat) over DEST, relaunch.
+        std::fprintf(f, "%s",
+                     "@echo off\r\n"
+                     "setlocal\r\n"
+                     "set \"ZIP=%~1\"\r\n"
+                     "set \"DEST=%~2\"\r\n"
+                     "set \"EXENAME=%~3\"\r\n"
+                     "set \"PID=%~4\"\r\n"
+                     "set \"STAGE=%DEST%\\_scr_update_stage\"\r\n"
+                     ":waitloop\r\n"
+                     "tasklist /FI \"PID eq %PID%\" 2>nul | findstr /I \"%PID%\" >nul\r\n"
+                     "if not errorlevel 1 (\r\n"
+                     "  timeout /t 1 /nobreak >nul\r\n"
+                     "  goto waitloop\r\n"
+                     ")\r\n"
+                     "if exist \"%STAGE%\" rmdir /S /Q \"%STAGE%\"\r\n"
+                     "mkdir \"%STAGE%\"\r\n"
+                     "powershell -NoProfile -ExecutionPolicy Bypass -Command "
+                     "\"Expand-Archive -LiteralPath '%%ZIP%%' -DestinationPath '%%STAGE%%' -Force\"\r\n"
+                     "set \"SRC=%STAGE%\\SonicColorsRecomp\"\r\n"
+                     "if not exist \"%SRC%\\%EXENAME%\" set \"SRC=%STAGE%\"\r\n"
+                     "if not exist \"%SRC%\\%EXENAME%\" (\r\n"
+                     "  echo Update extract failed: %EXENAME% not found\r\n"
+                     "  pause\r\n"
+                     "  exit /b 1\r\n"
+                     ")\r\n"
+                     "xcopy /E /Y /I /Q \"%SRC%\\*\" \"%DEST%\\\" >nul\r\n"
+                     "rmdir /S /Q \"%STAGE%\"\r\n"
+                     "start \"\" \"%DEST%\\%EXENAME%\"\r\n");
+        std::fclose(f);
+    }
+    const std::string pid = std::to_string(Platform_ProcessId());
+    if (!Platform_SpawnDetached({ "cmd.exe", "/C", script.string(), zip.string(), dest.string(),
+                                  "SonicColorsRecomp.exe", pid }))
+    {
+        err = "Could not start apply_update.cmd";
+        return false;
+    }
+    LOG_INFO("Windows zip apply scheduled → {} (pid {})", dest.string(), pid);
+    Platform_ExitProcess(0);
+    err = "Exit failed.";
+    return false;
+#else
+    (void)err;
+    err = "Windows zip apply is only available on Windows builds.";
+    return false;
+#endif
+}
+
+bool UpdateCheck_CanApplyUpdate()
+{
+    return UpdateCheck_CanApplyAppImage() || UpdateCheck_CanApplyWindowsZip();
+}
+
+bool UpdateCheck_ApplyUpdateAndRelaunch(std::string& err)
+{
+    if (UpdateCheck_CanApplyAppImage())
+        return UpdateCheck_ApplyAppImageAndRelaunch(err);
+    if (UpdateCheck_CanApplyWindowsZip())
+        return UpdateCheck_ApplyWindowsZipAndRelaunch(err);
+    err = "No in-place update apply available for this package.";
+    return false;
+}

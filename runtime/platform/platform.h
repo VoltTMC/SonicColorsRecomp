@@ -28,6 +28,10 @@ void Platform_LogHost();
 std::string Platform_AppImagePath();
 // Spawns `path` with the original argv (argv[0] replaced), then ends this process.
 [[noreturn]] void Platform_RelaunchExecutable(const std::string& path);
+// This process id (for deferred update helpers that wait until we exit).
+uint32_t Platform_ProcessId();
+// Start argv[0]… without waiting (false if spawn failed).
+bool Platform_SpawnDetached(const std::vector<std::string>& argv);
 
 // ---------------------------------------------------------------- paths and files
 // The directory of the executable (read-only files shipped with it).

@@ -282,21 +282,23 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
                 ImGui::SameLine();
                 if (ImGui::SmallButton("Open downloads folder"))
                     UpdateCheck_OpenDownloadFolder();
-                if (UpdateCheck_CanApplyAppImage())
+                if (UpdateCheck_CanApplyUpdate())
                 {
                     ImGui::SameLine();
                     if (ImGui::SmallButton("Install & relaunch"))
-                        ImGui::OpenPopup("Install AppImage update?");
+                        ImGui::OpenPopup("Install update?");
                 }
-                if (ImGui::BeginPopupModal("Install AppImage update?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+                if (ImGui::BeginPopupModal("Install update?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
                 {
                     ImGui::TextWrapped(
-                        "Replace the running AppImage with the downloaded build and relaunch?\n\n"
-                        "Your config and saves are unchanged.");
+                        "Replace this install with the downloaded package and relaunch?\n\n"
+                        "AppImage: overwrites the running file.\n"
+                        "Windows zip: extracts after this process exits.\n\n"
+                        "Config and saves are unchanged.");
                     static std::string applyErr;
                     if (ImGui::Button("Install & relaunch", ImVec2(160, 0)))
                     {
-                        if (!UpdateCheck_ApplyAppImageAndRelaunch(applyErr) && !applyErr.empty())
+                        if (!UpdateCheck_ApplyUpdateAndRelaunch(applyErr) && !applyErr.empty())
                             /* stay open with error */;
                     }
                     ImGui::SameLine();

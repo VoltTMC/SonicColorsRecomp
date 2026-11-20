@@ -108,6 +108,53 @@ void Platform_RelaunchExecutable(const std::string& path)
     Platform_ExitProcess(1);
 }
 
+uint32_t Platform_ProcessId() { return (uint32_t)GetCurrentProcessId(); }
+
+bool Platform_SpawnDetached(const std::vector<std::string>& argv)
+{
+    if (argv.empty()) return false;
+    auto widen = [](const std::string& s) {
+        std::wstring w(MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0), L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), w.data(), (int)w.size());
+        return w;
+    };
+    auto quote = [](const std::wstring& a) {
+        if (a.find_first_of(L" \t\"") == std::wstring::npos) return a;
+        std::wstring o = L"\"";
+        for (wchar_t c : a)
+        {
+            if (c == L'"') o += L"\\\"";
+            else o += c;
+        }
+        o += L'"';
+        return o;
+    };
+    std::wstring cmd;
+    for (size_t i = 0; i < argv.size(); i++)
+    {
+        if (i) cmd += L' ';
+        cmd += quote(widen(argv[i]));
+    }
+    std::wstring mutableCmd = cmd;
+    std::wstring exe = widen(argv[0]);
+    STARTUPINFOW si{ sizeof(si) };
+    PROCESS_INFORMATION pi{};
+    if (!CreateProcessW(exe.c_str(), mutableCmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr,
+                        &si, &pi))
+    {
+        // Fall back to PATH lookup (cmd.exe, powershell).
+        if (!CreateProcessW(nullptr, mutableCmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si,
+                            &pi))
+        {
+            LOG_WARN("spawn failed ({})", GetLastError());
+            return false;
+        }
+    }
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return true;
+}
+
 // ---------------------------------------------------------------- paths and files
 fs::path Platform_ExeDir()
 {

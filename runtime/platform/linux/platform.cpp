@@ -134,6 +134,25 @@ void Platform_RelaunchExecutable(const std::string& path)
     Platform_Terminate(rc == 0 ? 0 : 1);
 }
 
+uint32_t Platform_ProcessId() { return (uint32_t)getpid(); }
+
+bool Platform_SpawnDetached(const std::vector<std::string>& argv)
+{
+    if (argv.empty()) return false;
+    std::vector<std::string> owned = argv;
+    std::vector<char*> ptrs;
+    for (auto& a : owned) ptrs.push_back(a.data());
+    ptrs.push_back(nullptr);
+    pid_t pid = 0;
+    int rc = posix_spawn(&pid, owned[0].c_str(), nullptr, nullptr, ptrs.data(), environ);
+    if (rc != 0)
+    {
+        LOG_WARN("spawn {} failed ({})", owned[0], strerror(rc));
+        return false;
+    }
+    return true;
+}
+
 // ---------------------------------------------------------------- paths and files
 fs::path Platform_ExeDir()
 {

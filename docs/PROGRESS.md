@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Windows zip Install & relaunch
+
+- Deferred `apply_update.cmd` waits for exit, expands the zip, copies over a writable portable install, relaunches.
+- Shared Install & relaunch entry for AppImage + Windows zip.
+
 ## 2026-11-20 — AppImage Install & relaunch
 
 - `UpdateCheck_ApplyAppImageAndRelaunch` copies the download over `$APPIMAGE` and respawns; Play/System confirm UI.

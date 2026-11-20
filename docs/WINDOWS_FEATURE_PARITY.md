@@ -89,7 +89,7 @@ Last updated: 2026-11-20 (continuous improvement audit; stick deadzone; spiral g
 | Persist launcher window size | yes | yes | FULL `[source]` | `launcher_width` / `launcher_height` |
 | FPS overlay (ms / 1% / guest / RSS) | yes | yes | FULL `[source]` | Host present + process RSS |
 | On-screen input hints | yes | yes | FULL `[source]` | Jump/Slash/Pause pad+key text |
-| Check for updates (GitHub) | yes | yes | FULL `[source]` | Tag compare + package download; Linux AppImage Install & relaunch; Windows zip still manual |
+| Check for updates (GitHub) | yes | yes | FULL `[source]` | Tag compare + package download; AppImage in-place apply; Windows portable zip deferred apply |
 | Play-tab quick folders | yes | yes | FULL `[source]` | Game data / user data / mods |
 | Video/graphics profiles | yes | yes | FULL `[source]` | `user_data/video_profiles/*.ini` |
 | Play-tab recovery links | yes | yes | FULL `[source]` | Releases / log when missing/corrupt |

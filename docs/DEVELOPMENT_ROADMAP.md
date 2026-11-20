@@ -43,7 +43,7 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 | 14 | Accessibility | Remappable F1/F12 / UI scale | **Done** (UI scale + F-key hotkeys) |
 | 15 | Mods | Mod profiles (enable sets) | **Done** (2026-11-20) |
 | 16 | Saves | Auto-backup on launch + after write + retention | **Done** (2026-11-20) |
-| 17 | Packaging | Auto-updater / version check | Check + download + AppImage Install & relaunch **Done**; Windows zip still manual |
+| 17 | Packaging | Auto-updater / version check | Check + download + AppImage / Windows zip Install & relaunch **Done** |
 | 18 | Launcher | Resize / HiDPI stress-test checklist | Size persist + PERFORMANCE.md smoke **Done** |
 | 19 | Runtime | In-game performance overlay (CPU/GPU) | FPS+ms+1%+Present+GPU blit timestamps+draws/XFB+guest+RSS+audio **Done** |
 | 20 | Distribution | Signed Windows builds / installer | Open |
@@ -108,6 +108,11 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 ---
 
 ## Session log
+
+### 2026-11-20 — Windows zip Install & relaunch
+
+- Portable Windows installs schedule `apply_update.cmd` (wait → Expand-Archive → xcopy → relaunch).
+- Next: Win native checklist; Recomp Achievements; signed builds.
 
 ### 2026-11-20 — AppImage Install & relaunch
 

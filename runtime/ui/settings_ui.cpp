@@ -711,7 +711,7 @@ void SystemTab(SettingsHost host)
             UpdateCheck_StartDownload();
         ImGui::EndDisabled();
         Help("Saves the AppImage or Windows zip under user_data/downloads/ (keeps the newest 3; AppImages are marked executable). "
-             "On Linux AppImage builds, Install & relaunch can replace the running file.");
+             "Install & relaunch applies AppImage in-place or schedules a Windows zip extract after exit.");
         ImGui::SameLine();
         if (ImGui::Button("Open downloads folder"))
             UpdateCheck_OpenDownloadFolder();
@@ -725,21 +725,23 @@ void SystemTab(SettingsHost host)
             }
             else if (ImGui::Button("Reveal package"))
                 UpdateCheck_OpenDownloadedPackage();
-            if (UpdateCheck_CanApplyAppImage())
+            if (UpdateCheck_CanApplyUpdate())
             {
                 ImGui::SameLine();
                 if (ImGui::Button("Install & relaunch"))
-                    ImGui::OpenPopup("Install AppImage update?");
+                    ImGui::OpenPopup("Install update?");
             }
-            if (ImGui::BeginPopupModal("Install AppImage update?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+            if (ImGui::BeginPopupModal("Install update?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
             {
                 ImGui::TextWrapped(
-                    "Replace the running AppImage with the downloaded build and relaunch?\n\n"
-                    "Your config and saves are unchanged.");
+                    "Replace this install with the downloaded package and relaunch?\n\n"
+                    "AppImage: overwrites the running file.\n"
+                    "Windows zip: extracts after this process exits.\n\n"
+                    "Config and saves are unchanged.");
                 static std::string applyErr;
                 if (ImGui::Button("Install & relaunch", ImVec2(160, 0)))
                 {
-                    if (!UpdateCheck_ApplyAppImageAndRelaunch(applyErr) && !applyErr.empty())
+                    if (!UpdateCheck_ApplyUpdateAndRelaunch(applyErr) && !applyErr.empty())
                         /* stay open with error */;
                 }
                 ImGui::SameLine();
