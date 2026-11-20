@@ -109,6 +109,11 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — Reinstall confirm + Copy paths
+
+- Accidental reinstall guard; clipboard paths on Play Quick folders.
+- Next: Win native checklist; Recomp Achievements; signed builds.
+
 ### 2026-11-20 — Last played on Play tab
 
 - Persist and show last session start time on Play.

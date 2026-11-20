@@ -458,10 +458,32 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
     ImGui::BeginDisabled(st.verifying);
     if (ImGui::Button(st.status == DataStatus::Ok ? "Reinstall from disc image..." : "Install from disc image..."))
     {
-        fs::path dest = st.status == DataStatus::Missing ? installDest : st.data;
-        if (InstallUI_Run(dest, isoPath, st.status == DataStatus::Corrupt ? st.problem : ""))
-            st.data = dest;
-        Check(st);
+        if (st.status == DataStatus::Ok)
+            ImGui::OpenPopup("Reinstall game data?");
+        else
+        {
+            fs::path dest = st.status == DataStatus::Missing ? installDest : st.data;
+            if (InstallUI_Run(dest, isoPath, st.status == DataStatus::Corrupt ? st.problem : ""))
+                st.data = dest;
+            Check(st);
+        }
+    }
+    if (ImGui::BeginPopupModal("Reinstall game data?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::TextWrapped(
+            "This replaces the installed game files from your disc image. Saves, mods, and settings are not touched. Continue?");
+        if (ImGui::Button("Reinstall", ImVec2(120, 0)))
+        {
+            ImGui::CloseCurrentPopup();
+            fs::path dest = st.data.empty() ? installDest : st.data;
+            if (InstallUI_Run(dest, isoPath, ""))
+                st.data = dest;
+            Check(st);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(100, 0)))
+            ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
     }
     ImGui::SameLine();
     ImGui::BeginDisabled(st.status == DataStatus::Missing);
@@ -491,8 +513,16 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
     }
     ImGui::EndDisabled();
     ImGui::SameLine();
+    ImGui::BeginDisabled(st.status == DataStatus::Missing);
+    if (ImGui::SmallButton("Copy##gamedata"))
+        ImGui::SetClipboardText(st.data.string().c_str());
+    ImGui::EndDisabled();
+    ImGui::SameLine();
     if (ImGui::Button("Open user data"))
         Shell_OpenFolder(Platform_UserDir());
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Copy##userdata"))
+        ImGui::SetClipboardText(Platform_UserDir().string().c_str());
     ImGui::SameLine();
     if (ImGui::Button("Open mods"))
     {
@@ -512,7 +542,7 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
     ImGui::SameLine();
     if (ImGui::Button("Open downloads"))
         UpdateCheck_OpenDownloadFolder();
-    ImGui::TextDisabled("Game data, config/saves/logs, mods, F12 screenshots, and update packages.");
+    ImGui::TextDisabled("Game data, config/saves/logs, mods, F12 screenshots, and update packages. Copy pastes the path.");
 
     ImGui::Spacing();
     ImGui::SeparatorText("Controls");

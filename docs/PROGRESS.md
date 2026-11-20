@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — Reinstall confirm + Copy paths
+
+- Confirm before reinstalling intact game data; Copy next to Open game/user data on Play.
+
 ## 2026-11-20 — Last played on Play tab
 
 - `last_played_at` stamped on Play / `--skip-launcher`; shown under game-data status.
