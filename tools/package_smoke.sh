@@ -34,6 +34,7 @@ fi
 [ -f "$appdir/usr/bin/libSDL3.so.0" ] || fail "libSDL3.so.0 missing"
 [ -f "$appdir/usr/bin/libdxvk_d3d11.so.0" ] || fail "libdxvk_d3d11.so.0 missing"
 [ -f "$appdir/usr/bin/libdxvk_dxgi.so.0" ] || fail "libdxvk_dxgi.so.0 missing"
+[ -f "$appdir/usr/bin/mods/music/catalog.json" ] || fail "mods/music/catalog.json missing from AppDir"
 ok "AppDir layout"
 
 # Prefer AppRun so LD_LIBRARY_PATH includes bundled libs.

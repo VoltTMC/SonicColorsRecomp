@@ -12,8 +12,11 @@
 
 namespace fs = std::filesystem;
 
-// Stub — MusicManifest_DefaultDir only; tests use absolute temp paths.
-fs::path Platform_ExeDir() { return fs::temp_directory_path(); }
+// Stubs — MusicManifest_DefaultDir probes exe + user dirs; tests use absolute temp paths.
+static fs::path g_testExeDir;
+static fs::path g_testUserDir;
+fs::path Platform_ExeDir() { return g_testExeDir.empty() ? fs::temp_directory_path() : g_testExeDir; }
+fs::path Platform_UserDir() { return g_testUserDir.empty() ? fs::temp_directory_path() : g_testUserDir; }
 
 static void WritePcm16Wav(const fs::path& path, int rate = 44100, int frames = 800)
 {
@@ -178,6 +181,35 @@ int main()
         // quarter cycle ≈ +peak (we used amp 8000/32768 ≈ 0.244)
         if (w.samples[q * 2] < 0.15f) return Fail("pcm peak too low — decode/scale bug");
         if (w.samples[q * 2] > 0.35f) return Fail("pcm peak too high — decode/scale bug");
+    }
+
+    // Packaged-layout discovery: catalog next to exe wins over empty cwd mods/music.
+    {
+        const fs::path layout = fs::temp_directory_path() / "scr_music_pack_layout";
+        fs::remove_all(layout, ec);
+        const fs::path exeDir = layout / "install";
+        const fs::path cwdDir = layout / "elsewhere";
+        const fs::path userDir = layout / "userdata";
+        fs::create_directories(exeDir / "mods" / "music", ec);
+        fs::create_directories(cwdDir / "mods" / "music", ec);
+        fs::create_directories(userDir, ec);
+        {
+            std::ofstream cat(exeDir / "mods" / "music" / "catalog.json");
+            cat << "{\"version\":1,\"music_count\":1,\"assets\":[]}\n";
+        }
+        g_testExeDir = exeDir;
+        g_testUserDir = userDir;
+        const fs::path prevCwd = fs::current_path();
+        fs::current_path(cwdDir, ec);
+        const fs::path found = MusicManifest_DefaultDir();
+        fs::current_path(prevCwd, ec);
+        g_testExeDir.clear();
+        g_testUserDir.clear();
+        if (!fs::exists(found / "catalog.json")) return Fail("DefaultDir missed packaged catalog.json");
+        const auto foundCanon = fs::weakly_canonical(found, ec);
+        const auto expectCanon = fs::weakly_canonical(exeDir / "mods" / "music", ec);
+        if (foundCanon != expectCanon) return Fail("DefaultDir preferred empty cwd over exe catalog");
+        fs::remove_all(layout, ec);
     }
 
     std::printf("music_manifest_test OK\n");

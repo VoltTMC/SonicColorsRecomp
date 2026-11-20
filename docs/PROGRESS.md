@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-20 — Fix Windows Music Library empty catalog / missing manifest
+
+- Root cause: Windows redistributable omitted `mods/music/catalog.json` (Linux repo runs had it on disk).
+- Package `catalog.json` (+ README) in `package_windows_cross.sh`, `package.ps1`, and Linux AppDir.
+- `MusicManifest_DefaultDir` prefers exe-adjacent `catalog.json` over empty cwd `mods/music`; copies catalog into user dir when the install is read-only.
+- Prepare saves `manifest.toml` before running; clearer errors when no replacements assigned.
+- `package_windows_music_check.sh` + `music_manifest_test` packaged-layout coverage.
+
 ## 2026-11-20 — Fix Windows auto-update install after download
 
 - Root cause: `apply_update.cmd` wrote `%%ZIP%%` via `fprintf("%s", …)`, so CMD never expanded the zip path and `Expand-Archive` failed silently under `CREATE_NO_WINDOW`.

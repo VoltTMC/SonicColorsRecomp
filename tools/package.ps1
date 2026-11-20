@@ -16,6 +16,17 @@ Copy-Item $exe $dist -Force
 Copy-Item (Join-Path $root "README.md") $dist -Force
 Copy-Item (Join-Path $root "recomplauncher.json") $dist -Force
 
+# Music Library catalog (manifest.toml / tracks are created by the launcher).
+$catalog = Join-Path $root "mods\music\catalog.json"
+if (-not (Test-Path $catalog)) {
+    throw "mods/music/catalog.json missing — cannot package Music Library"
+}
+$musicDst = Join-Path $dist "mods\music"
+New-Item -ItemType Directory -Force $musicDst | Out-Null
+Copy-Item $catalog $musicDst -Force
+$musicReadme = Join-Path $root "mods\music\README.md"
+if (Test-Path $musicReadme) { Copy-Item $musicReadme $musicDst -Force }
+
 # GPL-2.0 and third-party notices (build copies many into out/licenses)
 $licDst = Join-Path $dist "licenses"
 New-Item -ItemType Directory -Force $licDst | Out-Null

@@ -37,11 +37,14 @@ if [ -d "$out/licenses" ]; then
     cp -f "$out/licenses/"* "$stage/licenses/" 2>/dev/null || true
 fi
 
-# Optional music catalogue / helper assets already used by Linux packaging conventions
-if [ -d "$root/data/music" ]; then
-    mkdir -p "$stage/data/music"
-    cp -a "$root/data/music/." "$stage/data/music/" 2>/dev/null || true
+# Music Library catalog (required at runtime; manifest.toml/tracks are user-generated).
+mkdir -p "$stage/mods/music"
+if [ ! -f "$root/mods/music/catalog.json" ]; then
+    echo "error: mods/music/catalog.json missing — cannot package Music Library" >&2
+    exit 1
 fi
+cp -f "$root/mods/music/catalog.json" "$stage/mods/music/"
+cp -f "$root/mods/music/README.md" "$stage/mods/music/" 2>/dev/null || true
 
 # music_asset helper (Python package + Windows launcher). Requires host Python/cricodecs/vgmstream.
 mkdir -p "$stage/tools"
@@ -117,6 +120,10 @@ You must own Sonic Colors (Wii) Europe / PAL SNCP8P (USA/Japan discs are not sup
 This ZIP includes portable.txt, so config, saves, and logs are written next to the
 executable. For an installed layout without portable.txt, user data goes under
 %APPDATA%\\SonicColorsRecomp (or set SCR_USER_DIR / pass --portable).
+
+Music Library: mods\\music\\catalog.json is included (114 SNCP8P tracks). Assign
+WAV replacements in the Music tab; prepare needs Python + cricodecs + vgmstream
++ ffmpeg (see tools\\MUSIC_ASSET_WINDOWS.txt).
 
 Useful:
   SonicColorsRecomp.exe --help

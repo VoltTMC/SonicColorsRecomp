@@ -17,10 +17,15 @@ Optional project venv:
   py -3 -m venv .venv-music
   .venv-music\Scripts\pip install cricodecs
 
-The redistributable ZIP ships `tools/music_asset.exe`, `tools/music_asset.cmd`,
-and `tools/music_asset_pkg/`. It does not bundle Python, cricodecs, vgmstream, or
-ffmpeg (licensing / size). Without them, in-app replacement *playback* of already
-prepared WAVs still works; original decode / export / CPK prepare will report a
-clear error.
+The redistributable ZIP ships:
+  - `mods/music/catalog.json` (full Music Library inventory; required to browse tracks)
+  - `tools/music_asset.exe`, `tools/music_asset.cmd`, and `tools/music_asset_pkg/`
+
+It does not bundle Python, cricodecs, vgmstream, or ffmpeg (licensing / size).
+Without them, browsing the catalog and replacement *playback* of already prepared
+WAVs still works; original decode / export / CPK prepare will report a clear error.
+
+`manifest.toml` and `tracks/` are created next to the catalog when you assign
+replacements in the Music tab (not shipped).
 
 Override the launcher path with SCR_MUSIC_ASSET.

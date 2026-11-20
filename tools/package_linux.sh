@@ -38,6 +38,16 @@ stage() {   # stage <AppDir>: everything except the shader cache
     # AppImage convention: .DirIcon next to AppRun
     cp "$root/data/linux/soniccolorsrecomp.svg" "$appdir/.DirIcon"
 
+    # Music Library catalog next to the binary (AppImage usr/bin). manifest.toml is
+    # written under the user data directory when the AppImage filesystem is read-only.
+    mkdir -p "$bin/mods/music"
+    if [ ! -f "$root/mods/music/catalog.json" ]; then
+        echo "error: mods/music/catalog.json missing — cannot package Music Library" >&2
+        exit 1
+    fi
+    cp -f "$root/mods/music/catalog.json" "$bin/mods/music/"
+    cp -f "$root/mods/music/README.md" "$bin/mods/music/" 2>/dev/null || true
+
     cp "$root/licenses/BlackKnightRecomp-GPL-2.0.txt" "$lic/LICENSE"
     cp "$root/README.md" "$lic/README.md"
     [ -f "$build/_deps/sdl3-src/LICENSE.txt" ] && cp "$build/_deps/sdl3-src/LICENSE.txt" "$lic/SDL3.txt"

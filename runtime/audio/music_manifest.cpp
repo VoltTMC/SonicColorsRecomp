@@ -319,17 +319,69 @@ std::string MusicManifest_ImportWav(const fs::path& musicDir, const std::string&
     return (fs::path("tracks") / name).generic_string();
 }
 
+namespace
+{
+bool DirWritable(const fs::path& dir)
+{
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    const fs::path probe = dir / ".scr_music_write_probe";
+    FILE* f = std::fopen(probe.string().c_str(), "wb");
+    if (!f) return false;
+    std::fclose(f);
+    fs::remove(probe, ec);
+    return true;
+}
+
+void EnsureCatalogFile(const fs::path& destDir, const fs::path& catalogSrc)
+{
+    std::error_code ec;
+    const fs::path dest = destDir / "catalog.json";
+    if (fs::exists(dest, ec) || !fs::is_regular_file(catalogSrc, ec)) return;
+    fs::create_directories(destDir, ec);
+    fs::copy_file(catalogSrc, dest, fs::copy_options::overwrite_existing, ec);
+}
+}   // namespace
+
 fs::path MusicManifest_DefaultDir()
 {
+    // Prefer a directory that already has catalog.json (packaged redistributable or repo).
+    // Do not treat an empty mods/music folder as a hit — that hid the packaged catalog on Windows
+    // when cwd differed from the exe directory.
     const fs::path root = Platform_ExeDir();
-    for (const fs::path& base :
-         { fs::current_path(), root, root / "..", root / "../..", fs::path(".") })
+    const fs::path bases[] = {
+        root,
+        fs::current_path(),
+        root / "..",
+        root / "../..",
+        Platform_UserDir(),
+    };
+    fs::path catalogDir;
+    for (const fs::path& base : bases)
     {
         fs::path p = base / "mods" / "music";
         std::error_code ec;
-        if (fs::exists(p / "catalog.json", ec) || fs::exists(p, ec))
-            return fs::weakly_canonical(p, ec);
+        if (fs::is_regular_file(p / "catalog.json", ec))
+        {
+            catalogDir = fs::weakly_canonical(p, ec);
+            break;
+        }
     }
+
+    if (!catalogDir.empty())
+    {
+        if (DirWritable(catalogDir)) return catalogDir;
+        // AppImage / read-only install: keep catalog, write manifest/tracks under user data.
+        const fs::path userMusic = Platform_UserDir() / "mods" / "music";
+        EnsureCatalogFile(userMusic, catalogDir / "catalog.json");
+        std::error_code canonEc;
+        return fs::weakly_canonical(userMusic, canonEc);
+    }
+
+    const fs::path fallback = Platform_UserDir() / "mods" / "music";
+    std::error_code ec;
+    fs::create_directories(fallback, ec);
+    if (DirWritable(fallback)) return fs::weakly_canonical(fallback, ec);
     return fs::current_path() / "mods" / "music";
 }
 

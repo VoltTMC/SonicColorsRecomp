@@ -495,7 +495,7 @@ void Reload()
             MusicCatalog_Load(MusicCatalog_DefaultPath(s_dir), s_catalog, err);
         }
         if (s_catalog.assets.empty())
-            s_statusMsg = "Catalog missing — run: tools/music_asset catalog";
+            s_statusMsg = "Catalog missing — expected mods/music/catalog.json next to the executable";
     }
     s_assets.clear();
     if (!MusicManifest_LoadAssets(MusicManifest_Path(s_dir), s_assets, err))
@@ -566,31 +566,44 @@ void StartPrepareAsync()
         const fs::path outJson = cache / "prepare_gui.json";
         const fs::path outErr = cache / "prepare_gui.err";
         int rc = 1;
+        bool prepared = false;
         std::string log;
         if (tool.empty()) log = "tools/music_asset not found";
-        else if (!fs::exists(manifest)) log = "manifest.toml missing";
-        else if (!fs::exists(cpk)) log = "sonic2010_0.cpk not found";
+        else if (!fs::exists(cpk)) log = "sonic2010_0.cpk not found (install game data first)";
         else
         {
-            (void)tool;
-            MusicTool_Run({ "prepare", "--manifest", manifest.string(), "--music-dir", musicDir.string(),
-                            "--cpk", cpk.string(), "--cache", cache.string() },
-                          outJson, outErr, rc);
-            std::ifstream ej(outJson), er(outErr);
-            std::string js((std::istreambuf_iterator<char>(ej)), std::istreambuf_iterator<char>());
-            std::string es((std::istreambuf_iterator<char>(er)), std::istreambuf_iterator<char>());
-            log = es;
-            if (!js.empty())
+            // Persist in-memory mappings before prepare so Windows/Linux both see manifest.toml.
+            std::string saveErr;
+            std::vector<MusicAssetMapping> clean;
+            for (auto& a : s_assets)
+                if (!a.path.empty() && !a.source.empty()) clean.push_back(a);
+            if (clean.empty())
+                log = "No replacements assigned yet — use Assign Replacement before Prepare.";
+            else if (!MusicManifest_SaveAssets(manifest, clean, saveErr))
+                log = "Could not write manifest.toml: " + saveErr;
+            else
             {
-                if (!log.empty()) log += "\n";
-                log += js.size() > 1500 ? js.substr(0, 1500) + "…" : js;
+                (void)tool;
+                MusicTool_Run({ "prepare", "--manifest", manifest.string(), "--music-dir", musicDir.string(),
+                                "--cpk", cpk.string(), "--cache", cache.string() },
+                              outJson, outErr, rc);
+                prepared = (rc == 0);
+                std::ifstream ej(outJson), er(outErr);
+                std::string js((std::istreambuf_iterator<char>(ej)), std::istreambuf_iterator<char>());
+                std::string es((std::istreambuf_iterator<char>(er)), std::istreambuf_iterator<char>());
+                log = es;
+                if (!js.empty())
+                {
+                    if (!log.empty()) log += "\n";
+                    log += js.size() > 1500 ? js.substr(0, 1500) + "…" : js;
+                }
+                if (rc != 0) log = "PREPARE FAILED (rc=" + std::to_string(rc) + ")\n" + log;
             }
-            if (rc != 0) log = "PREPARE FAILED (rc=" + std::to_string(rc) + ")\n" + log;
         }
         {
             std::lock_guard lk(s_prepMu);
             s_prepLog = std::move(log);
-            s_statusMsg = (rc == 0) ? "Prepare succeeded" : "Prepare failed — see log";
+            s_statusMsg = prepared ? "Prepare succeeded" : s_prepLog;
         }
         RefreshCacheSummary();
         s_prepRunning = false;
