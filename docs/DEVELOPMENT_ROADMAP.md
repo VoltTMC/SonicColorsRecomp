@@ -14,6 +14,7 @@ Baseline: Phase 19 `72ae9de` (+ stability-recovery docs). Matching decomp: read-
 | A | Linux/Windows feature parity (honest matrix) | Equal UX | **Ongoing** — matrix refreshed 2026-11-20 |
 | B | H8 — Confirm in-game music replacement audible in TR1 | Prepare smoke PASS; playtest open | **PART** |
 | B | Stick deadzone settings | Worn pads / PC QoL | **Done** (2026-11-20) |
+| B | Trigger deadzone + graphics presets | Input / Video QoL | **Done** (2026-11-20) |
 | B | Independent music / SFX volume (host) | Shared Wii mix — master + speaker only | **Done** (master) |
 | D | Packaging smoke (`tools/package_smoke.sh`) | Regression net | **Done** |
 | — | H7 black-screen + soft-lock | Known unresolved | **DEFERRED** |
@@ -80,6 +81,13 @@ Baseline: Phase 19 `72ae9de` (+ stability-recovery docs). Matching decomp: read-
 
 ## Session log
 
+### 2026-11-20 — Trigger deadzone + graphics presets
+
+- `trigger_deadzone` config + Input slider; remaps LT/RT before digital threshold.
+- Video **Graphics preset** (Performance / Balanced / Quality) for scale/AF/VSync/async/gpu thread.
+- Launcher missing-data first-run bullets; README play-without-compile + Windows status honesty.
+- Next: config backup before reset; in-game FPS overlay toggle; pause-on-focus polish; Win parity gaps.
+
 ### 2026-11-20 — Continuous improvement initiative
 
 - Removed experimental AP1 spiral gates (`spiral_60.cpp`, spiral game_addrs/overrides); docs mark **DEFERRED**.
@@ -87,7 +95,6 @@ Baseline: Phase 19 `72ae9de` (+ stability-recovery docs). Matching decomp: read-
 - Corrected `audio_device` comment (Windows WASAPI supported).
 - Launcher home shows build version.
 - Refreshed `docs/WINDOWS_FEATURE_PARITY.md` feature matrix from code audit.
-- Next: more parity/QoL (trigger threshold, graphics presets, launcher dashboard polish); H8 playtest; Win native checklist.
 
 ### 2026-11-19 — Goal armed; M7 + `--help` + exclusive FS + first-launch UX
 

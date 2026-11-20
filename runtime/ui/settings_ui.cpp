@@ -114,6 +114,66 @@ bool Combo(SettingsHost host, const char* label, T& value, const T* values, cons
 void VideoTab(SettingsHost host)
 {
     Config& c = g_config;
+    ImGui::SeparatorText("Quick presets");
+    {
+        // Match by the knobs a preset owns (does not touch frame rate / window size).
+        auto isPerf = [&] {
+            return c.internalScale == 2 && c.anisotropy == 1 && c.asyncShaders && c.gpuThread &&
+                   !c.vsync && !c.integerScale;
+        };
+        auto isBalanced = [&] {
+            return c.internalScale == 3 && c.anisotropy == 4 && c.asyncShaders && c.gpuThread &&
+                   !c.vsync && !c.integerScale;
+        };
+        auto isQuality = [&] {
+            return c.internalScale == 4 && c.anisotropy == 16 && c.asyncShaders && c.gpuThread &&
+                   c.vsync && !c.integerScale;
+        };
+        int cur = isPerf() ? 0 : isBalanced() ? 1 : isQuality() ? 2 : 3;
+        const char* names[] = { "Performance", "Balanced", "Quality", "Custom" };
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14);
+        if (ImGui::BeginCombo("Graphics preset", names[cur]))
+        {
+            for (int i = 0; i < 3; i++)
+            {
+                if (ImGui::Selectable(names[i], i == cur) && i != cur)
+                {
+                    if (i == 0)
+                    {
+                        c.internalScale = 2;
+                        c.anisotropy = 1;
+                        c.asyncShaders = true;
+                        c.gpuThread = true;
+                        c.vsync = false;
+                        c.integerScale = false;
+                    }
+                    else if (i == 1)
+                    {
+                        c.internalScale = 3;
+                        c.anisotropy = 4;
+                        c.asyncShaders = true;
+                        c.gpuThread = true;
+                        c.vsync = false;
+                        c.integerScale = false;
+                    }
+                    else
+                    {
+                        c.internalScale = 4;
+                        c.anisotropy = 16;
+                        c.asyncShaders = true;
+                        c.gpuThread = true;
+                        c.vsync = true;
+                        c.integerScale = false;
+                    }
+                    Changed(host, true); // resolution / vsync need a restart prompt path
+                }
+            }
+            ImGui::EndCombo();
+        }
+        Help("Applies internal resolution, anisotropic filtering, VSync and related options. "
+             "Frame rate and window size are unchanged. Further tweaks switch to Custom.");
+    }
+
     ImGui::SeparatorText("Display");
     Check(host, "Fullscreen", c.fullscreen, false, "Enter fullscreen. F11 or Alt+Enter also toggle it.");
     Check(host, "Exclusive fullscreen", c.exclusiveFullscreen, false,
@@ -191,11 +251,20 @@ void InputTab(SettingsHost host)
         Changed(host, false);
     }
     Help("Ignores small right-stick motion (pointer / tilt / slash flicks). ~26% ≈ XInput default.");
-    if (ImGui::Button("Reset stick dead zones"))
+    float tDz = c.triggerDeadzone * 100.0f;
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14);
+    if (ImGui::SliderFloat("Trigger dead zone", &tDz, 0.0f, 50.0f, "%.0f%%"))
+    {
+        c.triggerDeadzone = tDz / 100.0f;
+        Changed(host, false);
+    }
+    Help("Ignores light LT/RT pulls (thrust / pull-back). ~12% ≈ XInput default.");
+    if (ImGui::Button("Reset stick / trigger dead zones"))
     {
         Config defaults;
         c.stickDeadzone = defaults.stickDeadzone;
         c.stickDeadzoneRight = defaults.stickDeadzoneRight;
+        c.triggerDeadzone = defaults.triggerDeadzone;
         Changed(host, false);
     }
 

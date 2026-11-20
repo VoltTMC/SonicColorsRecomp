@@ -77,6 +77,8 @@ std::string Config_Text(const Config& c)
     s += "; analog stick dead zones as a fraction of full throw (0.0–0.5). Defaults ≈ XInput.\n";
     s += std::format("stick_deadzone = {:.3f}\n", c.stickDeadzone);
     s += std::format("stick_deadzone_right = {:.3f}\n", c.stickDeadzoneRight);
+    s += "; analog trigger dead zone as a fraction of full pull (0.0–0.5). Default ≈ XInput.\n";
+    s += std::format("trigger_deadzone = {:.3f}\n", c.triggerDeadzone);
     s += "; controller bindings: A B X Y LB RB LT RT START BACK LS RS UP DOWN LEFT RIGHT NONE\n";
     s += "; (BACK, the View button, opens the settings overlay; Back+Start together is HOME;\n";
     s += ";  the right stick also flicks slashes)\n";
@@ -217,6 +219,8 @@ void Config_Load(const std::string& path)
                 c.stickDeadzone = std::clamp(std::strtof(val.c_str(), nullptr), 0.0f, 0.5f);
             else if (key == "stick_deadzone_right")
                 c.stickDeadzoneRight = std::clamp(std::strtof(val.c_str(), nullptr), 0.0f, 0.5f);
+            else if (key == "trigger_deadzone")
+                c.triggerDeadzone = std::clamp(std::strtof(val.c_str(), nullptr), 0.0f, 0.5f);
             for (int i = 0; i < 12; i++)
                 if (key == kBindActions[i]) c.bind[i] = val;
         }

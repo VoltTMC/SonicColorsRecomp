@@ -37,6 +37,8 @@ struct Config
     // Stick dead zones as a fraction of full throw (0 = none, ~0.24 ≈ XInput left default).
     float stickDeadzone = 0.24f;
     float stickDeadzoneRight = 0.26f;
+    // Analog trigger dead zone (0 = none, ~0.12 ≈ XInput 30/255).
+    float triggerDeadzone = 0.12f;
     // button bindings, action -> controller button name (A, B, X, Y, LB, RB, LT, RT,
     // START, BACK, LS, RS, UP, DOWN, LEFT, RIGHT or NONE); see config.cpp for actions.
     // Wii "-" is unbound by default: the game does not use it, and BACK (the View button)

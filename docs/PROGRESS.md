@@ -1,5 +1,11 @@
 # Progress log
 
+## 2026-11-20 — Trigger deadzone + graphics presets
+
+- `trigger_deadzone` + Input UI; Video graphics presets (Performance/Balanced/Quality).
+- Launcher first-run bullets when data missing; README Releases play path + Windows honesty.
+- `scr_config_test` extended for trigger roundtrip.
+
 ## 2026-11-20 — Continuous improvement (parity + QoL)
 
 - Fresh audit → `docs/WINDOWS_FEATURE_PARITY.md` matrix (FULL/PARTIAL/MISSING/UNVERIFIED/PLATFORM LIMITATION).

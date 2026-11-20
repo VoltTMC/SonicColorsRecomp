@@ -66,6 +66,8 @@ Last updated: 2026-11-20 (continuous improvement audit; stick deadzone; spiral g
 | Button remapping | yes | yes | FULL `[source]` | — |
 | Keyboard remapping | yes | yes | FULL `[source]` | — |
 | Stick deadzone (L/R) | yes | yes | FULL `[source]` | Settings + config.ini |
+| Trigger deadzone | yes | yes | FULL `[source]` | Settings + config.ini (2026-11-20) |
+| Graphics presets | yes | yes | FULL `[source]` | Video tab Performance/Balanced/Quality |
 | Rumble | yes | yes | UNVERIFIED | `[native]` |
 | Hot-plug toasts | yes | yes | FULL `[source]` | — |
 | Launcher home / Play | yes | yes | FULL `[source]` | Version on home (2026-11-20) |

@@ -22,6 +22,14 @@ static float Stick(int16_t v, int16_t dead)
     return s * std::fmin(1.0f, (std::fabs(f) - d) / (32767.0f - d));
 }
 
+// Rescale a 0..1 trigger after applying a dead zone (matches stick remapping).
+static float Trigger(float v, float dead)
+{
+    dead = std::clamp(dead, 0.0f, 0.5f);
+    if (v <= dead) return 0.0f;
+    return std::fmin(1.0f, (v - dead) / (1.0f - dead));
+}
+
 static bool Key(int vk)
 {
     return Key_Down(vk);
@@ -255,6 +263,8 @@ void Gamepad_Poll(int index, GamepadState& out)
                 return;
             }
         }
+        lt = Trigger(lt, g_config.triggerDeadzone);
+        rt = Trigger(rt, g_config.triggerDeadzone);
         if (lt > 0.6f) phys |= 1u << 16;
         if (rt > 0.6f) phys |= 1u << 17;
         // Back+Start together act as the Wii Remote HOME button

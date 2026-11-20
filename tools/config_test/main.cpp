@@ -57,6 +57,7 @@ int main()
         c.exclusiveFullscreen = true;
         c.stickDeadzone = 0.15f;
         c.stickDeadzoneRight = 0.35f;
+        c.triggerDeadzone = 0.22f;
         std::ofstream f(tmp);
         f << Config_Text(c);
     }
@@ -71,6 +72,7 @@ int main()
     CHECK(g_config.exclusiveFullscreen);
     CHECK(std::fabs(g_config.stickDeadzone - 0.15f) < 0.001f);
     CHECK(std::fabs(g_config.stickDeadzoneRight - 0.35f) < 0.001f);
+    CHECK(std::fabs(g_config.triggerDeadzone - 0.22f) < 0.001f);
     CHECK(!g_config.integerScale);   // default off in seeded file unless set
     CHECK(std::fabs(g_audioVolume - 0.42f) < 0.001f);
     CHECK(std::fabs(g_speakerVolume - 0.33f) < 0.001f);
@@ -99,12 +101,15 @@ int main()
 
     g_config.stickDeadzone = 0.10f;
     g_config.stickDeadzoneRight = 0.40f;
+    g_config.triggerDeadzone = 0.05f;
     CHECK(Config_Save());
     g_config = Config{};
     Config_Load(tmp.string());
     CHECK(std::fabs(g_config.stickDeadzone - 0.10f) < 0.001f);
     CHECK(std::fabs(g_config.stickDeadzoneRight - 0.40f) < 0.001f);
+    CHECK(std::fabs(g_config.triggerDeadzone - 0.05f) < 0.001f);
     CHECK(Config_Text(g_config).find("stick_deadzone") != std::string::npos);
+    CHECK(Config_Text(g_config).find("trigger_deadzone") != std::string::npos);
 
     fs::remove(tmp, ec);
     if (g_fail)

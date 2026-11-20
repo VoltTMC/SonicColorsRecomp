@@ -1,22 +1,34 @@
 # SonicColorsRecomp
 
-Native Linux static recompilation of **Sonic Colors (Wii)** — PAL `SNCP8P` revision 00.
+Native **Linux and Windows** static recompilation of **Sonic Colors (Wii)** — PAL `SNCP8P` revision 00.
 
-You must own the game. No disc image or assets are shipped in this repository.
+You must own the game. No disc image or assets are shipped in this repository or in published builds.
 
-## Status (2026-11-19)
+## Play a build (no compile)
+
+Download a package from [Releases](https://github.com/VoltTMC/SonicColorsRecomp/releases) when available:
+
+| Platform | What to run |
+|---|---|
+| Linux | `chmod +x SonicColorsRecomp-*-linux-x86_64.AppImage` then run it |
+| Windows | Unzip `SonicColorsRecomp-*-windows-x86_64.zip` → `SonicColorsRecomp.exe` |
+
+The launcher installs from **your own** disc image (ISO / RVZ / WIA / WBFS). Do not redistribute game files.
+
+## Status (2026-11-20)
 
 | Area | State |
 |---|---|
 | Recompilation | **Done** — Broadway/Gekko → native x86-64 |
 | Runtime | OS / IOS / GX / AX / WPAD / PAD HLE |
-| Boot → title → Tropical Resort Act 1 | **Verified** |
+| Boot → title → Tropical Resort Act 1 | **Verified** (Linux) |
+| Windows | Cross-build + Wine smoke; **native** Windows play still checklist-open |
 | Music Library (launcher) | Catalog, preview, WAV export, file-based replacement prep |
-| PC polish | Launcher, settings, volumes, audio device (Linux), save backup picker, F12 PNG shots, toasts, diagnostics, integer scale, portable mode — see [`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md) |
-| Known deferred | H7 black-world after stomp (no GX experiments); H8 in-game music listen still open |
+| PC polish | Launcher, graphics presets, stick/trigger dead zones, volumes, audio devices, save backup, F12 PNG, toasts, diagnostics, integer scale, portable mode — see [`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md) |
+| Known deferred | H7 black-world after stomp; AP1 opening spiral at 60 Hz; H8 in-game music listen |
 | Full-game matrix | **Not** claimed — many stages / abilities `NT` |
 
-Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · Progress: [`docs/PROGRESS.md`](docs/PROGRESS.md) · Compatibility: [`docs/GAME_COMPATIBILITY.md`](docs/GAME_COMPATIBILITY.md) · Frame rate: [`docs/FRAME_RATE.md`](docs/FRAME_RATE.md) · Music: [`docs/MUSIC_MODDING.md`](docs/MUSIC_MODDING.md) · Roadmap: [`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md)
+Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · Progress: [`docs/PROGRESS.md`](docs/PROGRESS.md) · Compatibility: [`docs/GAME_COMPATIBILITY.md`](docs/GAME_COMPATIBILITY.md) · Frame rate: [`docs/FRAME_RATE.md`](docs/FRAME_RATE.md) · Parity: [`docs/WINDOWS_FEATURE_PARITY.md`](docs/WINDOWS_FEATURE_PARITY.md) · Music: [`docs/MUSIC_MODDING.md`](docs/MUSIC_MODDING.md) · Roadmap: [`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md)
 
 ## Foundation
 
