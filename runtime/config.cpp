@@ -283,6 +283,103 @@ bool Config_LoadInputProfile(const std::string& name)
     return true;
 }
 
+std::filesystem::path Config_ModProfilesDir()
+{
+    return Platform_UserDir() / "mod_profiles";
+}
+
+std::vector<std::string> Config_ListModProfiles()
+{
+    namespace fs = std::filesystem;
+    std::vector<std::string> names;
+    std::error_code ec;
+    fs::path dir = Config_ModProfilesDir();
+    if (!fs::is_directory(dir, ec)) return names;
+    for (auto& e : fs::directory_iterator(dir, ec))
+    {
+        if (!e.is_regular_file(ec)) continue;
+        if (e.path().extension() != ".ini") continue;
+        names.push_back(e.path().stem().string());
+    }
+    std::sort(names.begin(), names.end());
+    return names;
+}
+
+std::string Config_ModProfileText(const Config& c)
+{
+    std::string s;
+    s += "; Sonic Colors Recomp mod profile (enable + load order)\n\n[Mods]\n";
+    s += "; on = <folder> enables; off = <folder> disables. Order is load order.\n";
+    for (auto& m : c.mods) s += std::format("{} = {}\n", m.enabled ? "on" : "off", m.folder);
+    return s;
+}
+
+bool Config_ApplyModProfileText(const std::string& text, Config& c)
+{
+    std::istringstream in(text);
+    std::string line, section;
+    std::vector<ModSetting> mods;
+    while (std::getline(in, line))
+    {
+        line = Trim(line);
+        if (line.empty() || line[0] == ';' || line[0] == '#') continue;
+        if (line[0] == '[')
+        {
+            section = Lower(Trim(line.substr(1, line.find(']') - 1)));
+            continue;
+        }
+        size_t eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        std::string key = Lower(Trim(line.substr(0, eq)));
+        std::string val = Trim(line.substr(eq + 1));
+        if (section == "mods" && !val.empty() && (key == "on" || key == "off"))
+            mods.push_back({ val, key == "on" });
+    }
+    if (mods.empty() && text.find("[Mods]") == std::string::npos) return false;
+    c.mods = std::move(mods);
+    return true;
+}
+
+bool Config_SaveModProfile(const std::string& name, std::string* outPath)
+{
+    namespace fs = std::filesystem;
+    const std::string safe = SanitizeProfileName(name);
+    std::error_code ec;
+    fs::path dir = Config_ModProfilesDir();
+    fs::create_directories(dir, ec);
+    if (ec) { LOG_WARN("config: cannot create {}: {}", dir.string(), ec.message()); return false; }
+    fs::path dest = dir / (safe + ".ini");
+    fs::path tmp = dest;
+    tmp += ".tmp";
+    {
+        std::ofstream f(tmp);
+        if (!f) return false;
+        f << Config_ModProfileText(g_config);
+    }
+    if (!Platform_ReplaceFile(tmp.string(), dest.string()))
+    {
+        fs::remove(tmp, ec);
+        return false;
+    }
+    if (outPath) *outPath = dest.string();
+    LOG_INFO("config: saved mod profile {}", dest.string());
+    return true;
+}
+
+bool Config_LoadModProfile(const std::string& name)
+{
+    namespace fs = std::filesystem;
+    const std::string safe = SanitizeProfileName(name);
+    fs::path path = Config_ModProfilesDir() / (safe + ".ini");
+    std::ifstream f(path);
+    if (!f) { LOG_WARN("config: mod profile not found: {}", path.string()); return false; }
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    if (!Config_ApplyModProfileText(ss.str(), g_config)) return false;
+    LOG_INFO("config: loaded mod profile {}", path.string());
+    return true;
+}
+
 bool Config_Save()
 {
     if (s_path.empty()) return false;

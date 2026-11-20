@@ -38,10 +38,10 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 | 9 | Audio | H8 in-game music audibility confirmation | PART |
 | 10 | Parity | Native Win WASAPI / DPI / pad checklist | UNVERIFIED |
 | 11 | Launcher | First-run setup wizard polish | Partial |
-| 12 | Performance | Frame-time / startup benchmarks doc | Open |
+| 12 | Performance | Frame-time / startup benchmarks doc | **Done** (`docs/PERFORMANCE.md`) |
 | 13 | QoL | Controller prompt glyphs in overlay | Open |
 | 14 | Accessibility | Remappable F1/F12 / UI scale | Open |
-| 15 | Mods | Mod profiles (enable sets) | Open |
+| 15 | Mods | Mod profiles (enable sets) | **Done** (2026-11-20) |
 | 16 | Saves | Auto-backup on launch (config) | **Done** (2026-11-20); stage-clear still open |
 | 17 | Packaging | Auto-updater / version check | Open |
 | 18 | Launcher | Resize / HiDPI stress-test checklist | Open |
@@ -109,10 +109,14 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — Mod profiles + PERFORMANCE.md
+
+- `mod_profiles/` Save/Load in Mods tab; `docs/PERFORMANCE.md`.
+- Next: Win native checklist items; accessibility UI scale; controller prompt glyphs.
+
 ### 2026-11-20 — Auto save backup on launch
 
 - Optional `auto_backup_saves_on_launch`; preserved across Settings Reset.
-- Next: Win native checklist items; mod profiles; frame-time benchmarks.
 
 ### 2026-11-20 — `--show-fps` + backlog
 

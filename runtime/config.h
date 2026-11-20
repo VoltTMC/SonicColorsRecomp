@@ -82,5 +82,12 @@ std::string Config_InputProfileText(const Config& c);
 bool Config_ApplyInputProfileText(const std::string& text, Config& c);
 bool Config_SaveInputProfile(const std::string& name, std::string* outPath = nullptr);
 bool Config_LoadInputProfile(const std::string& name);
+// Mod enable/order profiles under user_data/mod_profiles/<name>.ini
+std::filesystem::path Config_ModProfilesDir();
+std::vector<std::string> Config_ListModProfiles();
+std::string Config_ModProfileText(const Config& c);
+bool Config_ApplyModProfileText(const std::string& text, Config& c);
+bool Config_SaveModProfile(const std::string& name, std::string* outPath = nullptr);
+bool Config_LoadModProfile(const std::string& name);
 const std::string& Config_Path();
 std::string Config_Text(const Config& c);

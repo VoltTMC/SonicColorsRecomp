@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Mod profiles + PERFORMANCE.md
+
+- Named mod enable/order profiles under `user_data/mod_profiles/`; Mods tab Save/Load.
+- `docs/PERFORMANCE.md` measurement notes; backlog item 12/15 updated.
+
 ## 2026-11-20 — Auto save backup on launch
 
 - `[System] auto_backup_saves_on_launch` + System checkbox; runs `nand_backup` before Play (not for `--nand`).

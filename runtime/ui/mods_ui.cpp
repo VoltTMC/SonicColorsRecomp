@@ -1,4 +1,5 @@
 #include "mods_ui.h"
+#include "overlay.h"
 #include "ui_image.h"
 #include "../config.h"
 #include "../env.h"
@@ -354,6 +355,51 @@ bool InstalledTab(SettingsHost host)
     }
     if (host == SettingsHost::InGame && ChangedSinceStart())
         ImGui::TextColored(ImGui::GetStyle().Colors[ImGuiCol_CheckMark], "Restart the game to load the changed mods.");
+
+    ImGui::SeparatorText("Mod profiles");
+    Hover("Save or load enable/order sets under user_data/mod_profiles/.");
+    {
+        static char profileName[48] = "default";
+        static int selected = 0;
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14);
+        ImGui::InputText("Profile name##mods", profileName, sizeof(profileName));
+        if (ImGui::Button("Save mod profile"))
+        {
+            g_config.mods = Mods_Settings(s_mods);
+            std::string path;
+            if (Config_SaveModProfile(profileName, &path))
+                Overlay_Toast(std::format("Saved mod profile {}", fs::path(path).stem().string()).c_str());
+            else
+                Overlay_Toast("Could not save mod profile");
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Open profiles folder##mods"))
+            Shell_OpenFolder(Config_ModProfilesDir());
+        std::vector<std::string> profiles = Config_ListModProfiles();
+        if (profiles.empty())
+            ImGui::TextDisabled("No saved mod profiles yet.");
+        else
+        {
+            if (selected >= (int)profiles.size()) selected = 0;
+            std::vector<const char*> items;
+            items.reserve(profiles.size());
+            for (auto& p : profiles) items.push_back(p.c_str());
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14);
+            ImGui::Combo("Load mod profile", &selected, items.data(), (int)items.size());
+            ImGui::SameLine();
+            if (ImGui::Button("Load##modprofile"))
+            {
+                if (Config_LoadModProfile(profiles[selected]))
+                {
+                    Scan();
+                    Overlay_Toast(std::format("Loaded mod profile {}", profiles[selected]).c_str());
+                    changed = true;
+                }
+                else
+                    Overlay_Toast("Could not load mod profile");
+            }
+        }
+    }
 
     ImGui::SeparatorText("Load order (a mod higher in the list wins when two replace the same file)");
     if (s_mods.empty())

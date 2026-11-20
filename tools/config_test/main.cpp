@@ -144,6 +144,14 @@ int main()
     CHECK(g_config.bind[0] == "B");
     CHECK(g_config.keys[0] == "Z");
     CHECK(std::fabs(g_config.stickDeadzone - 0.33f) < 0.001f);
+
+    g_config.mods = { { "alpha", true }, { "beta", false } };
+    CHECK(Config_SaveModProfile("unit_mods", nullptr));
+    g_config.mods.clear();
+    CHECK(Config_LoadModProfile("unit_mods"));
+    CHECK(g_config.mods.size() == 2);
+    CHECK(g_config.mods[0].folder == "alpha" && g_config.mods[0].enabled);
+    CHECK(g_config.mods[1].folder == "beta" && !g_config.mods[1].enabled);
     fs::remove_all(g_userDir, ec);
 
     fs::remove(tmp, ec);

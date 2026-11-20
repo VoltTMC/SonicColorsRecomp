@@ -24,11 +24,11 @@ The launcher installs from **your own** disc image (ISO / RVZ / WIA / WBFS). Do 
 | Boot → title → Tropical Resort Act 1 | **Verified** (Linux) |
 | Windows | Cross-build + Wine smoke; **native** Windows play still checklist-open |
 | Music Library (launcher) | Catalog, preview, WAV export, file-based replacement prep |
-| PC polish | Launcher, graphics presets, stick/trigger dead zones, volumes, audio devices, save backup, F12 PNG, toasts, diagnostics, integer scale, portable mode — see [`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md) |
+| PC polish | Launcher, graphics/input/mod profiles, FPS overlay, auto save backup, volumes, F12 PNG, diagnostics — see [`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md) |
 | Known deferred | H7 black-world after stomp; AP1 opening spiral at 60 Hz; H8 in-game music listen |
 | Full-game matrix | **Not** claimed — many stages / abilities `NT` |
 
-Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · Progress: [`docs/PROGRESS.md`](docs/PROGRESS.md) · Compatibility: [`docs/GAME_COMPATIBILITY.md`](docs/GAME_COMPATIBILITY.md) · Frame rate: [`docs/FRAME_RATE.md`](docs/FRAME_RATE.md) · Parity: [`docs/WINDOWS_FEATURE_PARITY.md`](docs/WINDOWS_FEATURE_PARITY.md) · Music: [`docs/MUSIC_MODDING.md`](docs/MUSIC_MODDING.md) · Roadmap: [`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md)
+Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · Progress: [`docs/PROGRESS.md`](docs/PROGRESS.md) · Compatibility: [`docs/GAME_COMPATIBILITY.md`](docs/GAME_COMPATIBILITY.md) · Frame rate: [`docs/FRAME_RATE.md`](docs/FRAME_RATE.md) · Performance: [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) · Parity: [`docs/WINDOWS_FEATURE_PARITY.md`](docs/WINDOWS_FEATURE_PARITY.md) · Music: [`docs/MUSIC_MODDING.md`](docs/MUSIC_MODDING.md) · Roadmap: [`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md)
 
 ## Foundation
 
