@@ -175,6 +175,13 @@ int main()
     g_config = Config{};
     Config_Load(tmp.string());
     CHECK(g_config.lastSeenVersion == "v0.1.0");
+    CHECK(Config_Text(g_config).find("last_played_at") != std::string::npos);
+
+    g_config.lastPlayedAt = "2026-11-20 12:00";
+    CHECK(Config_Save());
+    g_config = Config{};
+    Config_Load(tmp.string());
+    CHECK(g_config.lastPlayedAt == "2026-11-20 12:00");
 
     g_config.musicFilterCat = 2;
     g_config.musicFilterVar = 1;

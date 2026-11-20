@@ -109,6 +109,11 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — Last played on Play tab
+
+- Persist and show last session start time on Play.
+- Next: Win native checklist; Recomp Achievements; signed builds.
+
 ### 2026-11-20 — Versioned window titles + RecompLauncher settings
 
 - Titles include build version; RecompLauncher pause/hints/backup + diagnostics action.

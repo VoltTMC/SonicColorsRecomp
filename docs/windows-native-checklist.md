@@ -59,6 +59,7 @@ what you can prove — note that in any report.
 - [ ] System → Save diagnostic report (includes `.1.log` / free space / pad names); or `--save-diagnostics`
 - [ ] `--list-gamepads`; System → Open shader cache / Clear shader cache…
 - [ ] `--verify-data-quick` (and optional full `--verify-data` when time allows)
+- [ ] After Play once, relaunch launcher → Last played timestamp on Play tab
 - [ ] System → Copy log path / Copy user data path; after a forced crash, Play banner → Save diagnostic report
 - [ ] FPS overlay shows guest Hz + memory; input hints for Jump/Slash/Pause
 - [ ] Save/load a **video profile** (Settings → Video)

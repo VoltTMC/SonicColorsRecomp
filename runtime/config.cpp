@@ -99,7 +99,9 @@ std::string Config_Text(const Config& c)
     s += "; last launcher window size (logical pixels)\n";
     s += std::format("launcher_width = {}\nlauncher_height = {}\n", c.launcherWidth, c.launcherHeight);
     s += "; last build version shown on the Play What's new banner (empty until first launch)\n";
-    s += std::format("last_seen_version = {}\n\n", c.lastSeenVersion);
+    s += std::format("last_seen_version = {}\n", c.lastSeenVersion);
+    s += "; local time of the last Play / --skip-launcher session start\n";
+    s += std::format("last_played_at = {}\n\n", c.lastPlayedAt);
     s += "[Audio]\n";
     s += "; host volume scales (0.0–1.0). Music and SFX share the Wii mix — only a master\n";
     s += "; control is available without changing original game mixing.\n";
@@ -594,6 +596,21 @@ bool Config_Save()
     return ok;
 }
 
+void Config_StampLastPlayed()
+{
+    using clock = std::chrono::system_clock;
+    const auto t = clock::to_time_t(clock::now());
+    std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &t);
+#else
+    localtime_r(&t, &tm);
+#endif
+    g_config.lastPlayedAt = std::format("{:04d}-{:02d}-{:02d} {:02d}:{:02d}", tm.tm_year + 1900, tm.tm_mon + 1,
+                                        tm.tm_mday, tm.tm_hour, tm.tm_min);
+    Config_Save();
+}
+
 static std::string Trim(std::string s)
 {
     auto ws = [](unsigned char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; };
@@ -694,6 +711,7 @@ void Config_Load(const std::string& path)
             else if (key == "launcher_width") c.launcherWidth = std::clamp(atoi(val.c_str()), 800, 7680);
             else if (key == "launcher_height") c.launcherHeight = std::clamp(atoi(val.c_str()), 560, 4320);
             else if (key == "last_seen_version") c.lastSeenVersion = val;
+            else if (key == "last_played_at") c.lastPlayedAt = val;
         }
         else if (section == "audio")
         {

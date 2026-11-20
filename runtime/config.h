@@ -45,6 +45,7 @@ struct Config
     int launcherWidth = 1060;            // last launcher window size (logical px)
     int launcherHeight = 740;
     std::string lastSeenVersion;         // g_version last acknowledged on Play (What's new)
+    std::string lastPlayedAt;            // local "YYYY-MM-DD HH:MM" when Play / --skip-launcher started
     // [Audio]
     float masterVolume = 1.0f;     // 0..1 host scale for the main (TV) mix
     float speakerVolume = 0.6f;    // 0..1 relative Wii Remote speaker level (× master)
@@ -92,6 +93,8 @@ extern const char* const kKeyActions[21];   // config.ini names of Config::keys
 void Config_Load(const std::string& path);
 // Writes the current g_config back to config.ini (with comments).
 bool Config_Save();
+// Sets lastPlayedAt to the local clock and saves (Play / --skip-launcher).
+void Config_StampLastPlayed();
 // Copies the current config.ini into user_data/config_backups/ (before a settings reset).
 bool Config_BackupCurrent(std::string* outPath = nullptr);
 // Input/keyboard (+ deadzone/rumble) profiles under user_data/input_profiles/<name>.ini

@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — Last played on Play tab
+
+- `last_played_at` stamped on Play / `--skip-launcher`; shown under game-data status.
+
 ## 2026-11-20 — Versioned window titles + RecompLauncher settings
 
 - Launcher/game titles show `g_version`; RecompLauncher gains pause/hints/backup settings + Open diagnostics.

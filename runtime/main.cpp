@@ -441,6 +441,8 @@ int main(int argc, char** argv)
         extern bool Launcher_Run(std::string& dataDir, const std::string& isoPath, const std::filesystem::path& installDest);
         if (!Launcher_Run(dataDir, isoPath, installDest)) return 0;
     }
+    else if (!Tas_Active() && skipLauncher)
+        Config_StampLastPlayed();   // RecompLauncher / --skip-launcher (Play button stamps itself)
 
     g_cfgFrameRate = fpsOverride >= 0 ? (uint32_t)fpsOverride : (fps60 ? 60u : (uint32_t)g_config.frameRate);
     if (showFps) g_config.showFpsOverlay = true;   // this run only; not written until Settings save

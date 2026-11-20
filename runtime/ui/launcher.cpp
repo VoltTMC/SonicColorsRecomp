@@ -327,6 +327,8 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
     case DataStatus::Missing: ImGui::TextColored(red, "Game data not installed"); break;
     case DataStatus::Corrupt: ImGui::TextColored(red, "Game data damaged: %s", st.problem.c_str()); break;
     }
+    if (!g_config.lastPlayedAt.empty())
+        ImGui::TextDisabled("Last played: %s", g_config.lastPlayedAt.c_str());
     if (!st.releaseError.empty()) ImGui::TextColored(red, "%s", st.releaseError.c_str());
     ImGui::TextDisabled("%s", st.data.string().c_str());
     {
@@ -439,7 +441,11 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
 
     bool ready = st.status == DataStatus::Ok && st.releaseError.empty() && !st.verifying;
     ImGui::BeginDisabled(!ready);
-    if (ImGui::Button("  Play  ", ImVec2(ImGui::GetFontSize() * 10, ImGui::GetFontSize() * 2.4f))) play = true;
+    if (ImGui::Button("  Play  ", ImVec2(ImGui::GetFontSize() * 10, ImGui::GetFontSize() * 2.4f)))
+    {
+        Config_StampLastPlayed();
+        play = true;
+    }
     ImGui::EndDisabled();
     if (!ready && st.status != DataStatus::Ok && !st.verifying)
         ImGui::TextDisabled("Play is unavailable until game data is installed.");
