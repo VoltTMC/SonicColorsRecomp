@@ -109,6 +109,11 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — CLI `--check-updates`
+
+- Packaging/scripts can query the latest release tag without launching the UI.
+- Next: Win native checklist; packaging auto-download.
+
 ### 2026-11-20 — Play-tab update availability hint
 
 - Shared `update_check`; Play banner when newer GitHub release tag exists.

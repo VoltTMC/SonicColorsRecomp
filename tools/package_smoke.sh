@@ -43,6 +43,7 @@ echo "$help_out" | grep -Fq -- "--skip-launcher" || fail "--help missing --skip-
 echo "$help_out" | grep -Fq -- "--portable" || fail "--help missing --portable"
 echo "$help_out" | grep -Fq -- "--show-fps" || fail "--help missing --show-fps"
 echo "$help_out" | grep -Fq -- "--show-hints" || fail "--help missing --show-hints"
+echo "$help_out" | grep -Fq -- "--check-updates" || fail "--help missing --check-updates"
 ok "--help"
 
 ver_out=$("$appdir/AppRun" --version 2>&1) || fail "--version exited non-zero"

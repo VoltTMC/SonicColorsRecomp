@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — CLI `--check-updates`
+
+- Queries latest GitHub release tag and exits (0 up to date, 2 newer, 1 failed). No download.
+
 ## 2026-11-20 — Richer diagnostic reports
 
 - Diagnostics include save backup count, screenshot_keep, and last update-check message.

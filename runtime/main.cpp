@@ -18,6 +18,7 @@
 #include "install/verify.h"
 #include "region.h"
 #include "platform/platform.h"
+#include "ui/update_check.h"
 #include "version.h"
 
 #include <algorithm>
@@ -92,6 +93,9 @@ static void PrintUsage()
         "General:\n"
         "  -h, --help              Show this help and exit\n"
         "  -V, --version           Print build version and exit\n"
+        "  --check-updates         Query GitHub for the latest release tag and exit\n"
+        "                          (exit 0 = up to date / check ok; 2 = newer available;\n"
+        "                          1 = check failed). Does not download anything.\n"
         "  --portable              Keep config/saves/logs next to the executable\n"
         "                          (also: SCR_PORTABLE=1). Default for writable installs;\n"
         "                          useful for AppImage when you want a side-by-side folder.\n"
@@ -149,6 +153,20 @@ int main(int argc, char** argv)
         {
             std::printf("SonicColorsRecomp %s\n", g_version);
             return 0;
+        }
+        if (a == "--check-updates")
+        {
+            UpdateCheck_Start(true);
+            while (UpdateCheck_Busy())
+                Platform_SleepMs(50);
+            const std::string msg = UpdateCheck_Message();
+            std::printf("%s\n", msg.c_str());
+            if (!UpdateCheck_HasResult())
+                return 1;
+            if (msg.find("failed") != std::string::npos || msg.find("Could not") != std::string::npos ||
+                msg.find("No release") != std::string::npos)
+                return 1;
+            return UpdateCheck_NewerAvailable() ? 2 : 0;
         }
         if (a == "--list-audio-devices")
         {
