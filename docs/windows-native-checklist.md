@@ -52,7 +52,8 @@ what you can prove — note that in any report.
 - [ ] Resize launcher; quit and reopen — size restored
 - [ ] System → Check for updates (network); Open Releases page; Download update package → `downloads\` (newest 3 kept)
 - [ ] After download → Reveal package / Open downloads; Play shows What's new after a version bump
-- [ ] Install & relaunch on a portable zip install (exits → extract → relaunch); AppImage path is Linux-only
+- [ ] Install & relaunch on a portable zip install (exits → `downloads\apply_update.ps1` extract → relaunch); on failure check `downloads\apply_update.log`
+- [ ] Confirm config/saves/mods survive Install & relaunch; AppImage path is Linux-only
 - [ ] Play → Open downloads; optional CLI `--download-update`
 - [ ] Quit during Verify files → confirm dialog
 - [ ] Resize game window, quit, relaunch → size restored; maximize restores; minimize with pause-on-focus-loss pauses

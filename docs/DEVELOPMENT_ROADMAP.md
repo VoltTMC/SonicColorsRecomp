@@ -159,9 +159,14 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 - Last windowed size saved on quit; minimize pauses with focus-loss option.
 - Next: Win native checklist; Recomp Achievements; signed builds.
 
+### 2026-11-20 — Windows auto-update install fix
+
+- Replaced broken `apply_update.cmd` (`%%ZIP%%` never expanded) with `apply_update.ps1` (embedded paths, PID wait, robocopy, rollback, log).
+- Package validation before install; AppImage backup/replace hardened; `scr_update_apply_test`.
+
 ### 2026-11-20 — Windows zip Install & relaunch
 
-- Portable Windows installs schedule `apply_update.cmd` (wait → Expand-Archive → xcopy → relaunch).
+- Portable Windows installs schedule deferred apply (wait → Expand-Archive → copy → relaunch).
 - Next: Win native checklist; Recomp Achievements; signed builds.
 
 ### 2026-11-20 — AppImage Install & relaunch

@@ -1,5 +1,12 @@
 # Progress log
 
+## 2026-11-20 — Fix Windows auto-update install after download
+
+- Root cause: `apply_update.cmd` wrote `%%ZIP%%` via `fprintf("%s", …)`, so CMD never expanded the zip path and `Expand-Archive` failed silently under `CREATE_NO_WINDOW`.
+- Fix: generate `apply_update.ps1` with embedded UTF-8 paths, stage under `downloads/`, wait for PID exit, robocopy install with `.preupdate` exe rollback, log + notepad on failure.
+- Shared validation (`update_apply`): size match, zip/AppImage magic, zip must contain `SonicColorsRecomp.exe`, reject `..` entries; AppImage apply backs up before replace.
+- `scr_update_apply_test` covers script generation + validation. No GitHub release in this batch.
+
 ## 2026-11-20 — Release v0.3.1 (hotfix)
 
 - Hotfix packages for unclickable launcher tabs after boot (`bootFrames` instead of stuck `forceTab`).

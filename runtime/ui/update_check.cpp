@@ -1,5 +1,6 @@
 #include "update_check.h"
 #include "release_notes.h"
+#include "update_apply.h"
 #include "../log.h"
 #include "../net/http.h"
 #include "../platform/platform.h"
@@ -261,18 +262,52 @@ void UpdateCheck_StartDownload()
         std::string err;
         uint64_t maxBytes =
             size ? std::min<uint64_t>(kHttpMaxDownload, size * 2 + (uint64_t(1) << 20)) : kHttpMaxDownload;
-        const bool ok = Http_Download(url, dest, err, &s_dlProgress, maxBytes);
+        bool ok = Http_Download(url, dest, err, &s_dlProgress, maxBytes);
         if (ok)
         {
-            MakeExecutableIfAppImage(dest);
-            PruneDownloads(dir);
+            std::string vErr;
+            if (!UpdateApply_FileSizeOk(dest, size, vErr))
+            {
+                ok = false;
+                err = vErr;
+            }
+            else
+            {
+                const bool wantAppImage = name.find(".AppImage") != std::string::npos;
+                const bool wantZip = name.find(".zip") != std::string::npos;
+                if (wantZip && !UpdateApply_LooksLikeZip(dest))
+                {
+                    ok = false;
+                    err = "downloaded file is not a valid zip package";
+                }
+                else if (wantAppImage && !UpdateApply_LooksLikeAppImage(dest))
+                {
+                    ok = false;
+                    err = "downloaded file is not a valid AppImage";
+                }
+                else if (wantZip && !UpdateApply_ZipContainsExe(dest, "SonicColorsRecomp.exe", vErr))
+                {
+                    ok = false;
+                    err = vErr;
+                }
+            }
+            if (!ok)
+            {
+                std::error_code rmEc;
+                fs::remove(dest, rmEc);
+            }
+            else
+            {
+                MakeExecutableIfAppImage(dest);
+                PruneDownloads(dir);
+            }
         }
         {
             std::lock_guard lk(s_dlMu);
             if (ok)
             {
                 s_dlPath = dest.string();
-                s_dlMsg = std::format("Downloaded {} — open the package below, then quit this build.", safe);
+                s_dlMsg = std::format("Downloaded {} — verify complete; install when ready.", safe);
             }
             else
             {
@@ -363,6 +398,7 @@ bool UpdateCheck_CanApplyAppImage()
     if (app.empty()) return false;
     const std::string dl = UpdateCheck_DownloadPath();
     if (dl.empty() || !fs::is_regular_file(dl)) return false;
+    if (!UpdateApply_LooksLikeAppImage(dl)) return false;
     FILE* f = std::fopen(app.c_str(), "r+b");
     if (!f) return false;
     std::fclose(f);
@@ -379,26 +415,44 @@ bool UpdateCheck_ApplyAppImageAndRelaunch(std::string& err)
     }
     const fs::path dest(Platform_AppImagePath());
     const fs::path src(UpdateCheck_DownloadPath());
+    if (!UpdateApply_LooksLikeAppImage(src))
+    {
+        err = "Downloaded package failed AppImage validation.";
+        return false;
+    }
+    if (fs::equivalent(src, dest))
+    {
+        err = "Download path is the running AppImage; nothing to install.";
+        return false;
+    }
     const fs::path tmp = dest.string() + ".new";
+    const fs::path bak = dest.string() + ".preupdate";
     std::error_code ec;
     fs::remove(tmp, ec);
+    ec.clear();
     fs::copy_file(src, tmp, fs::copy_options::overwrite_existing, ec);
     if (ec)
     {
-        err = "Copy failed: " + ec.message();
+        err = "Preparing installation failed: " + ec.message();
         return false;
     }
     MakeExecutableIfAppImage(tmp);
+    fs::remove(bak, ec);
+    ec.clear();
+    fs::copy_file(dest, bak, fs::copy_options::overwrite_existing, ec);
+    // Backup is best-effort; continue even if it fails on some filesystems.
     if (!Platform_ReplaceFile(tmp.string(), dest.string()))
     {
         fs::remove(tmp, ec);
-        err = "Could not replace the running AppImage (is the file locked?).";
+        err = "Could not replace the running AppImage (permission denied or file locked). "
+              "Your previous AppImage is unchanged.";
         return false;
     }
     MakeExecutableIfAppImage(dest);
+    fs::remove(bak, ec);
     LOG_INFO("applied AppImage update → {}", dest.string());
     Platform_RelaunchExecutable(dest.string());
-    err = "Relaunch failed.";
+    err = "Restart failed after install; relaunch the AppImage manually.";
     return false;
 }
 
@@ -417,6 +471,8 @@ bool UpdateCheck_CanApplyWindowsZip()
     if (!UpdateCheck_DownloadOk() || !UpdateCheck_DownloadedPackageIsZip()) return false;
     const std::string dl = UpdateCheck_DownloadPath();
     if (dl.empty() || !fs::is_regular_file(dl)) return false;
+    // Full zip scan runs at download + apply time; keep this UI gate cheap.
+    if (!UpdateApply_LooksLikeZip(dl)) return false;
     const fs::path exeDir = Platform_ExeDir();
     const fs::path probe = exeDir / ".scr_write_probe";
     FILE* f = std::fopen(probe.string().c_str(), "wb");
@@ -441,55 +497,42 @@ bool UpdateCheck_ApplyWindowsZipAndRelaunch(std::string& err)
 #ifdef _WIN32
     const fs::path zip(UpdateCheck_DownloadPath());
     const fs::path dest = Platform_ExeDir();
-    const fs::path script = Platform_UserDir() / "downloads" / "apply_update.cmd";
-    std::error_code ec;
-    fs::create_directories(script.parent_path(), ec);
+    std::string vErr;
+    if (!UpdateApply_LooksLikeZip(zip) || !UpdateApply_ZipContainsExe(zip, "SonicColorsRecomp.exe", vErr))
     {
+        err = vErr.empty() ? "Downloaded zip failed validation." : vErr;
+        return false;
+    }
+    // Helper + staging live under user downloads so they are not replaced mid-update.
+    const fs::path dlDir = Platform_UserDir() / "downloads";
+    const fs::path script = dlDir / "apply_update.ps1";
+    const fs::path stage = dlDir / "_scr_update_stage";
+    const fs::path log = dlDir / "apply_update.log";
+    std::error_code ec;
+    fs::create_directories(dlDir, ec);
+    const uint32_t pid = Platform_ProcessId();
+    const std::string body =
+        UpdateApply_WindowsPs1(zip.string(), dest.string(), "SonicColorsRecomp.exe", pid, stage.string(), log.string());
+    {
+        // UTF-8 BOM so Windows PowerShell 5.1 accepts Unicode paths in the script.
         FILE* f = std::fopen(script.string().c_str(), "wb");
         if (!f)
         {
-            err = "Could not write apply_update.cmd";
+            err = "Could not write apply_update.ps1";
             return false;
         }
-        // Wait for this PID to exit, expand the zip, copy SonicColorsRecomp\ (or flat) over DEST, relaunch.
-        std::fprintf(f, "%s",
-                     "@echo off\r\n"
-                     "setlocal\r\n"
-                     "set \"ZIP=%~1\"\r\n"
-                     "set \"DEST=%~2\"\r\n"
-                     "set \"EXENAME=%~3\"\r\n"
-                     "set \"PID=%~4\"\r\n"
-                     "set \"STAGE=%DEST%\\_scr_update_stage\"\r\n"
-                     ":waitloop\r\n"
-                     "tasklist /FI \"PID eq %PID%\" 2>nul | findstr /I \"%PID%\" >nul\r\n"
-                     "if not errorlevel 1 (\r\n"
-                     "  timeout /t 1 /nobreak >nul\r\n"
-                     "  goto waitloop\r\n"
-                     ")\r\n"
-                     "if exist \"%STAGE%\" rmdir /S /Q \"%STAGE%\"\r\n"
-                     "mkdir \"%STAGE%\"\r\n"
-                     "powershell -NoProfile -ExecutionPolicy Bypass -Command "
-                     "\"Expand-Archive -LiteralPath '%%ZIP%%' -DestinationPath '%%STAGE%%' -Force\"\r\n"
-                     "set \"SRC=%STAGE%\\SonicColorsRecomp\"\r\n"
-                     "if not exist \"%SRC%\\%EXENAME%\" set \"SRC=%STAGE%\"\r\n"
-                     "if not exist \"%SRC%\\%EXENAME%\" (\r\n"
-                     "  echo Update extract failed: %EXENAME% not found\r\n"
-                     "  pause\r\n"
-                     "  exit /b 1\r\n"
-                     ")\r\n"
-                     "xcopy /E /Y /I /Q \"%SRC%\\*\" \"%DEST%\\\" >nul\r\n"
-                     "rmdir /S /Q \"%STAGE%\"\r\n"
-                     "start \"\" \"%DEST%\\%EXENAME%\"\r\n");
+        static const unsigned char bom[] = { 0xEF, 0xBB, 0xBF };
+        std::fwrite(bom, 1, sizeof(bom), f);
+        std::fwrite(body.data(), 1, body.size(), f);
         std::fclose(f);
     }
-    const std::string pid = std::to_string(Platform_ProcessId());
-    if (!Platform_SpawnDetached({ "cmd.exe", "/C", script.string(), zip.string(), dest.string(),
-                                  "SonicColorsRecomp.exe", pid }))
+    if (!Platform_SpawnDetached(
+            { "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script.string() }))
     {
-        err = "Could not start apply_update.cmd";
+        err = "Could not start the update helper (powershell.exe).";
         return false;
     }
-    LOG_INFO("Windows zip apply scheduled → {} (pid {})", dest.string(), pid);
+    LOG_INFO("Windows zip apply scheduled → {} (pid {}, log {})", dest.string(), pid, log.string());
     Platform_ExitProcess(0);
     err = "Exit failed.";
     return false;

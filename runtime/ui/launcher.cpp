@@ -295,9 +295,9 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
                 {
                     ImGui::TextWrapped(
                         "Replace this install with the downloaded package and relaunch?\n\n"
-                        "AppImage: overwrites the running file.\n"
-                        "Windows zip: extracts after this process exits.\n\n"
-                        "Config and saves are unchanged.");
+                        "AppImage: overwrites the running file, then restarts.\n"
+                        "Windows zip: a helper waits for exit, extracts, installs, then restarts.\n\n"
+                        "Config, saves, mods, and other user data are kept.");
                     static std::string applyErr;
                     if (ImGui::Button("Install & relaunch", ImVec2(160, 0)))
                     {
