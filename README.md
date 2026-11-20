@@ -19,7 +19,7 @@ Download a package from [Releases](https://github.com/VoltTMC/SonicColorsRecomp/
 | Platform | What to run |
 |---|---|
 | Linux | `chmod +x SonicColorsRecomp-*-linux-x86_64.AppImage` then run it |
-| Windows | Unzip `SonicColorsRecomp-*-windows-x86_64.zip` → `SonicColorsRecomp.exe` |
+| Windows | Run `SonicColorsRecomp-Setup-v*.exe` (Start Menu). Optional portable ZIP also available. |
 
 The launcher installs from **your own** disc image (ISO / RVZ / WIA / WBFS). Do not redistribute game files.
 
@@ -96,7 +96,7 @@ Skip the launcher once data is configured:
 out\SonicColorsRecomp.exe --data game\SNCP8P --skip-launcher
 ```
 
-User data (config, NAND saves, music cache) lives next to the executable for writable trees, or under `$XDG_DATA_HOME/SonicColorsRecomp` for AppImage / read-only installs. Force exe-local data with `--portable` or `SCR_PORTABLE=1`. On Windows, the redistributable ZIP ships `portable.txt` (exe-local data); without it, data defaults to `%APPDATA%\SonicColorsRecomp` unless a legacy exe-local `config.ini`/`userdata`/`nand` tree already exists.
+User data (config, NAND saves, music cache): Windows **installer** → `%APPDATA%\SonicColorsRecomp`; Linux AppImage → `$XDG_DATA_HOME/SonicColorsRecomp`; portable ZIP / `--portable` / `SCR_PORTABLE=1` → next to the exe. See [`docs/WINDOWS_INSTALLER.md`](docs/WINDOWS_INSTALLER.md).
 
 ## Music replacement (file-based)
 
@@ -121,19 +121,16 @@ See [`docs/MUSIC_MODDING.md`](docs/MUSIC_MODDING.md).
 ./tools/package_test_linux.sh
 ```
 
-**Windows** (must run on a Windows build machine):
+**Windows** (cross-build from Linux, or native):
 
-```powershell
-# Prefer clang-cl. For MSVC Build Tools only:
-cmake --preset windows-msvc
-cmake --build --preset windows-msvc
-# → builds SonicColorsRecomp at -j 2 (see CMakePresets.json)
-
-powershell -ExecutionPolicy Bypass -File tools/package.ps1
-# → dist\SonicColorsRecomp\  (zip that folder to share; no game data)
+```bash
+cmake --build --preset windows-mingw --target SonicColorsRecomp music_asset
+./tools/package_windows_installer.sh -v 0.3.4   # Setup.exe (primary; Wine+Inno or ISCC)
+./tools/package_windows_cross.sh -v 0.3.4       # optional portable ZIP
+./tools/package_windows_install_check.sh
 ```
 
-Copy-from-Linux tree: `./tools/package_windows_src.sh` → `dist/SonicColorsRecomp-windows-build-src.zip`.
+Native Windows: `tools/package.ps1` still stages a folder; prefer the Inno Setup path above for distribution.
 
 Redistributable builds must **not** include `game/` or copyrighted assets.
 

@@ -132,13 +132,16 @@ You must own Sonic Colors (Wii) Europe / PAL SNCP8P (USA/Japan discs are not sup
 2. Install from your own disc image (ISO / RVZ / WIA / WBFS / GCZ)
 3. Play
 
-This ZIP includes portable.txt, so config, saves, and logs are written next to the
-executable. For an installed layout without portable.txt, user data goes under
-%APPDATA%\\SonicColorsRecomp (or set SCR_USER_DIR / pass --portable).
+This is the optional *portable* ZIP (portable.txt). For a normal desktop install,
+prefer SonicColorsRecomp-Setup-v*.exe from tools/package_windows_installer.sh.
+
+With portable.txt, config, saves, and logs are written next to the executable.
+Without it (or with installed.txt), user data goes under %APPDATA%\\SonicColorsRecomp.
 
 Music Library: mods\\music\\catalog.json is included (114 SNCP8P tracks). Assign
 WAV replacements in the Music tab; prepare needs Python + cricodecs + vgmstream
-+ ffmpeg (see tools\\MUSIC_ASSET_WINDOWS.txt).
++ ffmpeg (see tools\\MUSIC_ASSET_WINDOWS.txt). Drop-ins: tools\\bin\\ or
+%APPDATA%\\SonicColorsRecomp\\tools\\bin when using the installer.
 
 Useful:
   SonicColorsRecomp.exe --help

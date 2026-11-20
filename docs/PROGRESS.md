@@ -23,6 +23,13 @@
 - Root cause (Windows prepare/preview): `OriginalCpk()` missed portable `exe/game/...` layout; Music UI cache preferred cwd while game used UserDir — Prepare and Play could disagree.
 - Shared `MusicPaths_*` for CPK + cache/preview roots; clearer status text; prepare writes `current.json` even for use-original; `scr_music_paths_test`.
 
+## 2026-11-20 — Windows installer (per-user Inno Setup)
+
+- Primary Win distro: `package_windows_installer.sh` → Setup.exe under `%LOCALAPPDATA%\Programs\…`.
+- `installed.txt` forces `%APPDATA%\SonicColorsRecomp` user data; portable ZIP remains optional.
+- Music drop-ins / venv prefer user-data `tools/bin` so they survive updates.
+- Setup can import portable data; uninstall asks before deleting AppData.
+
 ## 2026-11-20 — Release v0.3.3 (hotfix)
 
 - Hotfix packages: Music Library doctor/setup, `tools/bin` drop-ins, winpthread beside `music_asset.exe`, clean-env dependency tests.

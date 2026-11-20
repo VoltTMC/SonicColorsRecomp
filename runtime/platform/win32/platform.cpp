@@ -166,13 +166,42 @@ fs::path Platform_ExeDir()
 static bool s_portable = false;
 void Platform_RequestPortable() { s_portable = true; }
 
+bool Platform_IsInstalledLayout()
+{
+    std::error_code ec;
+    return fs::exists(Platform_ExeDir() / "installed.txt", ec);
+}
+
+bool Platform_IsPortable()
+{
+    if (s_portable) return true;
+    if (const char* env = getenv("SCR_PORTABLE"))
+        if (env[0] && env[0] != '0') return true;
+    if (Platform_IsInstalledLayout()) return false;
+    if (const char* env = getenv("SCR_USER_DIR"))
+        if (env[0]) return false;
+    const fs::path exe = Platform_ExeDir();
+    std::error_code ec;
+    return fs::exists(exe / "portable.txt", ec) || fs::exists(exe / "config.ini", ec)
+           || fs::exists(exe / "userdata", ec) || fs::exists(exe / "nand", ec);
+}
+
 fs::path Platform_UserDir()
 {
     if (s_portable) return Platform_ExeDir();
+    if (const char* env = getenv("SCR_PORTABLE"))
+        if (env[0] && env[0] != '0') return Platform_ExeDir();
     if (const char* env = getenv("SCR_USER_DIR"))
         if (env[0]) return fs::path(env);
     const fs::path exe = Platform_ExeDir();
     std::error_code ec;
+    // Installer layout: always use roaming AppData (install dir may be read-only later).
+    if (fs::exists(exe / "installed.txt", ec))
+    {
+        if (const char* appdata = getenv("APPDATA"))
+            return fs::path(appdata) / "SonicColorsRecomp";
+        return exe;
+    }
     // Portable ZIP / legacy layout: keep data next to the exe when already present or marked.
     if (fs::exists(exe / "portable.txt", ec) || fs::exists(exe / "config.ini", ec)
         || fs::exists(exe / "userdata", ec) || fs::exists(exe / "nand", ec))
@@ -180,6 +209,14 @@ fs::path Platform_UserDir()
     if (const char* appdata = getenv("APPDATA"))
         return fs::path(appdata) / "SonicColorsRecomp";
     return exe;
+}
+
+fs::path Platform_MusicToolsBinDir()
+{
+    std::error_code ec;
+    fs::path dir = Platform_UserDir() / "tools" / "bin";
+    fs::create_directories(dir, ec);
+    return dir;
 }
 
 fs::path Platform_DolphinTextureDir()

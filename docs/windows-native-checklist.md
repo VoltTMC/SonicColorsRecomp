@@ -6,13 +6,17 @@ what you can prove — note that in any report.
 
 ## Setup
 
-1. Extract `SonicColorsRecomp-*-windows-x86_64.zip` to:
-   - `C:\SCR\SonicColorsRecomp` (clean)
-   - `C:\SCR\Sonic Colors Recomp` (spaces)
-2. Confirm `portable.txt` is present for portable mode.
-3. Install game data via the launcher (own disc / extracted SNCP8P).
-4. For Music Library decode/export/prepare: install Python 3.11+, `cricodecs`,
-   `vgmstream-cli`, and `ffmpeg` (see `tools/MUSIC_ASSET_WINDOWS.txt`).
+**Preferred:** run `SonicColorsRecomp-Setup-v*.exe` (per-user, no admin).
+
+1. Default install: `%LOCALAPPDATA%\Programs\Sonic Colors Recomp` (`installed.txt` present).
+2. Confirm user data under `%APPDATA%\SonicColorsRecomp` (not beside the exe).
+3. Optional: import an old portable folder during Setup (copies; does not delete source).
+4. Install game data via the launcher (own disc / extracted SNCP8P).
+5. Music tools: `tools\music_deps_setup.cmd` then drop-ins in `%APPDATA%\SonicColorsRecomp\tools\bin`.
+
+**Portable ZIP (optional):** extract `SonicColorsRecomp-*-windows-x86_64.zip` and confirm `portable.txt`.
+
+Also test a path with spaces / Unicode for either layout.
 
 ## Audio (unmute — do not use `--mute`)
 

@@ -52,7 +52,8 @@ Discovery: `tools/bin` → `SCR_MUSIC_BIN` → `PATH`. Doctor **runs** each bina
 | Area | Linux | Windows | Status | Notes / action |
 |------|-------|---------|--------|----------------|
 | Build (clang / MinGW) | PASS `[auto]` | PASS `[auto]` | PASS | Presets `linux-clang`, `windows-mingw` |
-| AppImage / Windows ZIP packaging | PASS `[auto]` | PASS `[auto]` | PASS | `package_cross_check.sh` |
+| AppImage / Windows ZIP packaging | PASS `[auto]` | PASS `[auto]` | PASS | Portable ZIP optional; installer is primary Win distro |
+| Windows installer (Inno, per-user) | N/A | PASS stage `[auto]` / Setup `[wine]` when ISCC | PARTIAL | `package_windows_installer.sh`; native install UI UNVERIFIED |
 | Launcher boot + tabs | PASS `[auto]` | PASS `[source]` | UNVERIFIED native | Tab click fixed v0.3.1 (`bootFrames`) |
 | Config / portable / user-data | PASS `[source]` | PASS `[source]` | PASS `[source]` | Shared `Platform_UserDir` |
 | Game launch / disc install | PASS | UNVERIFIED | UNVERIFIED | Need `[native]` |
@@ -189,6 +190,7 @@ Follow `docs/windows-native-checklist.md`. Items marked UNVERIFIED above stay UN
 
 | Date | Change |
 |------|--------|
+| 2026-11-20 | Windows per-user Inno installer (`installed.txt` → AppData); portable ZIP optional; user-data music tools |
 | 2026-11-20 | Doctor exec/version probe, clean-env tests, setup.steps, optional ffmpeg fix, AppDir isolated doctor |
 | 2026-11-20 | Ship `libwinpthread-1.dll` next to `tools/music_asset.exe`; Wine doctor smoke in `package_cross_check` |
 | 2026-11-20 | Music deps doctor, `tools/bin` discovery, music_deps_setup, Music UI Check tools |

@@ -98,9 +98,14 @@ else
     echo "SKIP music_deps_test (no python3)"
 fi
 
+if [ -d "$root/dist/SonicColorsRecomp-install" ]; then
+    "$root/tools/package_windows_install_check.sh" "$root/dist/SonicColorsRecomp-install"
+    ok "Windows install stage check"
+fi
+
 echo "== Parity notes =="
-echo "Both packages ship catalog.json, music_asset*, tools/bin/README, setup helpers."
+echo "Linux AppImage + optional Windows portable ZIP + Windows Setup.exe (primary)."
 echo "Prepare/preview/export need host Python + cricodecs + vgmstream + ffmpeg"
-echo "(drop-ins in tools/bin or PATH; setup via music_deps_setup)."
+echo "(user-data tools/bin when installed; setup via music_deps_setup)."
 echo "Windows prepare/export pipeline: UNVERIFIED native (Wine load only)."
 echo "package_cross_check OK"

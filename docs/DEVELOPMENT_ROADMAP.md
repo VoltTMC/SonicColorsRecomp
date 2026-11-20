@@ -46,7 +46,7 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 | 17 | Packaging | Auto-updater / version check | Check + download + AppImage / Windows zip Install & relaunch **Done** |
 | 18 | Launcher | Resize / HiDPI stress-test checklist | Size persist + PERFORMANCE.md smoke **Done** |
 | 19 | Runtime | In-game performance overlay (CPU/GPU) | FPS+ms+1%+Present+GPU blit timestamps+draws/XFB+guest+RSS+audio **Done** |
-| 20 | Distribution | Signed Windows builds / installer | Open |
+| 20 | Distribution | Windows installer (per-user Inno) | Done (unsigned; signing open) |
 
 ---
 
@@ -166,6 +166,10 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 ### 2026-11-20 — Windows Music CPK / cache path fix
 
 - Shared MusicPaths for original CPK + music_mods cache; UI no longer treats “cache not built” as blocking originals.
+
+### 2026-11-20 — Windows per-user installer
+
+- Inno Setup primary distro; `installed.txt` + AppData user data; portable ZIP optional; music tools in user-data.
 
 ### 2026-11-20 — Release v0.3.3 (hotfix)
 

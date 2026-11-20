@@ -61,6 +61,13 @@ bool MusicTool_Run(const std::vector<std::string>& args,
         exitCode = -1;
         return false;
     }
+    // Prefer user-writable drop-ins (survive updates) over install-dir tools/bin.
+    const fs::path userBin = Platform_MusicToolsBinDir();
+#ifdef _WIN32
+    _putenv_s("SCR_MUSIC_BIN", userBin.string().c_str());
+#else
+    setenv("SCR_MUSIC_BIN", userBin.string().c_str(), 1);
+#endif
     std::vector<std::string> argv;
     argv.reserve(args.size() + 1);
     argv.push_back(tool.string());

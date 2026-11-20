@@ -626,7 +626,8 @@ void SystemTab(SettingsHost host)
     }
     ImGui::Spacing();
     ImGui::TextWrapped("User data: %s", Platform_UserDir().string().c_str());
-    Help("Config, log, screenshots and default saves. AppImage uses ~/.local/share/SonicColorsRecomp unless --portable / SCR_PORTABLE=1.");
+    Help("Config, log, screenshots and default saves. Windows installer → %APPDATA%\\SonicColorsRecomp; "
+         "AppImage → ~/.local/share/SonicColorsRecomp; portable ZIP / --portable → next to the exe.");
     if (ImGui::Button("Open user data folder"))
         Shell_OpenFolder(Platform_UserDir());
     Help("Opens the folder that holds config.ini, the log, screenshots, and (by default) save backups.");
@@ -1027,7 +1028,7 @@ std::string SettingsUI_WriteDiagnosticReport(std::string& error)
         return {};
     }
     const fs::path user = Platform_UserDir();
-    const bool portable = user == Platform_ExeDir() || EnvHas("SCR_PORTABLE", "BKR_PORTABLE");
+    const bool portable = Platform_IsPortable();
     out << "Sonic Colors Recomp — diagnostic report\n";
     out << "version: " << g_version << "\n";
 #ifdef _WIN32

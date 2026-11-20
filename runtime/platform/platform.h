@@ -39,11 +39,18 @@ std::filesystem::path Platform_ExeDir();
 // Force config/saves/logs next to the executable (call before first Platform_UserDir).
 // Also enabled by SCR_PORTABLE=1 or --portable.
 void Platform_RequestPortable();
+// True when user data is kept next to the executable (portable ZIP / --portable).
+bool Platform_IsPortable();
+// True when the exe directory contains installed.txt (Windows installer layout).
+bool Platform_IsInstalledLayout();
 // Where the game writes: log, config.ini, saves (nand), shader cache, screenshots and,
 // by default, the installed game data. Linux: exe dir when writable / portable, else
-// $XDG_DATA_HOME/SonicColorsRecomp. Windows: portable.txt / legacy exe data / --portable
-// → exe dir; else %APPDATA%\SonicColorsRecomp (or SCR_USER_DIR).
+// $XDG_DATA_HOME/SonicColorsRecomp. Windows: installed.txt → %APPDATA%\SonicColorsRecomp;
+// portable.txt / legacy exe data / --portable → exe dir; else %APPDATA%\SonicColorsRecomp
+// (or SCR_USER_DIR).
 std::filesystem::path Platform_UserDir();
+// Writable drop-in tools for Music Library (UserDir/tools/bin). Created on demand.
+std::filesystem::path Platform_MusicToolsBinDir();
 // Dolphin's custom texture folder (Load/Textures) for this user.
 std::filesystem::path Platform_DolphinTextureDir();
 // Replaces `to` with `from` in one step (config.ini is written to a temporary file first).

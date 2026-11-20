@@ -18,13 +18,22 @@ _ROOT = _TOOLS.parent if _TOOLS.name == "tools" else _TOOLS
 
 
 def _bin_dirs() -> list[Path]:
-    """Application-managed binary search paths (before system PATH)."""
+    """Application-managed binary search paths (before system PATH).
+
+    Prefer user-writable drop-ins (SCR_MUSIC_BIN / %APPDATA% tools/bin) so tools
+    survive application updates when the install directory is read-only.
+    """
     dirs: list[Path] = []
+    env_bin = Path(os.environ["SCR_MUSIC_BIN"]) if os.environ.get("SCR_MUSIC_BIN") else None
+    appdata = os.environ.get("APPDATA") or os.environ.get("XDG_DATA_HOME")
+    localapp = os.environ.get("LOCALAPPDATA")
     for d in (
+        env_bin,
+        Path(appdata) / "SonicColorsRecomp" / "tools" / "bin" if appdata else None,
+        Path(localapp) / "SonicColorsRecomp" / "tools" / "bin" if localapp else None,
         _TOOLS / "bin",
         _ROOT / "tools" / "bin",
         _ROOT / "bin",
-        Path(os.environ["SCR_MUSIC_BIN"]) if os.environ.get("SCR_MUSIC_BIN") else None,
     ):
         if d and d.is_dir() and d not in dirs:
             dirs.append(d)
@@ -67,13 +76,9 @@ def which_vgmstream() -> str | None:
 
 
 def _venv_python() -> Path | None:
-    cands = [
-        _ROOT / ".venv-music" / "bin" / "python",
-        _ROOT / ".venv-music" / "Scripts" / "python.exe",
-        _TOOLS / ".venv-music" / "bin" / "python",
-        _TOOLS / ".venv-music" / "Scripts" / "python.exe",
-    ]
-    for p in cands:
+    from .cricodecs_env import _venv_pythons
+
+    for p in _venv_pythons():
         if p.is_file():
             return p
     return None
@@ -367,14 +372,19 @@ def doctor() -> dict:
         "blocked": [o["id"] for o in blocked],
         "setup": {
             "drop_in_bin": str(_TOOLS / "bin"),
+            "drop_in_user": (
+                str(Path(os.environ["APPDATA"]) / "SonicColorsRecomp" / "tools" / "bin")
+                if os.environ.get("APPDATA")
+                else str(Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "SonicColorsRecomp" / "tools" / "bin")
+            ),
             "drop_in_readme": str(_TOOLS / "bin" / "README.md"),
             "venv_hint_linux": "tools/music_deps_setup.sh",
             "venv_hint_windows": "tools\\music_deps_setup.cmd",
             "steps": _setup_steps(deps, blocked),
             "bundling": (
-                "Redistributables do not ship FFmpeg (often GPL), vgmstream, Python, or cricodecs. "
-                "Place ISC-licensed vgmstream-cli and an LGPL FFmpeg build in tools/bin/, "
-                "and run music_deps_setup to create a local venv with cricodecs."
+                "Installers/redistributables do not ship FFmpeg (often GPL), vgmstream, Python, or cricodecs. "
+                "On installed Windows, place tools in %APPDATA%\\SonicColorsRecomp\\tools\\bin "
+                "(survives updates). Portable builds may use tools/bin/. Run music_deps_setup for cricodecs."
             ),
         },
     }
@@ -382,6 +392,11 @@ def doctor() -> dict:
 
 def _setup_steps(deps: dict, blocked: list) -> list[str]:
     steps: list[str] = []
+    user_bin = (
+        str(Path(os.environ["APPDATA"]) / "SonicColorsRecomp" / "tools" / "bin")
+        if os.environ.get("APPDATA")
+        else "user-data/tools/bin"
+    )
     if not deps["cricodecs"].get("ok"):
         steps.append(
             "Run tools/music_deps_setup.sh (Linux) or tools\\music_deps_setup.cmd (Windows) "
@@ -389,13 +404,13 @@ def _setup_steps(deps: dict, blocked: list) -> list[str]:
         )
     if not deps["ffmpeg"].get("ok"):
         steps.append(
-            f"Install an LGPL ffmpeg build and place it in {deps.get('tools_dir', 'tools')}/bin/ "
-            "(or on PATH). Needed for Prepare."
+            f"Install an LGPL ffmpeg build into {user_bin} (installed) or tools/bin/ (portable), "
+            "or on PATH. Needed for Prepare."
         )
     if not deps["vgmstream"].get("ok"):
         steps.append(
-            f"Install vgmstream-cli and place it in {deps.get('tools_dir', 'tools')}/bin/ "
-            "(or on PATH). Needed for original preview/export."
+            f"Install vgmstream-cli into {user_bin} (installed) or tools/bin/ (portable), "
+            "or on PATH. Needed for original preview/export."
         )
     if not steps and not blocked:
         steps.append("All Music Library host tools look usable. Re-run doctor after changing tools/bin.")

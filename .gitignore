@@ -30,6 +30,9 @@ compile_commands.json
 # Pinned upstream checkouts (see docs/DEPENDENCIES.md); keep local, don't vendor in git
 /external/
 
+# Bootstrapped Windows packaging tools (Inno Setup under Wine)
+/tools/vendor/
+
 # Game data (copyrighted)
 /game/
 *.iso

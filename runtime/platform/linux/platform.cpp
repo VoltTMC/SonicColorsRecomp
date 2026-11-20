@@ -175,6 +175,21 @@ static fs::path XdgDir(const char* var, const char* fallback)
 static bool s_portableRequested = false;
 void Platform_RequestPortable() { s_portableRequested = true; }
 
+bool Platform_IsInstalledLayout()
+{
+    std::error_code ec;
+    return fs::exists(Platform_ExeDir() / "installed.txt", ec);
+}
+
+bool Platform_IsPortable()
+{
+    if (s_portableRequested) return true;
+    if (getenv("SCR_PORTABLE")) return true;
+    if (Platform_IsInstalledLayout()) return false;
+    fs::path exe = Platform_ExeDir();
+    return !getenv("APPIMAGE") && access(exe.c_str(), W_OK) == 0;
+}
+
 fs::path Platform_UserDir()
 {
     static fs::path dir = [] {
@@ -186,6 +201,14 @@ fs::path Platform_UserDir()
         fs::create_directories(d, ec);
         return d;
     }();
+    return dir;
+}
+
+fs::path Platform_MusicToolsBinDir()
+{
+    std::error_code ec;
+    fs::path dir = Platform_UserDir() / "tools" / "bin";
+    fs::create_directories(dir, ec);
     return dir;
 }
 

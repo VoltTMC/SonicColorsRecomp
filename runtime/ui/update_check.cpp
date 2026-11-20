@@ -491,7 +491,8 @@ bool UpdateCheck_ApplyWindowsZipAndRelaunch(std::string& err)
     err.clear();
     if (!UpdateCheck_CanApplyWindowsZip())
     {
-        err = "Zip update apply needs a writable install folder (portable.zip layout).";
+        err = "Zip update apply needs a writable install folder "
+              "(per-user install under LocalAppData\\Programs, or portable ZIP).";
         return false;
     }
 #ifdef _WIN32

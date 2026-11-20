@@ -28,8 +28,12 @@ fs::path MusicPaths_OriginalCpk()
 {
     const fs::path exe = Platform_ExeDir();
     const fs::path cwd = fs::current_path();
+    const fs::path user = Platform_UserDir();
     const fs::path cands[] = {
         fs::path(g_config.dataDir) / "files" / "sonic2010_0.cpk",
+        // Installed / AppData layout (game data under user dir).
+        user / "game" / "extracted" / "DATA" / "files" / "sonic2010_0.cpk",
+        user / "game" / "SNCP8P" / "files" / "sonic2010_0.cpk",
         // Portable Windows / redistributable: game data next to the exe.
         exe / "game" / "extracted" / "DATA" / "files" / "sonic2010_0.cpk",
         exe / "game" / "SNCP8P" / "files" / "sonic2010_0.cpk",

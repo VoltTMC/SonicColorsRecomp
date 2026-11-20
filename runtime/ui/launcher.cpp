@@ -333,7 +333,7 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
     ImGui::TextDisabled("%s", st.data.string().c_str());
     {
         const fs::path user = Platform_UserDir();
-        const bool portable = user == Platform_ExeDir() || EnvHas("SCR_PORTABLE", "BKR_PORTABLE");
+        const bool portable = Platform_IsPortable();
         if (portable)
             ImGui::TextDisabled("Portable mode · user data next to the executable");
         else
