@@ -15,6 +15,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -72,6 +73,46 @@ void PickAsset(const nlohmann::json& j, std::string& url, std::string& name, uin
         size = a.value("size", (uint64_t)0);
         break;
     }
+}
+
+constexpr int kDownloadKeep = 3;
+
+void PruneDownloads(const fs::path& dir)
+{
+    std::error_code ec;
+    if (!fs::is_directory(dir, ec)) return;
+    struct Entry
+    {
+        fs::path path;
+        fs::file_time_type mtime;
+    };
+    std::vector<Entry> files;
+    for (const auto& e : fs::directory_iterator(dir, ec))
+    {
+        if (ec || !e.is_regular_file(ec)) continue;
+        const auto ext = e.path().extension().string();
+        if (ext != ".AppImage" && ext != ".zip" && ext != ".part") continue;
+        files.push_back({ e.path(), e.last_write_time(ec) });
+    }
+    if ((int)files.size() <= kDownloadKeep) return;
+    std::sort(files.begin(), files.end(), [](const Entry& a, const Entry& b) { return a.mtime > b.mtime; });
+    for (size_t i = (size_t)kDownloadKeep; i < files.size(); i++)
+    {
+        fs::remove(files[i].path, ec);
+        ec.clear();
+    }
+}
+
+void MakeExecutableIfAppImage(const fs::path& path)
+{
+#ifndef _WIN32
+    const auto name = path.filename().string();
+    if (name.find(".AppImage") == std::string::npos) return;
+    std::error_code ec;
+    fs::permissions(path,
+                    fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec,
+                    fs::perm_options::add, ec);
+#endif
 }
 }   // namespace
 
@@ -206,6 +247,11 @@ void UpdateCheck_StartDownload()
         uint64_t maxBytes =
             size ? std::min<uint64_t>(kHttpMaxDownload, size * 2 + (uint64_t(1) << 20)) : kHttpMaxDownload;
         const bool ok = Http_Download(url, dest, err, &s_dlProgress, maxBytes);
+        if (ok)
+        {
+            MakeExecutableIfAppImage(dest);
+            PruneDownloads(dir);
+        }
         {
             std::lock_guard lk(s_dlMu);
             if (ok)
@@ -223,6 +269,12 @@ void UpdateCheck_StartDownload()
         s_dlDone.store(true, std::memory_order_release);
         s_dlBusy.store(false, std::memory_order_relaxed);
     }).detach();
+}
+
+void UpdateCheck_WaitDownload()
+{
+    while (s_dlBusy.load(std::memory_order_relaxed))
+        Platform_SleepMs(50);
 }
 
 bool UpdateCheck_DownloadBusy() { return s_dlBusy.load(std::memory_order_relaxed); }

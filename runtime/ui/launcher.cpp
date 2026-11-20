@@ -364,7 +364,10 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
         fs::create_directories(shots, ec);
         Shell_OpenFolder(shots);
     }
-    ImGui::TextDisabled("Game data, config/saves/logs, mods, and F12 screenshots.");
+    ImGui::SameLine();
+    if (ImGui::Button("Open downloads"))
+        UpdateCheck_OpenDownloadFolder();
+    ImGui::TextDisabled("Game data, config/saves/logs, mods, F12 screenshots, and update packages.");
 
     ImGui::Spacing();
     ImGui::SeparatorText("Controls");

@@ -98,6 +98,10 @@ static void PrintUsage()
         "  --check-updates         Query GitHub for the latest release tag and exit\n"
         "                          (exit 0 = up to date / check ok; 2 = newer available;\n"
         "                          1 = check failed). Does not download anything.\n"
+        "  --download-update       If a newer release exists, download the platform\n"
+        "                          package into user_data/downloads/ and exit\n"
+        "                          (0 = up to date or downloaded; 2 = newer but no\n"
+        "                          matching asset; 1 = failed). Does not install.\n"
         "  --portable              Keep config/saves/logs next to the executable\n"
         "                          (also: SCR_PORTABLE=1). Default for writable installs;\n"
         "                          useful for AppImage when you want a side-by-side folder.\n"
@@ -173,6 +177,35 @@ int main(int argc, char** argv)
                 msg.find("No release") != std::string::npos)
                 return 1;
             return UpdateCheck_NewerAvailable() ? 2 : 0;
+        }
+        if (a == "--download-update")
+        {
+            UpdateCheck_Start(true);
+            while (UpdateCheck_Busy())
+                Platform_SleepMs(50);
+            const std::string msg = UpdateCheck_Message();
+            std::printf("%s\n", msg.c_str());
+            if (!UpdateCheck_HasResult())
+                return 1;
+            if (msg.find("failed") != std::string::npos || msg.find("Could not") != std::string::npos ||
+                msg.find("No release") != std::string::npos)
+                return 1;
+            if (!UpdateCheck_NewerAvailable())
+                return 0;
+            if (!UpdateCheck_CanDownload())
+            {
+                std::printf("Newer release has no matching package for this platform.\n");
+                return 2;
+            }
+            UpdateCheck_StartDownload();
+            UpdateCheck_WaitDownload();
+            const std::string dl = UpdateCheck_DownloadMessage();
+            if (!dl.empty()) std::printf("%s\n", dl.c_str());
+            if (!UpdateCheck_DownloadOk())
+                return 1;
+            const std::string path = UpdateCheck_DownloadPath();
+            if (!path.empty()) std::printf("%s\n", path.c_str());
+            return 0;
         }
         if (a == "--list-audio-devices")
         {

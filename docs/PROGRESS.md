@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Updater polish
+
+- AppImage downloads get `+x`; `downloads/` keeps the newest 3 packages.
+- Play → Open downloads; CLI `--download-update`.
+
 ## 2026-11-20 — Log rotation + update package download
 
 - `SonicColorsRecomp.log` rotates to `.1.log`…`.5.log` on each launch.

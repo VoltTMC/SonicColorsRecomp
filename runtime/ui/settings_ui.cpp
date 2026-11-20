@@ -783,7 +783,7 @@ void SystemTab(SettingsHost host)
         if (ImGui::Button("Download update package"))
             UpdateCheck_StartDownload();
         ImGui::EndDisabled();
-        Help("Saves the AppImage or Windows zip under user_data/downloads/. Does not replace this running build — quit and install manually.");
+        Help("Saves the AppImage or Windows zip under user_data/downloads/ (keeps the newest 3; AppImages are marked executable). Does not replace this running build.");
         ImGui::SameLine();
         if (ImGui::Button("Open downloads folder"))
             UpdateCheck_OpenDownloadFolder();

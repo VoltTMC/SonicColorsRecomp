@@ -109,6 +109,11 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — Updater polish
+
+- `+x` on AppImage, prune downloads to 3, Play quick folder, `--download-update`.
+- Next: Win native checklist; optional auto-install / Recomp Achievements.
+
 ### 2026-11-20 — Log rotation + update package download
 
 - Keeps last 5 run logs; downloads AppImage/zip to `downloads/` without replacing the running build.

@@ -15,6 +15,8 @@ void UpdateCheck_OpenReleases();
 // Download the platform package into user_data/downloads/ (does not install/replace the running build).
 bool UpdateCheck_CanDownload();
 void UpdateCheck_StartDownload();
+// Blocking: wait for any in-flight download to finish (CLI).
+void UpdateCheck_WaitDownload();
 bool UpdateCheck_DownloadBusy();
 bool UpdateCheck_DownloadDone();
 bool UpdateCheck_DownloadOk();
