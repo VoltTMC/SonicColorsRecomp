@@ -25,6 +25,8 @@ stage() {   # stage <AppDir>: everything except the shader cache
     cp "$exe" "$bin/"
     strip --strip-debug "$bin/$APP" || true
     cp -L "$out/libSDL3.so.0" "$out/libdxvk_d3d11.so.0" "$out/libdxvk_dxgi.so.0" "$bin/"
+    # RecompLauncher reads /recomplauncher.json at the AppImage root (next to AppRun).
+    cp "$root/recomplauncher.json" "$appdir/recomplauncher.json"
     printf '#!/bin/sh\nhere=$(dirname "$(readlink -f "$0")")\nexport LD_LIBRARY_PATH="$here/usr/bin${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"\nexec "$here/usr/bin/%s" "$@"\n' "$APP" > "$appdir/AppRun"
     chmod +x "$appdir/AppRun"
     cp "$root/data/linux/soniccolorsrecomp.desktop" "$appdir/"

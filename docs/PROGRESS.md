@@ -1,5 +1,11 @@
 # Progress log
 
+## 2026-11-20 — RecompLauncher support
+
+- `recomplauncher.json` (levels 1–3): game check SNCP8P, prepare extract, settings, dumps from Redump.
+- CLI `--game` / `--prepare` (progress lines); `RECOMPLAUNCHER=1` skips built-in launcher.
+- Packaged into AppDir root and Windows zips; README badge.
+
 ## 2026-11-20 — Music Library Clear filters
 
 - One-click reset of search + Category/Variant/Replaced/World (persists cleared state).

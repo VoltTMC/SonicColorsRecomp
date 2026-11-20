@@ -4,6 +4,14 @@ Native **Linux and Windows** static recompilation of **Sonic Colors (Wii)** — 
 
 You must own the game. No disc image or assets are shipped in this repository or in published builds.
 
+[![Get it on RecompLauncher](https://recomplauncher.com/badge/get-it-on-recomplauncher.svg)](https://recomplauncher.com)
+
+## How to play
+
+1. Own **Sonic Colors (Wii) Europe / PAL** — disc ID `SNCP8P` (ISO, RVZ, WIA, WBFS, or GCZ).
+2. Install a build from [Releases](https://github.com/VoltTMC/SonicColorsRecomp/releases), or use [RecompLauncher](https://recomplauncher.com) (Easy Setup picks your disc and extracts game data).
+3. Or run the built-in launcher and choose **Install from disc image…**.
+
 ## Play a build (no compile)
 
 Download a package from [Releases](https://github.com/VoltTMC/SonicColorsRecomp/releases) when available:

@@ -26,6 +26,7 @@ cp "$exe" "$stage/"
 # Keep config/saves next to the exe for the redistributable ZIP (see Platform_UserDir).
 : > "$stage/portable.txt"
 cp "$root/README.md" "$stage/" 2>/dev/null || true
+cp "$root/recomplauncher.json" "$stage/"
 if [ -f "$root/docs/WINDOWS_FEATURE_PARITY.md" ]; then
     mkdir -p "$stage/docs"
     cp "$root/docs/WINDOWS_FEATURE_PARITY.md" "$stage/docs/"

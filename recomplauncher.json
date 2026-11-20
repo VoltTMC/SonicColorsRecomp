@@ -1,0 +1,216 @@
+{
+  "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
+  "format": 1,
+  "name": "Sonic Colors Recomp",
+  "repo": "VoltTMC/SonicColorsRecomp",
+  "game": {
+    "kind": "iso_or_folder",
+    "label": "Your Sonic Colors (Wii) Europe / PAL disc — SNCP8P. Disc image (.iso, .rvz, .wia, .wbfs, .gcz) or an extracted DATA folder with sys/boot.bin.",
+    "check": {
+      "ids": ["SNCP8P", "SNCP"],
+      "file": "sys/boot.bin"
+    },
+    "dumps": [
+      {
+        "name": "Europe (Sonic Colours)",
+        "size": 4699979776,
+        "crc32": "ec9129d3"
+      }
+    ]
+  },
+  "prepare": {
+    "program": [
+      "SonicColorsRecomp.exe",
+      "usr/bin/SonicColorsRecomp",
+      "SonicColorsRecomp"
+    ],
+    "args": ["--prepare", "--game={game}", "--data={install}/game/extracted/DATA"],
+    "label": "Extracting Sonic Colors game data from your disc",
+    "timeout": 600,
+    "done": ["{install}/game/extracted/DATA/sys/main.dol"],
+    "keeps_copy": true,
+    "version": "1"
+  },
+  "start": {
+    "program": [
+      "SonicColorsRecomp.exe",
+      "usr/bin/SonicColorsRecomp",
+      "SonicColorsRecomp"
+    ],
+    "args": [
+      "--skip-launcher",
+      "--data",
+      "{install}/game/extracted/DATA"
+    ]
+  },
+  "config": [
+    {
+      "id": "main",
+      "format": "ini",
+      "file": [
+        { "path": "{install}/config.ini", "if": "{install}/portable.txt" },
+        { "path": "{install}/config.ini", "if": "{install}/config.ini" },
+        { "path": "{local}/SonicColorsRecomp/config.ini" },
+        { "path": "{config}/SonicColorsRecomp/config.ini" }
+      ],
+      "game_path": "iso",
+      "always": {
+        "data": "{install}/game/extracted/DATA"
+      }
+    }
+  ],
+  "settings": [
+    {
+      "id": "frame_rate",
+      "label": "Frame rate",
+      "help": "30 is the original Wii pace. 60 doubles guest updates (some stages may behave differently). Uncapped removes the VI wait.",
+      "choices": [
+        { "label": "30 FPS (original)", "set": { "frame_rate": "30" } },
+        { "label": "60 FPS", "set": { "frame_rate": "60" } },
+        { "label": "Uncapped", "set": { "frame_rate": "0" } }
+      ],
+      "defaults": { "frame_rate": "30" }
+    },
+    {
+      "id": "internal_scale",
+      "label": "Internal resolution",
+      "help": "Multiplies the game's 640×528 framebuffer. 3× is a good default on most PCs.",
+      "choices": [
+        { "label": "1× (native)", "set": { "internal_scale": "1" } },
+        { "label": "2×", "set": { "internal_scale": "2" } },
+        { "label": "3×", "set": { "internal_scale": "3" } },
+        { "label": "4×", "set": { "internal_scale": "4" } },
+        { "label": "6×", "set": { "internal_scale": "6" } }
+      ],
+      "defaults": { "internal_scale": "3" }
+    },
+    {
+      "id": "window",
+      "label": "Window",
+      "help": "Fullscreen fills the desktop. Exclusive (Linux) changes the monitor mode. Windowed uses the configured size.",
+      "choices": [
+        { "label": "Windowed", "set": { "fullscreen": "false", "exclusive_fullscreen": "false" } },
+        { "label": "Borderless fullscreen", "set": { "fullscreen": "true", "exclusive_fullscreen": "false" } },
+        { "label": "Exclusive fullscreen", "set": { "fullscreen": "true", "exclusive_fullscreen": "true" } }
+      ],
+      "defaults": { "fullscreen": "false", "exclusive_fullscreen": "false" }
+    },
+    {
+      "id": "vsync",
+      "label": "VSync",
+      "help": "Limits presenting to the display refresh. Off can reduce input lag; on reduces tearing.",
+      "choices": [
+        { "label": "Off", "set": { "vsync": "false" } },
+        { "label": "On", "set": { "vsync": "true" } }
+      ],
+      "defaults": { "vsync": "false" }
+    },
+    {
+      "id": "widescreen",
+      "label": "Aspect",
+      "help": "16:9 matches the Wii widescreen setting. 4:3 letterboxes on wide monitors.",
+      "choices": [
+        { "label": "16:9", "set": { "widescreen": "true" } },
+        { "label": "4:3", "set": { "widescreen": "false" } }
+      ],
+      "defaults": { "widescreen": "true" }
+    },
+    {
+      "id": "integer_scale",
+      "label": "Integer scale",
+      "help": "Presents at whole multiples of 640×360 (16:9) or 640×480 (4:3) for sharp pixels.",
+      "choices": [
+        { "label": "Off", "set": { "integer_scale": "false" } },
+        { "label": "On", "set": { "integer_scale": "true" } }
+      ],
+      "defaults": { "integer_scale": "false" }
+    },
+    {
+      "id": "anisotropy",
+      "label": "Anisotropic filtering",
+      "help": "Sharpens textures at angles. 1 leaves the game's own filtering.",
+      "choices": [
+        { "label": "Off (1×)", "set": { "anisotropy": "1" } },
+        { "label": "4×", "set": { "anisotropy": "4" } },
+        { "label": "8×", "set": { "anisotropy": "8" } },
+        { "label": "16×", "set": { "anisotropy": "16" } }
+      ],
+      "defaults": { "anisotropy": "1" }
+    },
+    {
+      "id": "language",
+      "label": "Language",
+      "help": "In-game text and menus (Wii system language).",
+      "choices": [
+        { "label": "English", "set": { "language": "english" } },
+        { "label": "German", "set": { "language": "german" } },
+        { "label": "French", "set": { "language": "french" } },
+        { "label": "Spanish", "set": { "language": "spanish" } },
+        { "label": "Italian", "set": { "language": "italian" } },
+        { "label": "Dutch", "set": { "language": "dutch" } },
+        { "label": "Japanese", "set": { "language": "japanese" } }
+      ],
+      "defaults": { "language": "english" }
+    },
+    {
+      "id": "master_volume",
+      "label": "Master volume",
+      "help": "Host volume for the TV mix. Music and SFX share the original Wii mix.",
+      "choices": [
+        { "label": "100%", "set": { "master_volume": "1.000" } },
+        { "label": "75%", "set": { "master_volume": "0.750" } },
+        { "label": "50%", "set": { "master_volume": "0.500" } },
+        { "label": "25%", "set": { "master_volume": "0.250" } },
+        { "label": "Mute", "set": { "master_volume": "0.000" } }
+      ],
+      "defaults": { "master_volume": "1.000" }
+    },
+    {
+      "id": "show_fps",
+      "label": "FPS overlay",
+      "help": "On-screen FPS, Present time, GPU blit ms, and guest Hz while playing.",
+      "choices": [
+        { "label": "Off", "set": { "show_fps_overlay": "false" } },
+        { "label": "On", "set": { "show_fps_overlay": "true" } }
+      ],
+      "defaults": { "show_fps_overlay": "false" }
+    }
+  ],
+  "folders": {
+    "saves": [
+      { "path": "{install}/../userdata", "if": "{install}/../userdata" },
+      { "path": "{install}/nand", "if": "{install}/nand" },
+      { "path": "{local}/SonicColorsRecomp" }
+    ],
+    "logs": [
+      { "path": "{install}", "if": "{install}/SonicColorsRecomp.log" },
+      { "path": "{local}/SonicColorsRecomp" },
+      { "path": "{config}/SonicColorsRecomp" }
+    ],
+    "game": [
+      { "path": "{install}/game/extracted/DATA" }
+    ]
+  },
+  "saves": [
+    "{install}/../userdata",
+    "{install}/nand"
+  ],
+  "actions": [
+    {
+      "id": "open_logs",
+      "label": "Open logs",
+      "help": "Folder with SonicColorsRecomp.log.",
+      "open": "logs"
+    },
+    {
+      "id": "open_saves",
+      "label": "Open saves",
+      "help": "Host NAND / save tree.",
+      "open": "saves"
+    }
+  ],
+  "looks": {
+    "graphics": "d3d11",
+    "lines": 480
+  }
+}

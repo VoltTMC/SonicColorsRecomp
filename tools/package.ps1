@@ -14,6 +14,7 @@ New-Item -ItemType Directory -Force $dist | Out-Null
 New-Item -ItemType Directory -Force (Join-Path $dist "game") | Out-Null
 Copy-Item $exe $dist -Force
 Copy-Item (Join-Path $root "README.md") $dist -Force
+Copy-Item (Join-Path $root "recomplauncher.json") $dist -Force
 
 # GPL-2.0 and third-party notices (build copies many into out/licenses)
 $licDst = Join-Path $dist "licenses"
