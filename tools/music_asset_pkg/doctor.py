@@ -321,37 +321,84 @@ def probe_ffmpeg() -> dict:
     )
 
 
+def _vgmstream_decoder_banner(out: str) -> re.Match[str] | None:
+    """Match vgmstream-cli decoder banners (not vgmstream123 player)."""
+    return re.search(
+        r"vgmstream\s+CLI\s+decoder\s+(r?[\w.\-]+)"
+        r"|vgmstream-cli\s+(r?[\w.\-]+)"
+        r"|vgmstream(?:-cli)?\s+(r?\d[\w.\-]*)",
+        out,
+        re.I,
+    )
+
+
+def _looks_like_vgmstream_cli(out: str) -> bool:
+    low = out.lower()
+    # Decoder usage mentions -o outfile; the 123 player talks about audio drivers.
+    if "vgmstream123" in low and "player" in low:
+        return False
+    if "live output driver" in low:
+        return False
+    return ("outfile" in low or "-o <outfile" in low or "cli decoder" in low) and "vgmstream" in low
+
+
 def probe_vgmstream() -> dict:
+    # Decode-only tools. Never select vgmstream123 — it is a player and breaks
+    # preview/export (`-o out.wav` → "Live output driver does not take an output file").
     names = [
         "vgmstream-cli",
         "vgmstream_cli",
-        "vgmstream123",
         "vgmstream-cli.exe",
         "vgmstream_cli.exe",
-        "vgmstream123.exe",
     ]
-    info = _probe_tool(
-        names=names,
-        version_args=["-h"],
-        version_re=re.compile(r"vgmstream(?:-cli)?\s+(\d[\w.\-]*)", re.I),
-        label="vgmstream",
-    )
-    if info.get("ok"):
+    info: dict = {
+        "ok": False,
+        "status": "missing",
+        "path": None,
+        "version": None,
+        "error": None,
+        "label": "vgmstream",
+        "host": f"{platform.system()}-{platform.machine()}",
+        "searched": [],
+    }
+    hits, searched = _iter_app_candidates(names)
+    info["searched"] = searched
+    if not hits:
+        info["error"] = missing_tool_message("vgmstream", names, searched=searched)
         return info
-    path = info.get("path")
-    if path:
-        for args in (["-v"], ["--version"], []):
+
+    unusable: list[str] = []
+    for path in hits:
+        # `-h` often exits 1 while still printing a valid decoder banner.
+        for args in (["-h"], [], ["-v"], ["--version"]):
             rc, out = _run_version([path, *args] if args else [path])
             if rc is None:
-                continue
-            m = re.search(r"vgmstream(?:-cli)?\s+(\d[\w.\-]*)", out, re.I)
-            if m or (rc in (0, 1) and "usage" in out.lower()):
+                unusable.append(f"{path}: {out}")
+                break
+            m = _vgmstream_decoder_banner(out)
+            if m or (rc in (0, 1) and _looks_like_vgmstream_cli(out)):
                 info["ok"] = True
                 info["status"] = "ok"
+                info["path"] = path
                 info["version"] = m.group(1) if m else "unknown"
                 info["error"] = None
                 info["probe_output"] = out[:400]
+                if unusable:
+                    info["skipped_unusable"] = unusable
                 return info
+        else:
+            continue
+        unusable.append(f"{path}: not a vgmstream-cli decoder")
+
+    info["path"] = hits[0]
+    info["status"] = "unusable"
+    info["error"] = (
+        unusable[0]
+        if unusable
+        else "vgmstream-cli not usable (is vgmstream123 installed instead of vgmstream-cli?)"
+    )
+    if len(unusable) > 1:
+        info["skipped_unusable"] = unusable
     return info
 
 

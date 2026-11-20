@@ -236,6 +236,32 @@ set -e
 echo "$man_out" | grep -Fq "$managed/vgmstream-cli" || fail "managed bin miss: $man_out"
 ok "SCR_MUSIC_MANAGED_BIN discovery"
 
+# --- vgmstream-cli preferred over vgmstream123 player ---
+vgdir="$tmpdir/vgmix"
+mkdir -p "$vgdir"
+# Fake player that would break preview if selected (-o → ALSA error).
+printf '#!/bin/sh\necho "vgmstream123 player r999"; echo "Live output driver"; exit 0\n' > "$vgdir/vgmstream123"
+# Decoder banner (exit 1 is normal for -h / no args).
+printf '#!/bin/sh\necho "vgmstream CLI decoder r999-test"; echo "Usage: vgmstream-cli [-o <outfile.wav>]"; exit 1\n' \
+  > "$vgdir/vgmstream-cli"
+chmod +x "$vgdir/vgmstream123" "$vgdir/vgmstream-cli"
+set +e
+vg_out=$(
+  SCR_MUSIC_APP_BIN_ONLY=1 SCR_MUSIC_BIN="$vgdir" PYTHONPATH="$root/tools" \
+    "$PY" -c '
+from music_asset_pkg.doctor import probe_vgmstream, which_vgmstream
+info = probe_vgmstream()
+assert info.get("ok"), info
+assert "vgmstream-cli" in (info.get("path") or ""), info
+assert "vgmstream123" not in (info.get("path") or ""), info
+assert which_vgmstream() and "vgmstream-cli" in which_vgmstream()
+print("cli-prefer-ok", info.get("path"))
+' 2>&1
+)
+set -e
+echo "$vg_out" | grep -Fq cli-prefer-ok || fail "vgmstream-cli preference: $vg_out"
+ok "vgmstream-cli preferred over vgmstream123"
+
 # --- pinned Windows music deps manifest ---
 manf="$root/data/music_deps_manifest.json"
 [ -f "$manf" ] || fail "data/music_deps_manifest.json missing"

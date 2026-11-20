@@ -63,8 +63,15 @@ static fs::path ToolsDir()
 
 static bool ExistsFile(const fs::path& p)
 {
+#ifdef _WIN32
+    // Prefer Win32 attributes — more reliable than std::filesystem under Wine for
+    // LOCALAPPDATA-managed Python paths.
+    const DWORD a = GetFileAttributesW(p.wstring().c_str());
+    return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) == 0;
+#else
     std::error_code ec;
     return fs::is_regular_file(p, ec);
+#endif
 }
 
 static fs::path FindPython(const fs::path& root)

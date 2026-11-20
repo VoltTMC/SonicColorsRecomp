@@ -50,9 +50,11 @@ std::filesystem::path MusicTool_Find()
         for (const char* name : names)
         {
             std::error_code ec;
-            fs::path p = base / "tools" / name;
+            // Prefer beside the launcher first (dev out-windows / music_asset.exe + winpthread).
+            // Packaged builds still find tools/music_asset.exe on the next check.
+            fs::path p = base / name;
             if (fs::exists(p, ec)) return fs::weakly_canonical(p, ec);
-            p = base / name;
+            p = base / "tools" / name;
             if (fs::exists(p, ec)) return fs::weakly_canonical(p, ec);
         }
     }

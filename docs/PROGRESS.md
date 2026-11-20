@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Fix original preview picking vgmstream123
+
+- Doctor preferred `vgmstream123` (player) after `vgmstream-cli -h` exited 1; preview then failed with “Live output driver does not take an output file”.
+- Probe decode-only CLI (banner/`-o outfile`); never select 123. Win32 `ExistsFile` + prefer `music_asset.exe` beside the launcher for winpthread.
+
 ## 2026-11-20 — Music Library UI performance
 
 - Root cause of tab lag: per-frame full `Wav_Load` in list status + Windows `MusicDeps_Status`/LinkBins on every draw + unclipped list.
