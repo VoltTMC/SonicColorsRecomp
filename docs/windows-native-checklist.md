@@ -51,6 +51,7 @@ what you can prove — note that in any report.
 - [ ] Remap settings/screenshot/fullscreen hotkeys (System → Host hotkeys)
 - [ ] Resize launcher; quit and reopen — size restored
 - [ ] System → Check for updates (network); Open Releases page
+- [ ] FPS overlay shows guest Hz + memory; input hints for Jump/Slash/Pause
 - [ ] Move between monitors; DPI change (125% / 150%)
 
 ## User data

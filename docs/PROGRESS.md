@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Perf overlay detail + input hints
+
+- FPS overlay: guest Hz, RSS MB, audio underruns; `Platform_ProcessRssMb`.
+- System → Show input hints (Jump/Slash/Pause pad+key prompts).
+
 ## 2026-11-20 — Play-tab quick folders
 
 - Open game data / user data / mods; Copy version on the Play tab.

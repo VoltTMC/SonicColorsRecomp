@@ -5,6 +5,7 @@
 #include "../config.h"
 #include "../env.h"
 #include "../log.h"
+#include "../perf.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
 #include "../tas/tas.h"
@@ -14,6 +15,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdio>
 #include <mutex>
 #include <string>
 
@@ -103,7 +105,8 @@ void Overlay_Render(float w, float h)
             s_toast.clear();
     }
     const bool showFps = g_config.showFpsOverlay;
-    if (!s_open && toastMsg.empty() && !showFps) return;
+    const bool showHints = g_config.showInputHints;
+    if (!s_open && toastMsg.empty() && !showFps && !showHints) return;
 
     ImGui_ImplDX11_NewFrame();
     UiBackend_NewFrame();
@@ -119,6 +122,9 @@ void Overlay_Render(float w, float h)
         static float s_fpsSmooth = 0.0f;
         static float s_ftMs[120]{};
         static int s_ftN = 0, s_ftI = 0;
+        static uint64_t s_lastGuest = 0, s_lastGuestMs = 0;
+        static float s_guestHz = 0.0f;
+        static uint64_t s_lastRssMs = 0, s_rssMb = 0;
         const float dt = ImGui::GetIO().DeltaTime;
         const float inst = (dt > 0.0001f) ? (1.0f / dt) : 0.0f;
         s_fpsSmooth = (s_fpsSmooth <= 0.0f) ? inst : (s_fpsSmooth * 0.9f + inst * 0.1f);
@@ -130,6 +136,24 @@ void Overlay_Render(float w, float h)
         for (int i = 0; i < s_ftN; i++) worst = std::max(worst, s_ftMs[i]);
         // Approximate 1% low: reciprocal of the slowest recent frame in the window.
         const float onePct = (worst > 0.0001f) ? (1000.0f / worst) : 0.0f;
+        const uint64_t now = Platform_TickMs();
+        if (now - s_lastGuestMs >= 500)
+        {
+            const uint64_t g = Perf_GuestFrameIndex();
+            if (s_lastGuestMs && g >= s_lastGuest)
+            {
+                const double secs = (now - s_lastGuestMs) / 1000.0;
+                if (secs > 0.0) s_guestHz = (float)((g - s_lastGuest) / secs);
+            }
+            s_lastGuest = g;
+            s_lastGuestMs = now;
+        }
+        if (now - s_lastRssMs >= 1000)
+        {
+            s_rssMb = Platform_ProcessRssMb();
+            s_lastRssMs = now;
+        }
+        extern int g_audioUnderruns;
         const ImGuiViewport* vp = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + 12.0f * scale, vp->WorkPos.y + 12.0f * scale), ImGuiCond_Always);
         ImGui::SetNextWindowBgAlpha(0.55f);
@@ -137,7 +161,30 @@ void Overlay_Render(float w, float h)
                                  ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove |
                                  ImGuiWindowFlags_NoInputs;
         if (ImGui::Begin("##scr_fps", nullptr, flags))
+        {
             ImGui::Text("%.0f FPS  ·  %.1f ms  ·  1%% ~%.0f", s_fpsSmooth, ftMs, onePct);
+            ImGui::Text("guest ~%.0f Hz  ·  %llu MB  ·  aud underrun %d", s_guestHz,
+                        (unsigned long long)s_rssMb, g_audioUnderruns);
+        }
+        ImGui::End();
+    }
+
+    if (showHints && !s_open)
+    {
+        const ImGuiViewport* vp = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + 12.0f * scale, vp->WorkPos.y + vp->WorkSize.y - 12.0f * scale),
+                                ImGuiCond_Always, ImVec2(0.0f, 1.0f));
+        ImGui::SetNextWindowBgAlpha(0.50f);
+        ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+                                 ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove |
+                                 ImGuiWindowFlags_NoInputs;
+        if (ImGui::Begin("##scr_hints", nullptr, flags))
+        {
+            ImGui::Text("Jump  %s / %s", g_config.bind[0].c_str(), g_config.keys[0].c_str());
+            ImGui::Text("Slash %s / %s", g_config.bind[1].c_str(), g_config.keys[1].c_str());
+            ImGui::Text("Pause %s / %s", g_config.bind[6].c_str(), g_config.keys[6].c_str());
+            ImGui::TextDisabled("Settings %s · View/Back", Config_HotkeyName(g_config.hotkeySettings, "F1").c_str());
+        }
         ImGui::End();
     }
 

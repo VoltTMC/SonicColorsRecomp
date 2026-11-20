@@ -115,6 +115,7 @@ int main()
     CHECK(Config_Text(g_config).find("trigger_deadzone") != std::string::npos);
 
     g_config.showFpsOverlay = true;
+    g_config.showInputHints = true;
     g_config.autoBackupSavesOnLaunch = true;
     g_config.uiScale = 1.25f;
     g_config.hotkeySettings = "F2";
@@ -124,7 +125,9 @@ int main()
     g_config = Config{};
     Config_Load(tmp.string());
     CHECK(g_config.showFpsOverlay);
+    CHECK(g_config.showInputHints);
     CHECK(g_config.autoBackupSavesOnLaunch);
+    CHECK(Config_Text(g_config).find("show_input_hints") != std::string::npos);
     CHECK(std::fabs(g_config.uiScale - 1.25f) < 0.001f);
     CHECK(g_config.hotkeySettings == "F2");
     CHECK(g_config.hotkeyScreenshot == "F8");

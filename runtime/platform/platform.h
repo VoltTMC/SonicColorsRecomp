@@ -59,6 +59,8 @@ uint64_t Platform_TickMs();          // milliseconds since some point (GetTickCo
 uint64_t Platform_PerfCounter();     // high-resolution counter
 uint64_t Platform_PerfFrequency();   // its ticks per second
 void Platform_SleepMs(uint32_t ms);
+// Working-set / RSS of this process in mebibytes (0 if unknown).
+uint64_t Platform_ProcessRssMb();
 
 // ---------------------------------------------------------------- threads
 enum class ThreadPriority { BelowNormal, TimeCritical };

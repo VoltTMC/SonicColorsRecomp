@@ -79,7 +79,8 @@ Last updated: 2026-11-20 (continuous improvement audit; stick deadzone; spiral g
 | Remappable host hotkeys | yes | yes | FULL `[source]` | F1–F12 settings/screenshot/fullscreen |
 | Persist launcher tab | yes | yes | FULL `[source]` | `launcher_tab` in config.ini |
 | Persist launcher window size | yes | yes | FULL `[source]` | `launcher_width` / `launcher_height` |
-| FPS overlay (ms / 1% approx) | yes | yes | FULL `[source]` | Host present timing |
+| FPS overlay (ms / 1% / guest / RSS) | yes | yes | FULL `[source]` | Host present + process RSS |
+| On-screen input hints | yes | yes | FULL `[source]` | Jump/Slash/Pause pad+key text |
 | Check for updates (GitHub) | yes | yes | FULL `[source]` | Tag compare only; no auto-install |
 | Play-tab quick folders | yes | yes | FULL `[source]` | Game data / user data / mods |
 | Rumble | yes | yes | UNVERIFIED | `[native]` |

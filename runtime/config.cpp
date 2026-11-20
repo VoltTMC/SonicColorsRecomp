@@ -74,6 +74,8 @@ std::string Config_Text(const Config& c)
     s += std::format("pause_on_focus_loss = {}\n", Bool(c.pauseOnFocusLoss));
     s += "; draw an FPS counter while playing (host present rate)\n";
     s += std::format("show_fps_overlay = {}\n", Bool(c.showFpsOverlay));
+    s += "; show Jump/Slash/Pause pad+key prompts while playing\n";
+    s += std::format("show_input_hints = {}\n", Bool(c.showInputHints));
     s += "; copy the save tree into save_backups/ each time the game starts (Play)\n";
     s += std::format("auto_backup_saves_on_launch = {}\n", Bool(c.autoBackupSavesOnLaunch));
     s += "; launcher and in-game settings UI scale (0.75–1.50)\n";
@@ -515,6 +517,7 @@ void Config_Load(const std::string& path)
             if (key == "language") c.language = ParseLanguage(val);
             else if (key == "pause_on_focus_loss") c.pauseOnFocusLoss = ParseBool(val);
             else if (key == "show_fps_overlay") c.showFpsOverlay = ParseBool(val);
+            else if (key == "show_input_hints") c.showInputHints = ParseBool(val);
             else if (key == "auto_backup_saves_on_launch") c.autoBackupSavesOnLaunch = ParseBool(val);
             else if (key == "ui_scale")
                 c.uiScale = std::clamp(std::strtof(val.c_str(), nullptr), 0.75f, 1.50f);

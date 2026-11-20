@@ -29,6 +29,7 @@ struct Config
     int language = 1;                // Wii IPL.LNG: 0 ja, 1 en, 2 de, 3 fr, 4 es, 5 it, 6 nl
     bool pauseOnFocusLoss = false;   // freeze the game while the window is in the background
     bool showFpsOverlay = false;     // on-screen FPS while playing (host present rate)
+    bool showInputHints = false;     // corner prompts for Jump / Slash / Pause binds
     bool autoBackupSavesOnLaunch = false; // copy save tree to save_backups/ before each Play
     float uiScale = 1.0f;                // launcher + overlay text/UI scale (0.75–1.50)
     // Host UI hotkeys (F1–F12 names). Escape still closes the overlay.

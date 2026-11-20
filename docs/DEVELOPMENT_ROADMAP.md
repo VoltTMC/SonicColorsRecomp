@@ -39,13 +39,13 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 | 10 | Parity | Native Win WASAPI / DPI / pad checklist | UNVERIFIED |
 | 11 | Launcher | First-run setup wizard polish | Partial |
 | 12 | Performance | Frame-time / startup benchmarks doc | **Done** (`docs/PERFORMANCE.md`) |
-| 13 | QoL | Controller prompt glyphs in overlay | Open |
+| 13 | QoL | Controller prompt glyphs in overlay | Text hints **Done**; glyph art open |
 | 14 | Accessibility | Remappable F1/F12 / UI scale | **Done** (UI scale + F-key hotkeys) |
 | 15 | Mods | Mod profiles (enable sets) | **Done** (2026-11-20) |
 | 16 | Saves | Auto-backup on launch (config) | **Done** (2026-11-20); stage-clear still open |
 | 17 | Packaging | Auto-updater / version check | Check-for-updates **Done**; auto-download open |
 | 18 | Launcher | Resize / HiDPI stress-test checklist | Size persist **Done**; formal stress doc open |
-| 19 | Runtime | In-game performance overlay (CPU/GPU) | FPS+ms+1% **Done**; CPU/GPU counters open |
+| 19 | Runtime | In-game performance overlay (CPU/GPU) | FPS+ms+1%+guest+RSS+audio **Done**; GPU counters open |
 | 20 | Distribution | Signed Windows builds / installer | Open |
 
 ---
@@ -109,10 +109,14 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — Perf overlay detail + input hints
+
+- Guest Hz / RSS / audio underruns on FPS overlay; on-screen Jump/Slash/Pause hints.
+- Next: Win native checklist items; GPU counters; glyph art for prompts.
+
 ### 2026-11-20 — Launcher size + FPS detail + update check
 
 - Persist launcher WxH; FPS overlay ms/1%; System update check vs GitHub Releases.
-- Next: Win native checklist items; controller prompt glyphs; CPU/GPU counters.
 
 ### 2026-11-20 — Persist launcher tab + Music empty state + startup log
 

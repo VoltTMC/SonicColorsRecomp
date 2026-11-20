@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <windows.h>
+#include <psapi.h>
 #include <timeapi.h>
 
 namespace fs = std::filesystem;
@@ -250,6 +251,14 @@ uint64_t Platform_PerfFrequency()
     LARGE_INTEGER f;
     QueryPerformanceFrequency(&f);
     return (uint64_t)f.QuadPart;
+}
+
+uint64_t Platform_ProcessRssMb()
+{
+    PROCESS_MEMORY_COUNTERS pmc{};
+    pmc.cb = sizeof(pmc);
+    if (!GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) return 0;
+    return (uint64_t)(pmc.WorkingSetSize / (1024ull * 1024ull));
 }
 
 void Platform_SleepMs(uint32_t ms) { Sleep(ms); }

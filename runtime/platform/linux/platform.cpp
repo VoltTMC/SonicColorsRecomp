@@ -290,6 +290,20 @@ uint64_t Platform_TickMs() { return NowNs() / 1000000; }
 uint64_t Platform_PerfCounter() { return NowNs(); }
 uint64_t Platform_PerfFrequency() { return 1000000000ull; }
 
+uint64_t Platform_ProcessRssMb()
+{
+    FILE* f = fopen("/proc/self/status", "r");
+    if (!f) return 0;
+    char line[256];
+    uint64_t kb = 0;
+    while (fgets(line, sizeof(line), f))
+    {
+        if (sscanf(line, "VmRSS: %llu", (unsigned long long*)&kb) == 1) break;
+    }
+    fclose(f);
+    return kb / 1024;
+}
+
 void Platform_SleepMs(uint32_t ms)
 {
     timespec ts{ (time_t)(ms / 1000), (long)(ms % 1000) * 1000000 };
