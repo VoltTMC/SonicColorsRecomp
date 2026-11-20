@@ -52,6 +52,7 @@ what you can prove — note that in any report.
 - [ ] Resize launcher; quit and reopen — size restored
 - [ ] System → Check for updates (network); Open Releases page; Download update package → `downloads\` (newest 3 kept)
 - [ ] Play → Open downloads; optional CLI `--download-update`
+- [ ] System → Save diagnostic report (includes `.1.log` / free space); or `--save-diagnostics`
 - [ ] FPS overlay shows guest Hz + memory; input hints for Jump/Slash/Pause
 - [ ] Save/load a **video profile** (Settings → Video)
 - [ ] Missing/corrupt data: Releases / log recovery buttons work

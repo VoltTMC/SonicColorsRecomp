@@ -43,3 +43,7 @@ void SettingsUI_AddFallbackFonts();
 
 // Dark theme with Sonic-blue accents.
 void SettingsUI_ApplyStyle();
+
+// Writes diagnostics/scr_diag_*.txt (version, paths, free space, config, log tails).
+// Empty string on failure (error filled).
+std::string SettingsUI_WriteDiagnosticReport(std::string& error);

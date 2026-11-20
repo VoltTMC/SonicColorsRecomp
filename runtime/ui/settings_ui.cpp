@@ -19,6 +19,7 @@
 #include <chrono>
 #include <deque>
 #include <fstream>
+#include <ostream>
 
 #include <imgui.h>
 
@@ -559,80 +560,6 @@ void AudioTab(SettingsHost host)
           "Play the sounds the game sends to the Wii Remote speaker through the PC.");
 }
 
-std::string WriteDiagnosticReport(std::string& error)
-{
-    fs::path dir = Platform_UserDir() / "diagnostics";
-    std::error_code ec;
-    fs::create_directories(dir, ec);
-    if (ec)
-    {
-        error = "Cannot create diagnostics folder: " + ec.message();
-        return {};
-    }
-    using clock = std::chrono::system_clock;
-    auto t = clock::to_time_t(clock::now());
-    std::tm tm{};
-#ifdef _WIN32
-    localtime_s(&tm, &t);
-#else
-    localtime_r(&t, &tm);
-#endif
-    fs::path path = dir / std::format("scr_diag_{:04d}{:02d}{:02d}_{:02d}{:02d}{:02d}.txt", tm.tm_year + 1900,
-                                      tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
-    std::ofstream out(path);
-    if (!out)
-    {
-        error = "Cannot write " + path.string();
-        return {};
-    }
-    out << "Sonic Colors Recomp — diagnostic report\n";
-    out << "version: " << g_version << "\n";
-    out << "user_dir: " << Platform_UserDir().string() << "\n";
-    out << "config: " << Config_Path() << "\n";
-    out << "log: " << Log_Path() << "\n";
-    out << "nand: " << nand_paths::ActiveRoot().string() << "\n";
-    out << "pads: " << Pad_Count() << "\n";
-    {
-        const std::string& dev = AudioOut_CurrentDeviceName();
-        out << "audio_device: " << (dev.empty() ? "(default)" : dev) << "\n";
-    }
-    out << "master_volume: " << g_config.masterVolume << "\n";
-    out << "frame_rate: " << g_config.frameRate << " host_fps_cap: " << g_config.hostFpsCap << "\n";
-    out << "save_backups: " << nand_paths::ListBackups().size()
-        << " (keep " << g_config.saveBackupKeep << ")\n";
-    out << "screenshot_keep: " << g_config.screenshotKeep << "\n";
-    if (UpdateCheck_HasResult())
-        out << "update_check: " << UpdateCheck_Message() << "\n";
-        if (!UpdateCheck_DownloadMessage().empty())
-            out << "update_download: " << UpdateCheck_DownloadMessage() << "\n";
-        if (!UpdateCheck_DownloadPath().empty())
-            out << "update_package: " << UpdateCheck_DownloadPath() << "\n";
-    out << "\n--- config.ini ---\n";
-    out << Config_Text(g_config);
-    out << "\n--- log (last 200 lines) ---\n";
-    if (!Log_Path().empty())
-    {
-        std::ifstream in(Log_Path());
-        std::deque<std::string> tail;
-        std::string line;
-        while (std::getline(in, line))
-        {
-            tail.push_back(line);
-            if (tail.size() > 200) tail.pop_front();
-        }
-        for (auto& l : tail) out << l << "\n";
-    }
-    else
-        out << "(log not open)\n";
-    out.close();
-    if (!out)
-    {
-        error = "Write failed for " + path.string();
-        return {};
-    }
-    return path.string();
-}
-
 void SystemTab(SettingsHost host)
 {
     Config& c = g_config;
@@ -833,7 +760,7 @@ void SystemTab(SettingsHost host)
         if (ImGui::Button("Save diagnostic report"))
         {
             std::string err;
-            std::string path = WriteDiagnosticReport(err);
+            std::string path = SettingsUI_WriteDiagnosticReport(err);
             diagMsg = path.empty() ? err : ("Wrote " + path);
             if (!path.empty())
             {
@@ -843,7 +770,7 @@ void SystemTab(SettingsHost host)
                 diagMsg += " (path copied to clipboard)";
             }
         }
-        Help("Writes version, paths, config.ini and the last 200 log lines to diagnostics/ for bug reports. Copies the file path to the clipboard.");
+        Help("Writes version, paths, free space, config.ini, current + previous (.1) log tails to diagnostics/. Copies the file path to the clipboard. Also: --save-diagnostics.");
         if (!diagMsg.empty()) ImGui::TextWrapped("%s", diagMsg.c_str());
     }
 
@@ -940,6 +867,131 @@ void MusicTab(SettingsHost host)
     if (help) s_help = help;
 }
 }   // namespace
+
+namespace
+{
+void AppendLogTail(std::ostream& out, const fs::path& logPath, size_t maxLines)
+{
+    std::ifstream in(logPath);
+    if (!in)
+    {
+        out << "(cannot read " << logPath.string() << ")\n";
+        return;
+    }
+    std::deque<std::string> tail;
+    std::string line;
+    while (std::getline(in, line))
+    {
+        tail.push_back(line);
+        if (tail.size() > maxLines) tail.pop_front();
+    }
+    for (auto& l : tail) out << l << "\n";
+}
+}   // namespace
+
+std::string SettingsUI_WriteDiagnosticReport(std::string& error)
+{
+    fs::path dir = Platform_UserDir() / "diagnostics";
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    if (ec)
+    {
+        error = "Cannot create diagnostics folder: " + ec.message();
+        return {};
+    }
+    using clock = std::chrono::system_clock;
+    auto t = clock::to_time_t(clock::now());
+    std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &t);
+#else
+    localtime_r(&t, &tm);
+#endif
+    fs::path path = dir / std::format("scr_diag_{:04d}{:02d}{:02d}_{:02d}{:02d}{:02d}.txt", tm.tm_year + 1900,
+                                      tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+    std::ofstream out(path);
+    if (!out)
+    {
+        error = "Cannot write " + path.string();
+        return {};
+    }
+    const fs::path user = Platform_UserDir();
+    const bool portable = user == Platform_ExeDir() || EnvHas("SCR_PORTABLE", "BKR_PORTABLE");
+    out << "Sonic Colors Recomp — diagnostic report\n";
+    out << "version: " << g_version << "\n";
+#ifdef _WIN32
+    out << "host: windows\n";
+#else
+    out << "host: linux\n";
+#endif
+    out << "user_dir: " << user.string() << (portable ? " (portable)\n" : "\n");
+    out << "exe_dir: " << Platform_ExeDir().string() << "\n";
+    {
+        const fs::space_info si = fs::space(user, ec);
+        if (!ec)
+            out << "free_space: " << std::format("{:.1f} GB", (double)si.available / (1024.0 * 1024.0 * 1024.0))
+                << "\n";
+        else
+            out << "free_space: (unavailable)\n";
+    }
+    out << "config: " << Config_Path() << "\n";
+    out << "log: " << Log_Path() << "\n";
+    out << "nand: " << nand_paths::ActiveRoot().string() << "\n";
+    out << "data: " << g_config.dataDir << "\n";
+    out << "pads: " << Pad_Count() << "\n";
+    {
+        const std::string& dev = AudioOut_CurrentDeviceName();
+        out << "audio_device: " << (dev.empty() ? "(default)" : dev) << "\n";
+    }
+    out << "master_volume: " << g_config.masterVolume << "\n";
+    out << "frame_rate: " << g_config.frameRate << " host_fps_cap: " << g_config.hostFpsCap << "\n";
+    out << "save_backups: " << nand_paths::ListBackups().size()
+        << " (keep " << g_config.saveBackupKeep << ")\n";
+    out << "screenshot_keep: " << g_config.screenshotKeep << "\n";
+    {
+        fs::path mark = user / "last_abnormal_exit.txt";
+        if (fs::is_regular_file(mark, ec))
+        {
+            std::ifstream in(mark);
+            std::string line;
+            std::getline(in, line);
+            out << "abnormal_exit_marker: " << (line.empty() ? "(present)" : line) << "\n";
+        }
+        else
+            out << "abnormal_exit_marker: (none)\n";
+    }
+    if (UpdateCheck_HasResult())
+    {
+        out << "update_check: " << UpdateCheck_Message() << "\n";
+        if (!UpdateCheck_DownloadMessage().empty())
+            out << "update_download: " << UpdateCheck_DownloadMessage() << "\n";
+        if (!UpdateCheck_DownloadPath().empty())
+            out << "update_package: " << UpdateCheck_DownloadPath() << "\n";
+    }
+    out << "\n--- config.ini ---\n";
+    out << Config_Text(g_config);
+    out << "\n--- log (last 200 lines) ---\n";
+    if (!Log_Path().empty())
+        AppendLogTail(out, Log_Path(), 200);
+    else
+        out << "(log not open)\n";
+    if (!Log_Path().empty())
+    {
+        fs::path prev = fs::path(Log_Path()).parent_path() / "SonicColorsRecomp.1.log";
+        if (fs::is_regular_file(prev, ec))
+        {
+            out << "\n--- previous log .1.log (last 200 lines) ---\n";
+            AppendLogTail(out, prev, 200);
+        }
+    }
+    out.close();
+    if (!out)
+    {
+        error = "Write failed for " + path.string();
+        return {};
+    }
+    return path.string();
+}
 
 void SettingsUI_SetRelease(const std::string& gameId, const std::string& dataDir) { ModsUI_SetRelease(gameId, dataDir); }
 std::vector<std::string> SettingsUI_ActiveMods() { return ModsUI_ActiveMods(); }

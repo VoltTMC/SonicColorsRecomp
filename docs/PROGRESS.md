@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Richer diagnostics + CLI
+
+- Reports include host/portable, free space, data path, abnormal-exit marker, `.1.log` tail.
+- Fixed update-download lines gated on HasResult; CLI `--save-diagnostics`.
+
 ## 2026-11-20 — Install free-space check
 
 - `Install_Run` rejects early when the destination volume cannot hold the extract (2× if reinstall).

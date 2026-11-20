@@ -19,6 +19,7 @@
 #include "install/verify.h"
 #include "region.h"
 #include "platform/platform.h"
+#include "ui/settings_ui.h"
 #include "ui/update_check.h"
 #include "version.h"
 
@@ -102,6 +103,8 @@ static void PrintUsage()
         "                          package into user_data/downloads/ and exit\n"
         "                          (0 = up to date or downloaded; 2 = newer but no\n"
         "                          matching asset; 1 = failed). Does not install.\n"
+        "  --save-diagnostics      Write diagnostics/scr_diag_*.txt (config + log tails)\n"
+        "                          and print its path; exit 0 on success, 1 on failure.\n"
         "  --portable              Keep config/saves/logs next to the executable\n"
         "                          (also: SCR_PORTABLE=1). Default for writable installs;\n"
         "                          useful for AppImage when you want a side-by-side folder.\n"
@@ -231,7 +234,7 @@ int main(int argc, char** argv)
     std::string nandDir;   // --nand: separate save data (test runs)
     // command line overrides for this run only (never written to config.ini)
     bool fps60 = false, singleCore = false, skipLauncher = false, showFps = false, showHints = false;
-    bool prepare = false;
+    bool prepare = false, saveDiagnostics = false;
     int scaleOverride = 0;
     int fpsOverride = -1;   // --frame-rate 30|60|0; --60fps sets 60
     auto applyGamePath = [&](const std::string& g) {
@@ -252,6 +255,7 @@ int main(int argc, char** argv)
         else if (a == "--game" && i + 1 < argc) applyGamePath(argv[++i]);
         else if (a.size() > 7 && a.compare(0, 7, "--game=") == 0) applyGamePath(a.substr(7));
         else if (a == "--prepare") prepare = true;
+        else if (a == "--save-diagnostics") saveDiagnostics = true;
         else if (a == "--verbose") g_logLevel = 0;
         else if (a == "--show-fps") showFps = true;
         else if (a == "--show-hints") showHints = true;
@@ -351,6 +355,19 @@ int main(int argc, char** argv)
     if (const char* mode = std::getenv("RECOMPLAUNCHER_MODE");
         mode && !std::strcmp(mode, "bigpicture") && !g_config.fullscreen)
         g_config.fullscreen = true;
+
+    if (saveDiagnostics)
+    {
+        std::string err;
+        const std::string path = SettingsUI_WriteDiagnosticReport(err);
+        if (path.empty())
+        {
+            std::fprintf(stderr, "save-diagnostics failed: %s\n", err.c_str());
+            return 1;
+        }
+        std::printf("%s\n", path.c_str());
+        return 0;
+    }
 
     if (prepare)
     {

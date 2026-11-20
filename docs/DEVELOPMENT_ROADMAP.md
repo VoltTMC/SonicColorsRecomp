@@ -109,6 +109,11 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — Richer diagnostics + CLI
+
+- Diagnostic reports add free space / `.1.log` / crash marker; `--save-diagnostics` for scripts.
+- Next: Win native checklist; optional auto-install / Recomp Achievements.
+
 ### 2026-11-20 — Install free-space check
 
 - Early reject with GB needed vs free; installer shows free space + reinstall headroom note.
