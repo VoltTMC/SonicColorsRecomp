@@ -603,6 +603,10 @@ std::string WriteDiagnosticReport(std::string& error)
     out << "screenshot_keep: " << g_config.screenshotKeep << "\n";
     if (UpdateCheck_HasResult())
         out << "update_check: " << UpdateCheck_Message() << "\n";
+        if (!UpdateCheck_DownloadMessage().empty())
+            out << "update_download: " << UpdateCheck_DownloadMessage() << "\n";
+        if (!UpdateCheck_DownloadPath().empty())
+            out << "update_package: " << UpdateCheck_DownloadPath() << "\n";
     out << "\n--- config.ini ---\n";
     out << Config_Text(g_config);
     out << "\n--- log (last 200 lines) ---\n";
@@ -771,12 +775,28 @@ void SystemTab(SettingsHost host)
         if (ImGui::Button("Check for updates"))
             UpdateCheck_Start(true);
         ImGui::EndDisabled();
-        Help("Asks GitHub for the latest published release tag. Does not download or install anything.");
+        Help("Asks GitHub for the latest published release tag.");
         ImGui::SameLine();
         if (ImGui::Button("Open Releases page"))
             UpdateCheck_OpenReleases();
+        ImGui::BeginDisabled(!UpdateCheck_CanDownload() || UpdateCheck_DownloadBusy());
+        if (ImGui::Button("Download update package"))
+            UpdateCheck_StartDownload();
+        ImGui::EndDisabled();
+        Help("Saves the AppImage or Windows zip under user_data/downloads/. Does not replace this running build — quit and install manually.");
+        ImGui::SameLine();
+        if (ImGui::Button("Open downloads folder"))
+            UpdateCheck_OpenDownloadFolder();
         const std::string updateMsg = UpdateCheck_Message();
         if (!updateMsg.empty()) ImGui::TextWrapped("%s", updateMsg.c_str());
+        if (UpdateCheck_DownloadBusy() || UpdateCheck_DownloadDone())
+        {
+            const float p = UpdateCheck_DownloadProgress();
+            if (p >= 0.f)
+                ImGui::ProgressBar(p, ImVec2(-1, 0));
+            const std::string dl = UpdateCheck_DownloadMessage();
+            if (!dl.empty()) ImGui::TextWrapped("%s", dl.c_str());
+        }
     }
 
     ImGui::SeparatorText("Diagnostics");
@@ -791,7 +811,7 @@ void SystemTab(SettingsHost host)
                 fs::path p(logPath);
                 Shell_OpenFolder(p.has_parent_path() ? p.parent_path() : p);
             }
-            Help("Opens the folder that contains SonicColorsRecomp.log (crash and runtime details).");
+            Help("Opens the folder with SonicColorsRecomp.log plus the last few runs (.1.log … .5.log).");
         }
         else
             ImGui::TextDisabled("Log path not available yet.");

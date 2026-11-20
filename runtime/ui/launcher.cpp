@@ -185,7 +185,21 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
         ImGui::SameLine();
         if (ImGui::SmallButton("Open Releases"))
             UpdateCheck_OpenReleases();
-        ImGui::TextDisabled("Download is manual — nothing is installed automatically.");
+        ImGui::BeginDisabled(!UpdateCheck_CanDownload() || UpdateCheck_DownloadBusy());
+        if (ImGui::SmallButton("Download package"))
+            UpdateCheck_StartDownload();
+        ImGui::EndDisabled();
+        if (UpdateCheck_DownloadBusy() || UpdateCheck_DownloadDone())
+        {
+            const float p = UpdateCheck_DownloadProgress();
+            if (p >= 0.f) ImGui::ProgressBar(p, ImVec2(-1, 0));
+            const std::string dl = UpdateCheck_DownloadMessage();
+            if (!dl.empty()) ImGui::TextWrapped("%s", dl.c_str());
+            if (UpdateCheck_DownloadOk() && ImGui::SmallButton("Open downloads folder"))
+                UpdateCheck_OpenDownloadFolder();
+        }
+        else
+            ImGui::TextDisabled("Downloads to user_data/downloads/ — replace the install yourself, then relaunch.");
         ImGui::Spacing();
     }
     const ImVec4 green(0.45f, 0.80f, 0.40f, 1), red(0.90f, 0.40f, 0.30f, 1);

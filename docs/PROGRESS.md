@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Log rotation + update package download
+
+- `SonicColorsRecomp.log` rotates to `.1.log`…`.5.log` on each launch.
+- Settings / Play: Download update package → `user_data/downloads/` (no auto-install).
+
 ## 2026-11-20 — RecompLauncher support
 
 - `recomplauncher.json` (levels 1–3): game check SNCP8P, prepare extract, settings, dumps from Redump.
