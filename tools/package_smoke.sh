@@ -41,6 +41,8 @@ help_out=$("$appdir/AppRun" --help 2>&1) || fail "--help exited non-zero"
 echo "$help_out" | grep -Fq "Sonic Colors Recomp" || fail "--help missing title"
 echo "$help_out" | grep -Fq -- "--skip-launcher" || fail "--help missing --skip-launcher"
 echo "$help_out" | grep -Fq -- "--portable" || fail "--help missing --portable"
+echo "$help_out" | grep -Fq -- "--show-fps" || fail "--help missing --show-fps"
+echo "$help_out" | grep -Fq -- "--show-hints" || fail "--help missing --show-hints"
 ok "--help"
 
 ver_out=$("$appdir/AppRun" --version 2>&1) || fail "--version exited non-zero"
