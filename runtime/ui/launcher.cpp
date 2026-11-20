@@ -222,7 +222,8 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
     if (st.status == DataStatus::Missing)
     {
         ImGui::TextWrapped("Install Sonic Colors from your own Wii disc image to play. "
-                           "Supported: %s. Formats: ISO, RVZ, WIA, WBFS.",
+                           "Supported: %s. Formats: ISO, RVZ, WIA, WBFS, GCZ. "
+                           "USA (SNCE8P) and Japan (SNCJ8P) are not supported yet.",
                            kReleaseNames);
         ImGui::Spacing();
         ImGui::BulletText("Click Install from disc image… below (or use a nearby ISO if found).");

@@ -30,7 +30,7 @@ bool Region_Select(const std::string& gameId, std::string& error)
     const GameRelease* rel = Release_Find(gameId);
     if (!rel)
     {
-        error = std::format("the installed game ({}) is not Sonic Colors ({})", gameId, kReleaseNames);
+        error = Release_UnsupportedMessage(gameId);
         return false;
     }
     const PPCRegionCode* code = nullptr;

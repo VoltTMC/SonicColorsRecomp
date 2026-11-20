@@ -59,8 +59,7 @@ const GameRelease* Installed(const fs::path& data, std::string& problem)
     std::string id = Release_InstalledId(data);
     const GameRelease* rel = Release_Find(id);
     if (!rel)
-        problem = id.empty() ? "sys/boot.bin is missing"
-                             : "the installed game (" + id + ") is not Sonic Colors (" + kReleaseNames + ")";
+        problem = id.empty() ? "sys/boot.bin is missing" : Release_UnsupportedMessage(id);
     return rel;
 }
 }   // namespace

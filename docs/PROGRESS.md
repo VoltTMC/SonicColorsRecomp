@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Wrong-region disc messaging
+
+- USA (SNCE*) / Japan (SNCJ*) discs get explicit “not supported yet” errors on install, verify, and region select.
+- Installer / Play missing-data copy names supported PAL SNCP8P vs USA/JP.
+
 ## 2026-11-20 — Updater polish
 
 - AppImage downloads get `+x`; `downloads/` keeps the newest 3 packages.

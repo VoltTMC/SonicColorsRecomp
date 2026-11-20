@@ -38,3 +38,5 @@ extern const char* const kReleaseNames;
 const GameRelease* Release_Find(const std::string& gameId);
 // Game ID of installed game data (sys/boot.bin), or an empty string
 std::string Release_InstalledId(const std::filesystem::path& data);
+// Player-facing explanation when a disc/install ID is not supported (never empty for non-empty ids).
+std::string Release_UnsupportedMessage(const std::string& gameId);

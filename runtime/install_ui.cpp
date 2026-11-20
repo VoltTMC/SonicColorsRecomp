@@ -53,7 +53,8 @@ bool InstallUI_Run(const fs::path& dest, const std::string& foundImage, const st
         : "The installed Sonic Colors game data is damaged (" + damage + ") and needs reinstalling.";
     // Supported releases come from runtime/install/releases.cpp (currently Europe SNCP8P).
     std::string need = std::string("Supported release: ") + kReleaseNames +
-        ".\n\nSelect your own Wii disc image of Sonic Colors (ISO, RVZ, WIA, or WBFS). "
+        ".\nUSA (SNCE8P) and Japan (SNCJ8P) discs are not supported yet.\n\n"
+        "Select your own Wii disc image of Sonic Colors (ISO, RVZ, WIA, or WBFS). "
         "Installation takes about a minute and needs roughly 4 GB of free space; "
         "the disc image is not needed afterwards.";
     bool installed = false;
@@ -72,8 +73,7 @@ bool InstallUI_Run(const fs::path& dest, const std::string& foundImage, const st
         {
             // An image was found but is not a supported Colors release (wrong game / region).
             std::string id = Install_GameId(foundImage);
-            why += "\n\nA disc image was found at:\n" + foundImage +
-                   (id.empty() ? "\n(could not read its game ID)" : "\nGame ID: " + id + " — not supported by this build");
+            why += "\n\nA disc image was found at:\n" + foundImage + "\n\n" + Release_UnsupportedMessage(id);
         }
         MsgResult r = Platform_MessageBox(kTitle, why + "\n\n" + need, MsgButtons::OkCancel, MsgIcon::Info);
         if (r != MsgResult::Ok) return false;

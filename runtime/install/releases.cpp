@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <iterator>
+#include <string>
 
 namespace
 {
@@ -42,4 +43,21 @@ std::string Release_InstalledId(const std::filesystem::path& data)
     size_t n = fread(id, 1, 6, f);
     fclose(f);
     return n == 6 ? std::string(id, 6) : std::string();
+}
+
+std::string Release_UnsupportedMessage(const std::string& gameId)
+{
+    if (gameId.empty())
+        return std::string("Could not read a game ID. Need ") + kReleaseNames + ".";
+    // Common other Colors discs — name them so players are not left guessing.
+    if (gameId.starts_with("SNCE"))
+        return "This is the USA (NTSC-U) Sonic Colors disc (" + gameId +
+               "). This build only supports Europe / PAL (SNCP8P). USA support is not available yet.";
+    if (gameId.starts_with("SNCJ"))
+        return "This is the Japan (NTSC-J) Sonic Colors disc (" + gameId +
+               "). This build only supports Europe / PAL (SNCP8P). Japan support is not available yet.";
+    if (gameId.starts_with("SNC") && gameId != "SNCP8P")
+        return "This looks like a Sonic Colors disc (" + gameId +
+               "), but only Europe / PAL SNCP8P is supported by this build.";
+    return "The disc/game ID is " + gameId + ", not a supported Sonic Colors release (" + kReleaseNames + ").";
 }

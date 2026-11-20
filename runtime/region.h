@@ -1,7 +1,8 @@
 #pragma once
-// The release being played (USA, Europe or Japan), picked from the installed disc's game
-// ID before the game starts: its recompiled code, its game addresses (game_addrs.h) and
-// what the system HLE reports (title ID, save folder, console region).
+// The release being played (currently Europe / SNCP8P; USA/Japan IDs are rejected with a
+// clear message), picked from the installed disc's game ID before the game starts: its
+// recompiled code, its game addresses (game_addrs.h) and what the system HLE reports
+// (title ID, save folder, console region).
 #include "cpu/ppc_context.h"
 #include "install/releases.h"
 

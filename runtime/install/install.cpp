@@ -103,10 +103,11 @@ InstallResult Install_Run(const fs::path& image, const fs::path& dest, InstallPr
         error = NodError();
         return InstallResult::OpenFailed;
     }
-    const GameRelease* rel = Release_Find(std::string(header.game_id, 6));
+    const std::string discId(header.game_id, 6);
+    const GameRelease* rel = Release_Find(discId);
     if (!rel)
     {
-        error = "the disc is " + std::string(header.game_id, 6) + ", not Sonic Colors (" + kReleaseNames + ")";
+        error = Release_UnsupportedMessage(discId);
         return InstallResult::WrongGame;
     }
 
