@@ -16,6 +16,103 @@ static float S24(const uint8_t* p)
     return (float)v / 8388608.f;
 }
 
+static bool ParseWavHeader(const uint8_t* data, size_t size, uint16_t& audioFormat, uint16_t& channels,
+                           uint16_t& bits, uint32_t& sampleRate, uint32_t& dataOff, uint32_t& dataSize,
+                           std::string& error)
+{
+    audioFormat = channels = bits = 0;
+    sampleRate = dataOff = dataSize = 0;
+    if (size < 44)
+    {
+        error = "file too small";
+        return false;
+    }
+    if (std::memcmp(data, "RIFF", 4) != 0 || std::memcmp(data + 8, "WAVE", 4) != 0)
+    {
+        error = "not a RIFF/WAVE file";
+        return false;
+    }
+    size_t i = 12;
+    while (i + 8 <= size)
+    {
+        const char* id = (const char*)data + i;
+        uint32_t sz = RU32(data + i + 4);
+        size_t body = i + 8;
+        if (std::memcmp(id, "fmt ", 4) == 0)
+        {
+            // fmt body must fit in the buffer (probe may only read a prefix of the file).
+            if (sz < 16 || body + sz > size) break;
+            audioFormat = RU16(data + body);
+            channels = RU16(data + body + 2);
+            sampleRate = RU32(data + body + 4);
+            bits = RU16(data + body + 14);
+            if (audioFormat == 0xFFFE && sz >= 40 && body + 40 <= size)
+            {
+                const uint8_t* guid = data + body + 24;
+                uint32_t sub = RU32(guid);
+                if (sub == 0x00000001) audioFormat = 1;
+                else if (sub == 0x00000003) audioFormat = 3;
+            }
+        }
+        else if (std::memcmp(id, "data", 4) == 0)
+        {
+            // data payload may be huge; size field alone is enough for Wav_Probe.
+            dataOff = (uint32_t)body;
+            dataSize = sz;
+            if (sampleRate && channels && bits) break;
+            if (body + (size_t)sz > size) break;
+        }
+        else if (body + (size_t)sz > size)
+            break; // unknown chunk truncated — stop scanning
+        i = body + (size_t)sz + (sz & 1);
+    }
+    if (!dataOff || !sampleRate || !channels || !bits)
+    {
+        error = "missing fmt/data chunk";
+        return false;
+    }
+    return true;
+}
+
+bool Wav_Probe(const std::string& path, WavProbe& out)
+{
+    out = {};
+    std::ifstream f(path, std::ios::binary);
+    if (!f)
+    {
+        out.error = "cannot open file";
+        return false;
+    }
+    // Typical WAV headers are well under 4 KiB; read a bounded prefix (handles large junk/LIST).
+    std::vector<uint8_t> data(65536);
+    f.read(reinterpret_cast<char*>(data.data()), (std::streamsize)data.size());
+    const size_t n = (size_t)f.gcount();
+    data.resize(n);
+    uint16_t audioFormat = 0, channels = 0, bits = 0;
+    uint32_t sampleRate = 0, dataOff = 0, dataSize = 0;
+    if (!ParseWavHeader(data.data(), data.size(), audioFormat, channels, bits, sampleRate, dataOff, dataSize,
+                        out.error))
+        return false;
+    if (channels < 1 || channels > 2)
+    {
+        out.error = "only mono/stereo supported";
+        return false;
+    }
+    if (audioFormat != 1 && audioFormat != 3 && audioFormat != 0xFFFE)
+    {
+        out.error = "unsupported WAV format tag";
+        return false;
+    }
+    out.sampleRate = (int)sampleRate;
+    out.channels = (int)channels;
+    out.bitsPerSample = (int)bits;
+    out.dataBytes = dataSize;
+    const int block = (int)channels * ((int)bits / 8);
+    if (block > 0 && sampleRate > 0)
+        out.durationSec = (double)dataSize / (double)block / (double)sampleRate;
+    return true;
+}
+
 bool Wav_Load(const std::string& path, WavData& out)
 {
     out = {};
@@ -26,56 +123,11 @@ bool Wav_Load(const std::string& path, WavData& out)
         return false;
     }
     std::vector<uint8_t> data((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-    if (data.size() < 44)
-    {
-        out.error = "file too small";
-        return false;
-    }
-    if (std::memcmp(data.data(), "RIFF", 4) != 0 || std::memcmp(data.data() + 8, "WAVE", 4) != 0)
-    {
-        out.error = "not a RIFF/WAVE file";
-        return false;
-    }
-
     uint16_t audioFormat = 0, channels = 0, bits = 0;
     uint32_t sampleRate = 0, dataOff = 0, dataSize = 0;
-    size_t i = 12;
-    while (i + 8 <= data.size())
-    {
-        const char* id = (const char*)data.data() + i;
-        uint32_t sz = RU32(data.data() + i + 4);
-        size_t body = i + 8;
-        if (body + sz > data.size()) break;
-        if (std::memcmp(id, "fmt ", 4) == 0 && sz >= 16)
-        {
-            audioFormat = RU16(data.data() + body);
-            channels = RU16(data.data() + body + 2);
-            sampleRate = RU32(data.data() + body + 4);
-            bits = RU16(data.data() + body + 14);
-            // WAVE_FORMAT_EXTENSIBLE: real format GUID at body+24
-            if (audioFormat == 0xFFFE && sz >= 40)
-            {
-                const uint8_t* guid = data.data() + body + 24;
-                // KSDATAFORMAT_SUBTYPE_PCM / IEEE_FLOAT (first 4 bytes LE)
-                uint32_t sub = RU32(guid);
-                if (sub == 0x00000001) audioFormat = 1;
-                else if (sub == 0x00000003) audioFormat = 3;
-            }
-        }
-        else if (std::memcmp(id, "data", 4) == 0)
-        {
-            dataOff = (uint32_t)body;
-            dataSize = sz;
-            // Keep scanning only until we have both fmt and data (JUNK/LIST may precede fmt).
-            if (sampleRate && channels && bits) break;
-        }
-        i = body + sz + (sz & 1);
-    }
-    if (!dataOff || !sampleRate || !channels || !bits)
-    {
-        out.error = "missing fmt/data chunk";
+    if (!ParseWavHeader(data.data(), data.size(), audioFormat, channels, bits, sampleRate, dataOff, dataSize,
+                        out.error))
         return false;
-    }
     if (channels < 1 || channels > 2)
     {
         out.error = "only mono/stereo supported";

@@ -8,7 +8,7 @@ Evidence: `[auto]` automated · `[source]` code review · `[wine]` Wine · `[nat
 
 Companion docs: `WINDOWS_FEATURE_PARITY.md`, `windows-native-checklist.md`, `MUSIC_MODDING.md`.
 
-Last updated: 2026-11-20 (Windows managed-deps persistence: files authoritative, LinkBins repair).
+Last updated: 2026-11-20 (Music Library UI perf: Wav_Probe status, list clipper, deps status cache).
 
 ---
 
@@ -67,6 +67,7 @@ Discovery: `SCR_MUSIC_BIN` → user `tools/bin` → managed `%LOCALAPPDATA%\…\
 | Controllers / rumble | PASS | UNVERIFIED | UNVERIFIED | SDL vs XInput |
 | Mods / GameBanana | PASS `[source]` | PASS `[source]` | UNVERIFIED | Shared libarchive |
 | Music catalog browse | PASS `[auto]` | PASS `[auto]` | PASS package | `catalog.json` in both packages |
+| Music tab UI responsiveness | PASS `[source]` + microbench | PASS `[source]` / UNVERIFIED `[native]` feel | PARTIAL | `Wav_Probe` + clipper + deps cache; see `MUSIC_LIBRARY_PERFORMANCE.md` |
 | Music original CPK discovery | PASS `[auto]` | PASS `[auto]` | PASS `[auto]` | `MusicPaths_*` / `scr_music_paths_test` |
 | Music replacement cache status | PASS `[source]` | PASS `[source]` | PASS `[source]` | Clarified “not prepared yet” |
 | Music prepare / preview / export | PARTIAL→PASS w/ deps `[auto]` | PARTIAL | PARTIAL | Linux pipeline smoke PASS; Windows prepare UNVERIFIED `[native]` |
@@ -199,6 +200,7 @@ Follow `docs/windows-native-checklist.md`. Items marked UNVERIFIED above stay UN
 
 | Date | Change |
 |------|--------|
+| 2026-11-20 | Music Library perf: status uses Wav_Probe (not full Wav_Load), ImGuiListClipper + filter cache, MusicDeps status cache (no per-frame LinkBins) |
 | 2026-11-20 | Fix managed-deps persistence: files authoritative (not markers alone), LinkBins recursive/publish, no redownload when extracts exist; doctor managed diag; path-contract tests |
 | 2026-11-20 | Windows Music auto deps manager: pinned manifest → LOCALAPPDATA downloads (Python/cricodecs/vgmstream/LGPL FFmpeg); Music tab Install UI; native E2E UNVERIFIED |
 | 2026-11-20 | Fix Windows vgmstream discovery: Win32 `SCR_MUSIC_BIN` env, `.exe` names, searched-path errors; CreateProcess 87 fix remains in v0.3.5 |

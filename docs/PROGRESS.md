@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Music Library UI performance
+
+- Root cause of tab lag: per-frame full `Wav_Load` in list status + Windows `MusicDeps_Status`/LinkBins on every draw + unclipped list.
+- Fix: `Wav_Probe`, ImGuiListClipper + filtered index cache, deps status cache; `tools/music_perf_check.sh` + `docs/MUSIC_LIBRARY_PERFORMANCE.md`.
+
 ## 2026-11-20 — Fix Check tools vs managed Music deps
 
 - Embed Python `._pth` ignores PYTHONPATH → `music_asset` now bootstraps `sys.path` via `-c`; rewrite read-only `python312._pth` for site-packages; normalize `/` in extract paths for Wine/Win32.

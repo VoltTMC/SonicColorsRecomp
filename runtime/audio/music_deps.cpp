@@ -32,6 +32,7 @@ std::mutex g_mu;
 MusicDepsStatus g_status;
 std::string g_lastError;
 bool g_threadRunning = false;
+bool g_statusDirty = true; // RefreshStatusLocked only when dirty (UI polls every frame)
 
 #ifdef _WIN32
 constexpr bool kWinMusicDeps = true;
@@ -744,24 +745,8 @@ void RefreshStatusLocked()
         return;
     }
 
-    // One-shot LinkBins repair when extracts exist but current/bin is stale (no download).
-    // Avoid running on every UI poll — only when something looks incomplete.
-    {
-        bool needLink = false;
-        for (const auto& pkg : man["packages"])
-        {
-            const std::string id = pkg.value("id", "");
-            if (id != "vgmstream" && id != "ffmpeg_lgpl") continue;
-            const Resolve r = ResolvePackage(MusicDeps_Root(), pkg);
-            if (r.filesPresent && !r.linkedPresent) needLink = true;
-        }
-        if (needLink && !g_threadRunning)
-        {
-            std::string linkErr;
-            LinkBins(MusicDeps_Root(), man, linkErr);
-            if (!linkErr.empty()) LOG_WARN("[Dependency] LinkBins repair: {}", linkErr);
-        }
-    }
+    // Never LinkBins from status polls — that copies DLL trees and was a per-frame UI hitch.
+    // LinkBins runs in EnsureWorker / ApplyEnv only.
 
     bool allOk = true;
     for (const auto& pkg : man["packages"])
@@ -941,7 +926,9 @@ void EnsureWorker(bool force)
     g_progress.phase = ready ? 6 : 7;
     g_progress.running = false;
     g_threadRunning = false;
+    g_statusDirty = true;
     RefreshStatusLocked();
+    g_statusDirty = false;
     if (ready)
         LOG_INFO("[MUSIC] Managed dependencies ready under {}", root.string());
     else
@@ -993,7 +980,12 @@ void MusicDeps_ApplyEnv()
 MusicDepsStatus MusicDeps_Status()
 {
     std::lock_guard lk(g_mu);
-    RefreshStatusLocked();
+    if (g_statusDirty)
+    {
+        RefreshStatusLocked();
+        g_statusDirty = false;
+    }
+    g_status.busy = g_threadRunning;
     return g_status;
 }
 
@@ -1006,7 +998,8 @@ bool MusicDeps_EnsureAsync(bool force)
     if (g_threadRunning) return true;
     if (!force)
     {
-        RefreshStatusLocked();
+        if (g_statusDirty) RefreshStatusLocked();
+        g_statusDirty = false;
         if (g_status.ready) return false;
         // After a finished attempt, do not auto-restart when files are already on disk
         // (avoids download/repair loops). User can force via "Install Music tools".
@@ -1018,6 +1011,7 @@ bool MusicDeps_EnsureAsync(bool force)
             if (allInstalled) return false;
         }
     }
+    g_statusDirty = true;
     g_threadRunning = true;
     g_progress.running = true;
     g_progress.cancel = false;
@@ -1035,6 +1029,10 @@ bool MusicDeps_BlocksHostOps()
 {
     if (!kWinMusicDeps) return false;
     std::lock_guard lk(g_mu);
-    RefreshStatusLocked();
+    if (g_statusDirty)
+    {
+        RefreshStatusLocked();
+        g_statusDirty = false;
+    }
     return !g_status.ready;
 }

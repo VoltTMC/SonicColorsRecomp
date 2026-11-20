@@ -73,6 +73,8 @@ if command -v python3 >/dev/null; then
     fi
     "$root/tools/music_deps_test.sh"
     ok "music_deps_test"
+    "$root/tools/music_perf_check.sh"
+    ok "music_perf_check"
 
     # Clean extracted AppDir doctor: ignore host PATH tools
     app_tools=$appdir/usr/bin/tools

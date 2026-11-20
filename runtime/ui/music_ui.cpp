@@ -17,7 +17,9 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -27,6 +29,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #ifndef _WIN32
@@ -52,6 +55,11 @@ int s_filterCat = 0;
 int s_filterVar = 0;
 int s_filterRepl = 0;
 int s_filterWorld = 0;
+// Filtered catalog indices — rebuilt only when filters/mappings/catalog change (not every frame).
+std::vector<size_t> s_filtered;
+std::string s_filterSig;
+std::string s_searchLower;
+std::unordered_map<std::string, size_t> s_mapByPath;
 const char* kCats[] = {"All", "stage", "boss", "menu", "map", "jingle", "special", "other"};
 const char* kWorlds[] = {
     "All", "Tropical Resort", "Sweet Mountain", "Starlight Carnival",
@@ -221,9 +229,46 @@ void RefreshDepsDoctor()
     s_depsSummary = std::move(summary);
 }
 
+void RebuildMappingIndex()
+{
+    s_mapByPath.clear();
+    s_mapByPath.reserve(s_assets.size() * 2 + 8);
+    for (size_t i = 0; i < s_assets.size(); i++)
+        s_mapByPath.emplace(s_assets[i].path, i);
+    s_filterSig.clear(); // force filter rebuild
+}
+
 MusicAssetMapping* FindMapping(const std::string& path)
 {
-    return MusicManifest_FindAssetByPath(s_assets, path);
+    const auto it = s_mapByPath.find(path);
+    if (it == s_mapByPath.end()) return nullptr;
+    return &s_assets[it->second];
+}
+
+bool AsciiContainsI(const std::string& hay, const std::string& needleLower)
+{
+    if (needleLower.empty()) return true;
+    if (hay.size() < needleLower.size()) return false;
+    for (size_t i = 0; i + needleLower.size() <= hay.size(); i++)
+    {
+        bool ok = true;
+        for (size_t j = 0; j < needleLower.size(); j++)
+        {
+            if ((char)std::tolower((unsigned char)hay[i + j]) != needleLower[j])
+            {
+                ok = false;
+                break;
+            }
+        }
+        if (ok) return true;
+    }
+    return false;
+}
+
+void PerfLog(const char* op, double ms)
+{
+    if (const char* e = std::getenv("SCR_MUSIC_PERF"))
+        if (e[0] && e[0] != '0') LOG_INFO("[MUSIC_PERF] {} {:.2f} ms", op, ms);
 }
 
 void StopPreview()
@@ -594,6 +639,7 @@ void Reload()
         s_statusMsg = std::format("{} music assets · {} replacement(s)",
                                   s_catalog.musicCount, s_assets.size());
     }
+    RebuildMappingIndex();
     s_loaded = true;
     RefreshCacheSummary();
 }
@@ -604,6 +650,7 @@ bool SaveAssets()
     for (auto& a : s_assets)
         if (!a.path.empty() && !a.source.empty()) clean.push_back(a);
     s_assets.swap(clean);
+    RebuildMappingIndex();
     std::string err;
     if (!MusicManifest_SaveAssets(MusicManifest_Path(s_dir), s_assets, err))
     {
@@ -698,20 +745,42 @@ bool PassesFilters(const MusicCatalogAsset& a, const MusicAssetMapping* map)
     const bool replaced = map && map->enabled && !map->source.empty();
     if (s_filterRepl == 1 && !replaced) return false;
     if (s_filterRepl == 2 && replaced) return false;
-    if (s_search[0])
+    if (!s_searchLower.empty())
     {
-        std::string q = s_search;
-        for (char& c : q) c = (char)tolower((unsigned char)c);
-        auto has = [&](const std::string& s) {
-            std::string t = s;
-            for (char& c : t) c = (char)tolower((unsigned char)c);
-            return t.find(q) != std::string::npos;
-        };
-        if (!has(a.label) && !has(a.filename) && !has(a.path) && !has(a.cue)
-            && !has(a.stage) && !has(a.world))
+        if (!AsciiContainsI(a.label, s_searchLower) && !AsciiContainsI(a.filename, s_searchLower)
+            && !AsciiContainsI(a.path, s_searchLower) && !AsciiContainsI(a.cue, s_searchLower)
+            && !AsciiContainsI(a.stage, s_searchLower) && !AsciiContainsI(a.world, s_searchLower))
             return false;
     }
     return true;
+}
+
+void EnsureFilteredRows()
+{
+    std::string sig = std::format("{}|{}|{}|{}|{}|{}|{}", s_search, s_filterCat, s_filterVar, s_filterRepl,
+                                  s_filterWorld, s_catalog.assets.size(), s_assets.size());
+    for (const auto& m : s_assets)
+    {
+        sig.push_back('|');
+        sig += m.path;
+        sig.push_back(m.enabled ? '1' : '0');
+        sig += m.source;
+    }
+    if (sig == s_filterSig) return;
+    const auto t0 = std::chrono::steady_clock::now();
+    s_filterSig = std::move(sig);
+    s_searchLower.assign(s_search);
+    for (char& c : s_searchLower) c = (char)std::tolower((unsigned char)c);
+    s_filtered.clear();
+    s_filtered.reserve(s_catalog.assets.size());
+    for (size_t i = 0; i < s_catalog.assets.size(); i++)
+    {
+        const auto& a = s_catalog.assets[i];
+        if (PassesFilters(a, FindMapping(a.path))) s_filtered.push_back(i);
+    }
+    const double ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    PerfLog("filter_rebuild", ms);
 }
 
 void DrawPreviewTransport()
@@ -1149,8 +1218,17 @@ void MusicUI_Draw(SettingsHost host, const char*& help)
         if (MusicDeps_BlocksHostOps()) MusicDeps_EnsureAsync(false);
     }
     {
-        const MusicDepsStatus st = MusicDeps_Status();
+        // Status is cached in music_deps; only re-copy into UI when busy or periodically.
+        static MusicDepsStatus st;
+        static int stFrame = -999;
         auto& prog = MusicDeps_Progress();
+        const bool busy = prog.running.load();
+        const int frame = ImGui::GetFrameCount();
+        if (stFrame < 0 || busy || (frame - stFrame) >= 45)
+        {
+            st = MusicDeps_Status();
+            stFrame = frame;
+        }
         if (st.supported)
         {
             if (prog.running.load())
@@ -1253,27 +1331,38 @@ void MusicUI_Draw(SettingsHost host, const char*& help)
         paneH = remainH;
     }
 
+    EnsureFilteredRows();
+
     const MusicCatalogAsset* selected = nullptr;
     auto drawList = [&]() {
+        const int nRows = (int)s_filtered.size();
         if (compact || !sideBySide)
         {
-            for (auto& a : s_catalog.assets)
+            ImGuiListClipper clipper;
+            clipper.Begin(nRows);
+            while (clipper.Step())
             {
-                MusicAssetMapping* map = FindMapping(a.path);
-                if (!PassesFilters(a, map)) continue;
-                ImGui::PushID(a.id.c_str());
-                const bool sel = s_selectedId == a.id;
-                auto st = MusicManifest_AssetStatus(s_dir, map);
-                std::string row = a.label + "  [" + a.variant + "]  " + StatusLabel(st.kind);
-                if (ImGui::Selectable(row.c_str(), sel))
+                for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; row++)
                 {
-                    if (s_selectedId != a.id) StopPreview();
-                    s_selectedId = a.id;
+                    auto& a = s_catalog.assets[s_filtered[(size_t)row]];
+                    MusicAssetMapping* map = FindMapping(a.path);
+                    ImGui::PushID(a.id.c_str());
+                    const bool sel = s_selectedId == a.id;
+                    auto st = MusicManifest_AssetStatus(s_dir, map);
+                    // Avoid per-row heap alloc: format into stack buffer.
+                    char rowBuf[384];
+                    std::snprintf(rowBuf, sizeof(rowBuf), "%s  [%s]  %s", a.label.c_str(), a.variant.c_str(),
+                                  StatusLabel(st.kind));
+                    if (ImGui::Selectable(rowBuf, sel))
+                    {
+                        if (s_selectedId != a.id) StopPreview();
+                        s_selectedId = a.id;
+                    }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("%s\n%s", a.filename.c_str(), a.path.c_str());
+                    if (sel) selected = &a;
+                    ImGui::PopID();
                 }
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("%s\n%s", a.filename.c_str(), a.path.c_str());
-                if (sel) selected = &a;
-                ImGui::PopID();
             }
         }
         else if (ImGui::BeginTable("music_lib", 5,
@@ -1289,38 +1378,41 @@ void MusicUI_Draw(SettingsHost host, const char*& help)
             ImGui::TableSetupColumn("Status", ImGuiTableColumnFlags_WidthStretch, 0.9f);
             ImGui::TableSetupScrollFreeze(0, 1);
             ImGui::TableHeadersRow();
-            for (auto& a : s_catalog.assets)
+            ImGuiListClipper clipper;
+            clipper.Begin(nRows);
+            while (clipper.Step())
             {
-                MusicAssetMapping* map = FindMapping(a.path);
-                if (!PassesFilters(a, map)) continue;
-                ImGui::TableNextRow();
-                ImGui::PushID(a.id.c_str());
-                const bool sel = s_selectedId == a.id;
-                ImGui::TableNextColumn();
-                // SpanAllColumns alone stole clicks; AllowOverlap keeps later cells usable.
-                // Preview buttons live in the detail pane, not overlapping this selectable.
-                if (ImGui::Selectable(a.label.c_str(), sel,
-                                      ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap))
+                for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; row++)
                 {
-                    if (s_selectedId != a.id) StopPreview();
-                    s_selectedId = a.id;
+                    auto& a = s_catalog.assets[s_filtered[(size_t)row]];
+                    MusicAssetMapping* map = FindMapping(a.path);
+                    ImGui::TableNextRow();
+                    ImGui::PushID(a.id.c_str());
+                    const bool sel = s_selectedId == a.id;
+                    ImGui::TableNextColumn();
+                    if (ImGui::Selectable(a.label.c_str(), sel,
+                                          ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap))
+                    {
+                        if (s_selectedId != a.id) StopPreview();
+                        s_selectedId = a.id;
+                    }
+                    if (sel) selected = &a;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("%s", a.filename.c_str());
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted(a.category.c_str());
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted(a.variant.c_str());
+                    ImGui::TableNextColumn();
+                    if (map && !map->source.empty())
+                        ImGui::TextUnformatted(fs::path(map->source).filename().string().c_str());
+                    else
+                        ImGui::TextDisabled("Original");
+                    ImGui::TableNextColumn();
+                    auto st = MusicManifest_AssetStatus(s_dir, map);
+                    ImGui::TextColored(StatusColor(st.kind), "%s", StatusLabel(st.kind));
+                    ImGui::PopID();
                 }
-                if (sel) selected = &a;
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("%s", a.filename.c_str());
-                ImGui::TableNextColumn();
-                ImGui::TextUnformatted(a.category.c_str());
-                ImGui::TableNextColumn();
-                ImGui::TextUnformatted(a.variant.c_str());
-                ImGui::TableNextColumn();
-                if (map && !map->source.empty())
-                    ImGui::TextUnformatted(fs::path(map->source).filename().string().c_str());
-                else
-                    ImGui::TextDisabled("Original");
-                ImGui::TableNextColumn();
-                auto st = MusicManifest_AssetStatus(s_dir, map);
-                ImGui::TextColored(StatusColor(st.kind), "%s", StatusLabel(st.kind));
-                ImGui::PopID();
             }
             ImGui::EndTable();
         }

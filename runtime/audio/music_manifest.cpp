@@ -258,17 +258,16 @@ MusicTrackStatus MusicManifest_Status(const fs::path& musicDir, const MusicTrack
         st.detail = "Missing file";
         return st;
     }
-    WavData w;
-    if (!Wav_Load(p.string(), w))
+    WavProbe probe;
+    if (!Wav_Probe(p.string(), probe))
     {
         st.kind = MusicTrackStatus::Kind::Invalid;
-        st.detail = w.error.empty() ? "Invalid WAV" : w.error;
+        st.detail = probe.error.empty() ? "Invalid WAV" : probe.error;
         return st;
     }
     st.kind = MusicTrackStatus::Kind::Enabled;
-    const double sec = w.sampleRate ? (double)(w.samples.size() / 2) / w.sampleRate : 0.0;
     char buf[128];
-    std::snprintf(buf, sizeof(buf), "%.1fs · %d Hz · stereo", sec, w.sampleRate);
+    std::snprintf(buf, sizeof(buf), "%.1fs · %d Hz · stereo", probe.durationSec, probe.sampleRate);
     st.detail = buf;
     return st;
 }
@@ -591,17 +590,17 @@ MusicTrackStatus MusicManifest_AssetStatus(const fs::path& musicDir, const Music
         st.detail = "Missing WAV";
         return st;
     }
-    WavData w;
-    if (!Wav_Load(p.string(), w))
+    // Header-only — never decode PCM for list/status (Wav_Load was a per-frame UI killer).
+    WavProbe probe;
+    if (!Wav_Probe(p.string(), probe))
     {
         st.kind = MusicTrackStatus::Kind::Invalid;
-        st.detail = w.error.empty() ? "Invalid WAV" : w.error;
+        st.detail = probe.error.empty() ? "Invalid WAV" : probe.error;
         return st;
     }
     st.kind = MusicTrackStatus::Kind::Enabled;
-    const double sec = w.sampleRate ? (double)(w.samples.size() / 2) / w.sampleRate : 0.0;
     char buf[128];
-    std::snprintf(buf, sizeof(buf), "%.1fs · %d Hz", sec, w.sampleRate);
+    std::snprintf(buf, sizeof(buf), "%.1fs · %d Hz", probe.durationSec, probe.sampleRate);
     st.detail = buf;
     return st;
 }
