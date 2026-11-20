@@ -137,6 +137,25 @@ if(WIN32 OR LINUX)
         endif()
     endif()
 
+    # Disc-path helpers + unsupported-region copy (no image I/O).
+    add_executable(scr_install_helpers_test EXCLUDE_FROM_ALL tools/install_helpers_test/main.cpp)
+    target_link_libraries(scr_install_helpers_test PRIVATE scr_installer)
+    if(LINUX)
+        target_compile_options(scr_install_helpers_test PRIVATE -include ${CMAKE_SOURCE_DIR}/runtime/platform/compat.h)
+        target_link_options(scr_install_helpers_test PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
+    if(MSVC_FRONTEND)
+        target_compile_options(scr_install_helpers_test PRIVATE /EHsc /utf-8)
+    endif()
+    if(MINGW)
+        set_target_properties(scr_install_helpers_test PROPERTIES WIN32_EXECUTABLE FALSE)
+        target_link_options(scr_install_helpers_test PRIVATE -mconsole
+                            -static-libgcc -static-libstdc++ -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic)
+    endif()
+    set_target_properties(scr_install_helpers_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${SCR_OUT_DIR}
+                                                              RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
+                                                              RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
+
     include(cmake/mod_deps.cmake)
 
     # scr_mods_test: checks the mod overlay of the disc layer on a synthetic disc (tools/mods_test)

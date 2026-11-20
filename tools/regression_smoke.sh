@@ -18,6 +18,13 @@ run() {
 run scr_nand_fs_test "$OUT/scr_nand_fs_test"
 run scr_nand_backup_test "$OUT/scr_nand_backup_test"
 run scr_config_test "$OUT/scr_config_test"
+if [[ -x "$OUT/scr_install_helpers_test" ]]; then
+  run scr_install_helpers_test "$OUT/scr_install_helpers_test"
+else
+  echo "building scr_install_helpers_test..."
+  cmake --build --preset linux-clang --target scr_install_helpers_test -j"$(nproc 2>/dev/null || echo 4)"
+  run scr_install_helpers_test "$OUT/scr_install_helpers_test"
+fi
 run install_manifest_check "$ROOT/tools/install_manifest_check.sh"
 run package_smoke "$ROOT/tools/package_smoke.sh"
 

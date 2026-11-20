@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Install helpers test
+
+- `scr_install_helpers_test` covers disc extensions + USA/JP unsupported messages; wired into `regression_smoke`.
+- `package.ps1` TESTING.txt aligned with cross-pack (formats / RecompLauncher / CLI).
+
 ## 2026-11-20 — Nearby disc formats + last ISO
 
 - Nearby/`game/` discovery accepts ISO/RVZ/WIA/WBFS/GCZ/CISO/NFS (not only `.iso`).

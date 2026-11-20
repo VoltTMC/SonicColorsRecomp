@@ -28,14 +28,15 @@ if (Test-Path (Join-Path $root "out\licenses")) {
 @"
 Sonic Colors Recomp — Windows test build (no game data included)
 
-You must own Sonic Colors (Wii) PAL SNCP8P.
+You must own Sonic Colors (Wii) Europe / PAL SNCP8P (USA/Japan discs are not supported yet).
 
-1. Run SonicColorsRecomp.exe
-2. Use the launcher to Install / locate your extracted disc data
+1. Run SonicColorsRecomp.exe (or use RecompLauncher Easy Setup)
+2. Install from your own disc image (ISO / RVZ / WIA / WBFS / GCZ)
 3. Play
 
-Config, saves, and logs are written next to the executable.
-Optional: --portable is a no-op on Windows (already exe-local).
+Config, saves, and logs are written next to the executable (portable.txt).
+Useful: --help, --check-updates, --save-diagnostics
+See docs\windows-native-checklist.md
 
 Do not redistribute copyrighted game files with this package.
 "@ | Set-Content (Join-Path $dist "TESTING.txt")
