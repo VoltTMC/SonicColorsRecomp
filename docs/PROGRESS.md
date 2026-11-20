@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — Release v0.3.6 (hotfix)
+
+- Windows Music tab **Install Music tools** (auto deps manager) + vgmstream discovery + CreateProcess 87 lineage from 0.3.5.
+
 ## 2026-11-20 — Windows Music Library automatic dependency manager
 
 - Pinned `data/music_deps_manifest.json` (Python embed 3.12.8, cricodecs 1.2.0, vgmstream r2168, BtbN LGPL FFmpeg).

@@ -51,8 +51,8 @@ Force portable behaviour on an installed build with `--portable` or `SCR_PORTABL
 
 ```bash
 cmake --build --preset windows-mingw --target SonicColorsRecomp music_asset
-./tools/package_windows_installer.sh -v 0.3.5   # stage + Setup.exe (Wine+Inno or native ISCC)
-./tools/package_windows_cross.sh -v 0.3.5       # optional portable ZIP
+./tools/package_windows_installer.sh -v 0.3.6   # stage + Setup.exe (Wine+Inno or native ISCC)
+./tools/package_windows_cross.sh -v 0.3.6       # optional portable ZIP
 ./tools/package_windows_install_check.sh
 ```
 
