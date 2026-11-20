@@ -117,15 +117,23 @@ int main()
     g_config.showFpsOverlay = true;
     g_config.autoBackupSavesOnLaunch = true;
     g_config.uiScale = 1.25f;
+    g_config.hotkeySettings = "F2";
+    g_config.hotkeyScreenshot = "F8";
+    g_config.hotkeyFullscreen = "F9";
     CHECK(Config_Save());
     g_config = Config{};
     Config_Load(tmp.string());
     CHECK(g_config.showFpsOverlay);
     CHECK(g_config.autoBackupSavesOnLaunch);
     CHECK(std::fabs(g_config.uiScale - 1.25f) < 0.001f);
+    CHECK(g_config.hotkeySettings == "F2");
+    CHECK(g_config.hotkeyScreenshot == "F8");
+    CHECK(g_config.hotkeyFullscreen == "F9");
+    CHECK(Config_HotkeyVk("F2", 0) == 0x71);
     CHECK(Config_Text(g_config).find("show_fps_overlay") != std::string::npos);
     CHECK(Config_Text(g_config).find("auto_backup_saves_on_launch") != std::string::npos);
     CHECK(Config_Text(g_config).find("ui_scale") != std::string::npos);
+    CHECK(Config_Text(g_config).find("hotkey_settings") != std::string::npos);
 
     g_userDir = fs::temp_directory_path() / "scr_config_test_user";
     fs::remove_all(g_userDir, ec);

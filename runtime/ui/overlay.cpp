@@ -184,7 +184,7 @@ void Overlay_Render(float w, float h)
             if (ImGui::Button("Quit game"))
                 ImGui::OpenPopup("Quit game?");
             ImGui::SameLine();
-            ImGui::TextDisabled("View / F1 / Esc closes");
+            ImGui::TextDisabled("View / %s / Esc closes", Config_HotkeyName(g_config.hotkeySettings, "F1").c_str());
             SettingsUI_DrawVersion();
 
             if (ImGui::BeginPopupModal("Restart game?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))

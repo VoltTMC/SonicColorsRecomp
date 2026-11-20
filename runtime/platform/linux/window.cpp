@@ -190,19 +190,27 @@ static void HandleEvent(const SDL_Event& e)
         break;
     case SDL_EVENT_KEY_DOWN:
         if (e.key.repeat) break;
-        if (e.key.key == SDLK_F11 || (e.key.key == SDLK_RETURN && (e.key.mod & SDL_KMOD_ALT)))
         {
-            bool on = !(SDL_GetWindowFlags(s_window) & SDL_WINDOW_FULLSCREEN);
-            ApplyFullscreenMode();
-            SDL_SetWindowFullscreen(s_window, on);
-            g_config.fullscreen = on;
-        }
-        else if (e.key.key == SDLK_F1)
-            Overlay_Toggle();
-        else if (e.key.key == SDLK_F12)
-        {
-            extern void Renderer_RequestScreenshot();
-            Renderer_RequestScreenshot();
+            const int vkFs = Config_HotkeyVk(g_config.hotkeyFullscreen, 0x7A);   // VK_F11
+            const int vkSet = Config_HotkeyVk(g_config.hotkeySettings, 0x70);    // VK_F1
+            const int vkShot = Config_HotkeyVk(g_config.hotkeyScreenshot, 0x7B); // VK_F12
+            const SDL_Keycode kFs = (SDL_Keycode)(SDLK_F1 + (vkFs - 0x70));
+            const SDL_Keycode kSet = (SDL_Keycode)(SDLK_F1 + (vkSet - 0x70));
+            const SDL_Keycode kShot = (SDL_Keycode)(SDLK_F1 + (vkShot - 0x70));
+            if (e.key.key == kFs || (e.key.key == SDLK_RETURN && (e.key.mod & SDL_KMOD_ALT)))
+            {
+                bool on = !(SDL_GetWindowFlags(s_window) & SDL_WINDOW_FULLSCREEN);
+                ApplyFullscreenMode();
+                SDL_SetWindowFullscreen(s_window, on);
+                g_config.fullscreen = on;
+            }
+            else if (e.key.key == kSet)
+                Overlay_Toggle();
+            else if (e.key.key == kShot)
+            {
+                extern void Renderer_RequestScreenshot();
+                Renderer_RequestScreenshot();
+            }
         }
         break;
     }

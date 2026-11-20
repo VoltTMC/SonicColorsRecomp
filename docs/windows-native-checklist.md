@@ -47,7 +47,8 @@ what you can prove — note that in any report.
 - [ ] VSync on/off; frame rate 30 / 60 / uncapped
 - [ ] Graphics presets (Performance / Balanced / Quality)
 - [ ] FPS overlay (System toggle or `--show-fps`)
-- [ ] UI scale 75% / 150% (launcher + F1 overlay)
+- [ ] UI scale 75% / 150% (launcher + settings overlay)
+- [ ] Remap settings/screenshot/fullscreen hotkeys (System → Host hotkeys)
 - [ ] Move between monitors; DPI change (125% / 150%)
 
 ## User data

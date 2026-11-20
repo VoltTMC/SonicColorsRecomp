@@ -4,6 +4,7 @@
 #include "../platform.h"
 #include "../window.h"
 #include "sdl.h"
+#include "../../config.h"
 #include "../../env.h"
 #include "../../log.h"
 #include "../../ui/overlay.h"
@@ -61,10 +62,15 @@ bool Overlay_HandleEvent(const SDL_Event& e)
         Queue(e);   // ImGui's gamepad navigation keeps its controller list up to date
         return false;
     case SDL_EVENT_KEY_DOWN:
-        if (!e.key.repeat && (e.key.key == SDLK_F1 || (e.key.key == SDLK_ESCAPE && Overlay_IsOpen())))
+        if (!e.key.repeat)
         {
-            Overlay_Toggle();
-            return true;
+            const int vkSet = Config_HotkeyVk(g_config.hotkeySettings, 0x70);
+            const SDL_Keycode kSet = (SDL_Keycode)(SDLK_F1 + (vkSet - 0x70));
+            if (e.key.key == kSet || (e.key.key == SDLK_ESCAPE && Overlay_IsOpen()))
+            {
+                Overlay_Toggle();
+                return true;
+            }
         }
         [[fallthrough]];
     case SDL_EVENT_KEY_UP:

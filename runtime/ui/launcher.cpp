@@ -279,7 +279,8 @@ void DrawHome(State& st, bool& play, const std::string& isoPath, const fs::path&
 
     ImGui::Spacing();
     ImGui::SeparatorText("Controls");
-    ImGui::TextDisabled("In game: View (Back) or F1 opens the settings. View + Start is the Wii HOME button.");
+    ImGui::TextDisabled("In game: View (Back) or %s opens the settings. View + Start is the Wii HOME button.",
+                        Config_HotkeyName(g_config.hotkeySettings, "F1").c_str());
     ImGui::Spacing();
     ImGui::TextDisabled("%s", g_version);
 }

@@ -176,7 +176,8 @@ void VideoTab(SettingsHost host)
     }
 
     ImGui::SeparatorText("Display");
-    Check(host, "Fullscreen", c.fullscreen, false, "Enter fullscreen. F11 or Alt+Enter also toggle it.");
+    Check(host, "Fullscreen", c.fullscreen, false,
+          "Enter fullscreen. Host fullscreen hotkey (default F11) or Alt+Enter also toggle it.");
     Check(host, "Exclusive fullscreen", c.exclusiveFullscreen, false,
           "Linux: change the monitor mode (lower latency on some setups). Off = borderless desktop fullscreen. Windows stays borderless.");
     Check(host, "VSync", c.vsync, false, "Wait for the monitor's refresh. The game paces itself, so this is only needed against tearing.");
@@ -450,7 +451,10 @@ void InputTab(SettingsHost host)
         if (shown)
             Help("Shared keys fire every matching action together. Clear or rebind if that is not intended.");
     }
-    ImGui::TextDisabled("F1 opens the settings, F11 toggles fullscreen, F12 saves a screenshot; the mouse also moves the Wii Remote pointer.");
+    ImGui::TextDisabled("%s opens the settings, %s toggles fullscreen, %s saves a screenshot; the mouse also moves the Wii Remote pointer.",
+                        Config_HotkeyName(c.hotkeySettings, "F1").c_str(),
+                        Config_HotkeyName(c.hotkeyFullscreen, "F11").c_str(),
+                        Config_HotkeyName(c.hotkeyScreenshot, "F12").c_str());
 }
 
 void AudioTab(SettingsHost host)
@@ -596,6 +600,30 @@ void SystemTab(SettingsHost host)
         }
         Help("Scales launcher and in-game settings text (75%–150%). Applies immediately.");
     }
+    ImGui::SeparatorText("Host hotkeys");
+    {
+        static const std::string fkeys[] = { "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12" };
+        static const char* flabels[] = { "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12" };
+        auto pick = [&](const char* label, std::string& slot, const char* help) {
+            std::string v = Config_HotkeyName(slot, slot.c_str());
+            if (Combo(host, label, v, fkeys, flabels, 12, false, help))
+            {
+                slot = v;
+                Changed(host, false);
+            }
+        };
+        pick("Open settings", c.hotkeySettings, "Toggle the settings overlay (View / Back still works). Escape closes it.");
+        pick("Screenshot", c.hotkeyScreenshot, "Save a full-resolution PNG under screenshots/.");
+        pick("Fullscreen", c.hotkeyFullscreen, "Toggle fullscreen. Alt+Enter also works.");
+        if (ImGui::Button("Restore default hotkeys"))
+        {
+            Config defaults;
+            c.hotkeySettings = defaults.hotkeySettings;
+            c.hotkeyScreenshot = defaults.hotkeyScreenshot;
+            c.hotkeyFullscreen = defaults.hotkeyFullscreen;
+            Changed(host, false);
+        }
+    }
     ImGui::Spacing();
     ImGui::TextWrapped("User data: %s", Platform_UserDir().string().c_str());
     Help("Config, log, screenshots and default saves. AppImage uses ~/.local/share/SonicColorsRecomp unless --portable / SCR_PORTABLE=1.");
@@ -671,7 +699,7 @@ void SystemTab(SettingsHost host)
             fs::create_directories(shots, ec);
             Shell_OpenFolder(shots);
         }
-        Help("F12 saves a full-resolution PNG of the game image into this folder.");
+        Help("Host screenshot hotkey (default F12) saves a full-resolution PNG into this folder.");
         if (ImGui::Button("Save diagnostic report"))
         {
             std::string err;

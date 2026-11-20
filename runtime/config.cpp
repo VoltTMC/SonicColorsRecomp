@@ -77,7 +77,11 @@ std::string Config_Text(const Config& c)
     s += "; copy the save tree into save_backups/ each time the game starts (Play)\n";
     s += std::format("auto_backup_saves_on_launch = {}\n", Bool(c.autoBackupSavesOnLaunch));
     s += "; launcher and in-game settings UI scale (0.75–1.50)\n";
-    s += std::format("ui_scale = {:.2f}\n\n", c.uiScale);
+    s += std::format("ui_scale = {:.2f}\n", c.uiScale);
+    s += "; host hotkeys (F1–F12). Escape still closes the settings overlay.\n";
+    s += std::format("hotkey_settings = {}\n", c.hotkeySettings);
+    s += std::format("hotkey_screenshot = {}\n", c.hotkeyScreenshot);
+    s += std::format("hotkey_fullscreen = {}\n\n", c.hotkeyFullscreen);
     s += "[Audio]\n";
     s += "; host volume scales (0.0–1.0). Music and SFX share the Wii mix — only a master\n";
     s += "; control is available without changing original game mixing.\n";
@@ -121,6 +125,26 @@ std::string Config_Text(const Config& c)
 }
 
 const std::string& Config_Path() { return s_path; }
+
+int Config_HotkeyVk(const std::string& name, int fallbackVk)
+{
+    std::string u;
+    for (unsigned char ch : name)
+        if (ch != ' ') u.push_back((char)std::toupper(ch));
+    if (u.size() >= 2 && u[0] == 'F')
+    {
+        int n = std::atoi(u.c_str() + 1);
+        if (n >= 1 && n <= 12) return 0x70 + (n - 1);   // VK_F1..VK_F12
+    }
+    return fallbackVk;
+}
+
+std::string Config_HotkeyName(const std::string& name, const char* fallbackName)
+{
+    int vk = Config_HotkeyVk(name, 0);
+    if (vk >= 0x70 && vk <= 0x7B) return std::format("F{}", vk - 0x70 + 1);
+    return fallbackName ? fallbackName : "F1";
+}
 
 bool Config_BackupCurrent(std::string* outPath)
 {
@@ -197,6 +221,9 @@ std::string Config_InputProfileText(const Config& c)
     s += std::format("stick_deadzone = {:.3f}\n", c.stickDeadzone);
     s += std::format("stick_deadzone_right = {:.3f}\n", c.stickDeadzoneRight);
     s += std::format("trigger_deadzone = {:.3f}\n", c.triggerDeadzone);
+    s += std::format("hotkey_settings = {}\n", c.hotkeySettings);
+    s += std::format("hotkey_screenshot = {}\n", c.hotkeyScreenshot);
+    s += std::format("hotkey_fullscreen = {}\n", c.hotkeyFullscreen);
     for (int i = 0; i < 12; i++) s += std::format("{} = {}\n", kBindActions[i], c.bind[i]);
     s += "\n[Keyboard]\n";
     for (int i = 0; i < 21; i++) s += std::format("{} = {}\n", kKeyActions[i], c.keys[i]);
@@ -232,6 +259,9 @@ bool Config_ApplyInputProfileText(const std::string& text, Config& c)
                 c.stickDeadzoneRight = std::clamp(std::strtof(val.c_str(), nullptr), 0.0f, 0.5f);
             else if (key == "trigger_deadzone")
                 c.triggerDeadzone = std::clamp(std::strtof(val.c_str(), nullptr), 0.0f, 0.5f);
+            else if (key == "hotkey_settings") c.hotkeySettings = Config_HotkeyName(val, "F1");
+            else if (key == "hotkey_screenshot") c.hotkeyScreenshot = Config_HotkeyName(val, "F12");
+            else if (key == "hotkey_fullscreen") c.hotkeyFullscreen = Config_HotkeyName(val, "F11");
             for (int i = 0; i < 12; i++)
                 if (key == kBindActions[i]) c.bind[i] = val;
         }
@@ -484,6 +514,9 @@ void Config_Load(const std::string& path)
             else if (key == "auto_backup_saves_on_launch") c.autoBackupSavesOnLaunch = ParseBool(val);
             else if (key == "ui_scale")
                 c.uiScale = std::clamp(std::strtof(val.c_str(), nullptr), 0.75f, 1.50f);
+            else if (key == "hotkey_settings") c.hotkeySettings = Config_HotkeyName(val, "F1");
+            else if (key == "hotkey_screenshot") c.hotkeyScreenshot = Config_HotkeyName(val, "F12");
+            else if (key == "hotkey_fullscreen") c.hotkeyFullscreen = Config_HotkeyName(val, "F11");
         }
         else if (section == "audio")
         {

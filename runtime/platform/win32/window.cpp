@@ -87,17 +87,22 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         }
         return 0;
     case WM_KEYDOWN:
-        if (wp == VK_F11 || (wp == VK_RETURN && (GetKeyState(VK_MENU) & 0x8000)))
         {
-            SetFullscreen(hwnd, !s_fullscreen);
-            g_config.fullscreen = s_fullscreen;
-        }
-        else if (wp == VK_F1)
-            Overlay_Toggle();
-        else if (wp == VK_F12)
-        {
-            extern void Renderer_RequestScreenshot();
-            Renderer_RequestScreenshot();
+            const int vkFs = Config_HotkeyVk(g_config.hotkeyFullscreen, VK_F11);
+            const int vkSet = Config_HotkeyVk(g_config.hotkeySettings, VK_F1);
+            const int vkShot = Config_HotkeyVk(g_config.hotkeyScreenshot, VK_F12);
+            if ((int)wp == vkFs || (wp == VK_RETURN && (GetKeyState(VK_MENU) & 0x8000)))
+            {
+                SetFullscreen(hwnd, !s_fullscreen);
+                g_config.fullscreen = s_fullscreen;
+            }
+            else if ((int)wp == vkSet)
+                Overlay_Toggle();
+            else if ((int)wp == vkShot)
+            {
+                extern void Renderer_RequestScreenshot();
+                Renderer_RequestScreenshot();
+            }
         }
         break;
     case WM_SYSKEYDOWN:

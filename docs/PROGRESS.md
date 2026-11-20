@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-11-20 — Remappable host hotkeys
+
+- `[System] hotkey_settings|screenshot|fullscreen` (F1–F12); System UI combos; Linux/Win handlers.
+- Included in input profiles; Escape still closes overlay; Alt+Enter still toggles fullscreen.
+
 ## 2026-11-20 — Native checklist + launcher status polish
 
 - Expanded `docs/windows-native-checklist.md` for profiles, FPS overlay, UI scale, backups.

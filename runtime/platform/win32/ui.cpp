@@ -1,6 +1,7 @@
 // Launcher window, overlay input and installer dialogs on Windows (Win32, COM dialogs and
 // ImGui's Win32 backend).
 #include "../ui.h"
+#include "../../config.h"
 #include "../../env.h"
 #include "../../install/install.h"
 #include "../../ui/overlay.h"
@@ -49,10 +50,14 @@ bool IsInput(UINT msg)
 bool Overlay_WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
     if (!Overlay_Ready() || !IsInput(msg)) return false;
-    if (msg == WM_KEYDOWN && (wp == VK_F1 || (wp == VK_ESCAPE && Overlay_IsOpen())))
+    if (msg == WM_KEYDOWN)
     {
-        Overlay_Toggle();
-        return true;
+        const int vkSet = Config_HotkeyVk(g_config.hotkeySettings, VK_F1);
+        if ((int)wp == vkSet || (wp == VK_ESCAPE && Overlay_IsOpen()))
+        {
+            Overlay_Toggle();
+            return true;
+        }
     }
     if (!Overlay_IsOpen()) return false;
     std::lock_guard lk(s_msgMutex);

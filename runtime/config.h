@@ -31,6 +31,10 @@ struct Config
     bool showFpsOverlay = false;     // on-screen FPS while playing (host present rate)
     bool autoBackupSavesOnLaunch = false; // copy save tree to save_backups/ before each Play
     float uiScale = 1.0f;                // launcher + overlay text/UI scale (0.75–1.50)
+    // Host UI hotkeys (F1–F12 names). Escape still closes the overlay.
+    std::string hotkeySettings = "F1";
+    std::string hotkeyScreenshot = "F12";
+    std::string hotkeyFullscreen = "F11";
     // [Audio]
     float masterVolume = 1.0f;     // 0..1 host scale for the main (TV) mix
     float speakerVolume = 0.6f;    // 0..1 relative Wii Remote speaker level (× master)
@@ -92,3 +96,7 @@ bool Config_SaveModProfile(const std::string& name, std::string* outPath = nullp
 bool Config_LoadModProfile(const std::string& name);
 const std::string& Config_Path();
 std::string Config_Text(const Config& c);
+// Resolve an F1–F12 hotkey name to a virtual-key code (fallback if empty/invalid).
+int Config_HotkeyVk(const std::string& name, int fallbackVk);
+// Canonical F1–F12 name for a virtual-key (or fallback name).
+std::string Config_HotkeyName(const std::string& name, const char* fallbackName);

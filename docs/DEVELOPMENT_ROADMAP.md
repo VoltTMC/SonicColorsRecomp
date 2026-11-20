@@ -40,7 +40,7 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 | 11 | Launcher | First-run setup wizard polish | Partial |
 | 12 | Performance | Frame-time / startup benchmarks doc | **Done** (`docs/PERFORMANCE.md`) |
 | 13 | QoL | Controller prompt glyphs in overlay | Open |
-| 14 | Accessibility | Remappable F1/F12 / UI scale | UI scale **Done**; F-key remap open |
+| 14 | Accessibility | Remappable F1/F12 / UI scale | **Done** (UI scale + F-key hotkeys) |
 | 15 | Mods | Mod profiles (enable sets) | **Done** (2026-11-20) |
 | 16 | Saves | Auto-backup on launch (config) | **Done** (2026-11-20); stage-clear still open |
 | 17 | Packaging | Auto-updater / version check | Open |
@@ -109,10 +109,14 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — Remappable host hotkeys
+
+- Settings / screenshot / fullscreen remappable to F1–F12; input profiles include them.
+- Next: Win native checklist items; controller prompt glyphs; launcher empty-state polish.
+
 ### 2026-11-20 — UI scale
 
 - System `ui_scale` for launcher/overlay (75–150%).
-- Next: Win native checklist items; controller prompt glyphs; F-key remaps.
 
 ### 2026-11-20 — Mod profiles + PERFORMANCE.md
 
