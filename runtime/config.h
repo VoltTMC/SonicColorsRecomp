@@ -35,6 +35,7 @@ struct Config
     std::string hotkeySettings = "F1";
     std::string hotkeyScreenshot = "F12";
     std::string hotkeyFullscreen = "F11";
+    int launcherTab = 0;                 // 0 Play, 1 Settings, 2 Mods, 3 Music
     // [Audio]
     float masterVolume = 1.0f;     // 0..1 host scale for the main (TV) mix
     float speakerVolume = 0.6f;    // 0..1 relative Wii Remote speaker level (× master)

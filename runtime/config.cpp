@@ -81,7 +81,9 @@ std::string Config_Text(const Config& c)
     s += "; host hotkeys (F1–F12). Escape still closes the settings overlay.\n";
     s += std::format("hotkey_settings = {}\n", c.hotkeySettings);
     s += std::format("hotkey_screenshot = {}\n", c.hotkeyScreenshot);
-    s += std::format("hotkey_fullscreen = {}\n\n", c.hotkeyFullscreen);
+    s += std::format("hotkey_fullscreen = {}\n", c.hotkeyFullscreen);
+    s += "; last launcher tab: 0=Play 1=Settings 2=Mods 3=Music\n";
+    s += std::format("launcher_tab = {}\n\n", std::clamp(c.launcherTab, 0, 3));
     s += "[Audio]\n";
     s += "; host volume scales (0.0–1.0). Music and SFX share the Wii mix — only a master\n";
     s += "; control is available without changing original game mixing.\n";
@@ -517,6 +519,7 @@ void Config_Load(const std::string& path)
             else if (key == "hotkey_settings") c.hotkeySettings = Config_HotkeyName(val, "F1");
             else if (key == "hotkey_screenshot") c.hotkeyScreenshot = Config_HotkeyName(val, "F12");
             else if (key == "hotkey_fullscreen") c.hotkeyFullscreen = Config_HotkeyName(val, "F11");
+            else if (key == "launcher_tab") c.launcherTab = std::clamp(atoi(val.c_str()), 0, 3);
         }
         else if (section == "audio")
         {

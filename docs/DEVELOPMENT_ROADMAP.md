@@ -109,10 +109,14 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — Persist launcher tab + Music empty state + startup log
+
+- `launcher_tab` remembered; Music catalog empty guidance; `startup: guest entry ready in N ms`.
+- Next: Win native checklist items; controller prompt glyphs; more launcher polish.
+
 ### 2026-11-20 — Remappable host hotkeys
 
 - Settings / screenshot / fullscreen remappable to F1–F12; input profiles include them.
-- Next: Win native checklist items; controller prompt glyphs; launcher empty-state polish.
 
 ### 2026-11-20 — UI scale
 

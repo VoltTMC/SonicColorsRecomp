@@ -413,32 +413,45 @@ bool Launcher_Run(std::string& dataDir, const std::string& isoPath, const fs::pa
         ImGui::BeginChild("tabs", ImVec2(0, tabsH), ImGuiChildFlags_NavFlattened);
         if (ImGui::BeginTabBar("launcherTabs"))
         {
-            static int selected = 0;
+            static int selected = -1;
+            if (selected < 0)
+                selected = std::clamp(g_config.launcherTab, 0, 3);
             int pick = SettingsUI_PadTab(selected, 4, true);
-            if (SettingsUI_TabItem("Play", 0, pick))
+            auto remember = [&](int tab) {
+                if (selected == 3 && tab != 3) MusicUI_Shutdown();
+                if (selected != tab)
+                {
+                    selected = tab;
+                    g_config.launcherTab = tab;
+                    Config_Save();
+                }
+            };
+            const bool forceTab = frames < 2;
+            auto force = [&](int tab, const char* shotName) {
+                if (shotTab && shotName && !strcmp(shotTab, shotName)) return forceTab;
+                return forceTab && !shotTab && selected == tab;
+            };
+            if (SettingsUI_TabItem("Play", 0, pick, force(0, nullptr)))
             {
-                if (selected == 3) MusicUI_Shutdown();
-                selected = 0;
+                remember(0);
                 DrawHome(st, play, isoPath, installDest);
                 ImGui::EndTabItem();
             }
-            if (SettingsUI_TabItem("Settings", 1, pick, frames < 2 && shotTab && !strcmp(shotTab, "settings")))
+            if (SettingsUI_TabItem("Settings", 1, pick, force(1, "settings")))
             {
-                if (selected == 3) MusicUI_Shutdown();
-                selected = 1;
+                remember(1);
                 SettingsUI_Draw(SettingsHost::Launcher);
                 ImGui::EndTabItem();
             }
-            if (SettingsUI_TabItem("Mods", 2, pick, frames < 2 && shotTab && !strcmp(shotTab, "mods")))
+            if (SettingsUI_TabItem("Mods", 2, pick, force(2, "mods")))
             {
-                if (selected == 3) MusicUI_Shutdown();
-                selected = 2;
+                remember(2);
                 SettingsUI_DrawMods(SettingsHost::Launcher);
                 ImGui::EndTabItem();
             }
-            if (SettingsUI_TabItem("Music", 3, pick, frames < 2 && shotTab && !strcmp(shotTab, "music")))
+            if (SettingsUI_TabItem("Music", 3, pick, force(3, "music")))
             {
-                selected = 3;
+                remember(3);
                 SettingsUI_DrawMusic(SettingsHost::Launcher);
                 ImGui::EndTabItem();
             }

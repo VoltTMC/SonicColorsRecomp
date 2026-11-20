@@ -77,6 +77,7 @@ Last updated: 2026-11-20 (continuous improvement audit; stick deadzone; spiral g
 | Mod enable/order profiles | yes | yes | FULL `[source]` | `user_data/mod_profiles/*.ini` |
 | UI scale (launcher/overlay) | yes | yes | FULL `[source]` | System `ui_scale` 75–150% |
 | Remappable host hotkeys | yes | yes | FULL `[source]` | F1–F12 settings/screenshot/fullscreen |
+| Persist launcher tab | yes | yes | FULL `[source]` | `launcher_tab` in config.ini |
 | Rumble | yes | yes | UNVERIFIED | `[native]` |
 | Hot-plug toasts | yes | yes | FULL `[source]` | — |
 | Launcher home / Play | yes | yes | FULL `[source]` | Version on home (2026-11-20) |

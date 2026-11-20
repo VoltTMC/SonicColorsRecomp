@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — Persist launcher tab
+
+- `[System] launcher_tab` remembers Play/Settings/Mods/Music across launches.
+
 ## 2026-11-20 — Hotkey conflict warn + startup timing + Music empty state
 
 - Warn when two host hotkeys share a key; log `startup: guest entry ready in N ms`.
