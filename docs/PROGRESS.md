@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — Release v0.3.1 (hotfix)
+
+- Hotfix packages for unclickable launcher tabs after boot (`bootFrames` instead of stuck `forceTab`).
+
 ## 2026-11-20 — Fix unclickable launcher tabs
 
 - Root cause: boot `forceTab` used `frames < 2`, but `frames` only advanced on install prompt / UI shots, so `ImGuiTabItemFlags_SetSelected` stayed forced on the remembered tab and cancelled mouse selection.

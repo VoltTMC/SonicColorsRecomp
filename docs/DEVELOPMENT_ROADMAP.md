@@ -109,6 +109,11 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — Release v0.3.1 (hotfix)
+
+- Ship AppImage + Windows zip with clickable launcher tabs after boot.
+- Next: Win native checklist; Recomp Achievements; signed builds.
+
 ### 2026-11-20 — Release v0.3.0
 
 - Ship redistributables covering post-v0.2.0 launcher/updater/QoL batches.
