@@ -9,6 +9,8 @@
 
 ## 2026-11-20 — Cross-platform compatibility audit pass
 
+- Doctor probes ffmpeg/vgmstream by executing them (`ok`/`missing`/`unusable`); `SCR_MUSIC_APP_BIN_ONLY` for clean-env tests.
+- `music_deps_setup` prints ready/blocked + next steps; Music UI Check tools shows ready|blocked.
 - Ship `libwinpthread-1.dll` next to `tools/music_asset.exe` (Windows DLL search is exe-dir first).
 - `package_cross_check` Wine-loads `music_asset.exe`; `SCR_UI_SHOT` smoke accepts save or headless abort.
 - Added `docs/CROSS_PLATFORM_COMPATIBILITY.md` (honest PASS/PARTIAL/UNVERIFIED matrix).

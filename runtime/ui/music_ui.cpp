@@ -156,24 +156,43 @@ void RefreshDepsDoctor()
             auto j = nlohmann::json::parse(in, nullptr, false);
             if (!j.is_object())
                 throw std::runtime_error("invalid doctor JSON");
-            std::vector<std::string> missing;
-            auto depOk = [&](const char* name) {
-                return j.contains("deps") && j["deps"].contains(name) && j["deps"][name].value("ok", false);
+            auto depStatus = [&](const char* name) -> std::string {
+                if (!j.contains("deps") || !j["deps"].contains(name)) return "missing";
+                const auto& d = j["deps"][name];
+                if (d.value("ok", false)) return "ok";
+                if (d.contains("status") && d["status"].is_string())
+                    return d["status"].get<std::string>();
+                return "missing";
             };
-            if (!depOk("cricodecs")) missing.push_back("cricodecs");
-            if (!depOk("ffmpeg")) missing.push_back("ffmpeg");
-            if (!depOk("vgmstream")) missing.push_back("vgmstream");
-            if (missing.empty())
+            std::vector<std::string> problems;
+            for (const char* name : { "cricodecs", "ffmpeg", "vgmstream" })
+            {
+                const std::string st = depStatus(name);
+                if (st != "ok")
+                    problems.push_back(std::string(name) + "=" + st);
+            }
+            if (problems.empty())
                 summary = "Host tools OK (cricodecs/ffmpeg/vgmstream)";
             else
             {
-                summary = "Missing: ";
-                for (size_t i = 0; i < missing.size(); i++)
+                summary = "Deps: ";
+                for (size_t i = 0; i < problems.size(); i++)
                 {
                     if (i) summary += ", ";
-                    summary += missing[i];
+                    summary += problems[i];
                 }
-                summary += " — run tools/music_deps_setup; optional tools/bin drop-ins";
+                summary += " — music_deps_setup + tools/bin (Check tools again after)";
+            }
+            if (j.contains("ready") && j["ready"].is_array() && !j["ready"].empty())
+            {
+                summary += " | ready: ";
+                bool first = true;
+                for (auto& r : j["ready"])
+                {
+                    if (!first) summary += ", ";
+                    first = false;
+                    summary += r.get<std::string>();
+                }
             }
             if (j.contains("blocked") && j["blocked"].is_array() && !j["blocked"].empty())
             {

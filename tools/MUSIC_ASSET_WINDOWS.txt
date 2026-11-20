@@ -14,18 +14,29 @@ Required (same roles as Linux):
   4. ffmpeg — PATH or drop into tools\bin\ (prefer an LGPL build)
 
 Quick setup:
-  tools\music_deps_setup.cmd
-  tools\music_asset.exe doctor
+  1. tools\music_deps_setup.cmd          → .venv-music + cricodecs
+  2. Copy ffmpeg.exe + vgmstream-cli.exe into tools\bin\
+  3. tools\music_asset.exe doctor        → JSON ready/blocked ops
+  4. Music tab → Check tools             → same report in the UI
+
+Works immediately (no host tools):
+  - Browse catalog
+  - Preview assigned replacement WAVs
+  - Play with an already-prepared music_mods cache
+
+Needs setup:
+  - Original preview / export → Python + cricodecs + vgmstream
+  - Prepare replacements → Python + cricodecs + ffmpeg
 
 The redistributable ZIP ships:
   - `mods/music/catalog.json` (full Music Library inventory; required to browse tracks)
   - `tools/music_asset.exe`, `tools/music_asset.cmd`, and `tools/music_asset_pkg/`
   - `tools/music_deps_setup.cmd`, `tools/bin/README.md`
+  - `tools/libwinpthread-1.dll` (beside music_asset.exe)
 
 It does not bundle Python, cricodecs, vgmstream, or ffmpeg (licence / size).
-Without them, browsing the catalog and replacement *playback* of already prepared
-WAVs still works; original decode / export / CPK prepare will report a clear error
-(Music tab → Check tools).
+Doctor distinguishes missing vs unusable binaries (bad drop-ins). Re-run Check tools
+after changing tools\bin.
 
 `manifest.toml` and `tracks/` are created next to the catalog when you assign
 replacements in the Music tab (not shipped).

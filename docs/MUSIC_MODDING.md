@@ -101,19 +101,22 @@ WAV → 48 kHz PCM → CRI ADX → AAX (template segments, UTF data_alignment=8)
 |-----------|--------|-----------|-----------|--------|
 | Browse catalog | — | — | — | — |
 | Replacement WAV preview | — | — | — | — |
+| In-game play (after Prepare) | — | — | — | — |
 | Original preview | yes | yes | yes | — |
 | Export original WAV | yes | yes | yes | sometimes |
 | Prepare replacements | yes | yes | — | yes |
 
 Discovery order for ffmpeg/vgmstream: `tools/bin/` → `SCR_MUSIC_BIN` → `PATH`.
+Doctor **executes** drop-ins (`-version` / `-h`) and reports `ok` / `missing` / `unusable`.
 
 ```bash
-./tools/music_deps_setup.sh          # Linux: .venv-music + cricodecs
-./tools/music_asset doctor           # JSON capability report
+./tools/music_deps_setup.sh          # Linux: .venv-music + cricodecs + doctor summary
+./tools/music_asset doctor           # JSON: ready[] / blocked[] / setup.steps
 # Optional: copy LGPL ffmpeg + ISC vgmstream-cli into tools/bin/
+./tools/music_deps_test.sh           # clean-env + invalid drop-in regression
 ```
 
-Windows: `tools\music_deps_setup.cmd` then `tools\music_asset.exe doctor`.
+Windows: `tools\music_deps_setup.cmd` then `tools\music_asset.exe doctor` (or Music → Check tools).
 
 Redistributables intentionally do **not** ship FFmpeg (often GPL), Python, or cricodecs.
 

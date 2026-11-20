@@ -73,12 +73,34 @@ if command -v python3 >/dev/null; then
     fi
     "$root/tools/music_deps_test.sh"
     ok "music_deps_test"
+
+    # Clean extracted AppDir doctor: ignore host PATH tools
+    app_tools=$appdir/usr/bin/tools
+    if [ -d "$app_tools/music_asset_pkg" ]; then
+        set +e
+        pkg_doc=$(
+            PATH="/usr/bin:/bin" SCR_MUSIC_APP_BIN_ONLY=1 PYTHONPATH="$app_tools" \
+                python3 -m music_asset_pkg.cli doctor 2>&1
+        )
+        set -e
+        echo "$pkg_doc" | grep -Fq 'browse_catalog' || fail "AppDir doctor missing browse_catalog"
+        echo "$pkg_doc" | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+assert "browse_catalog" in d["ready"]
+assert "prepare_replacements" in d["blocked"]
+assert d["deps"]["ffmpeg"]["ok"] is False
+assert d["deps"]["vgmstream"]["ok"] is False
+' || fail "AppDir clean doctor unexpected: $pkg_doc"
+        ok "AppDir clean-env doctor (no host tool bleed)"
+    fi
 else
     echo "SKIP music_deps_test (no python3)"
 fi
 
 echo "== Parity notes =="
 echo "Both packages ship catalog.json, music_asset*, tools/bin/README, setup helpers."
-echo "Prepare/preview/export still need host Python + cricodecs + vgmstream + ffmpeg"
+echo "Prepare/preview/export need host Python + cricodecs + vgmstream + ffmpeg"
 echo "(drop-ins in tools/bin or PATH; setup via music_deps_setup)."
+echo "Windows prepare/export pipeline: UNVERIFIED native (Wine load only)."
 echo "package_cross_check OK"

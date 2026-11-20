@@ -8,7 +8,7 @@ Evidence: `[auto]` automated · `[source]` code review · `[wine]` Wine · `[nat
 
 Companion docs: `WINDOWS_FEATURE_PARITY.md`, `windows-native-checklist.md`, `MUSIC_MODDING.md`.
 
-Last updated: 2026-11-20 (Music Library doctor / tools/bin / music_deps_setup).
+Last updated: 2026-11-20 (doctor exec validation + clean-env music_deps_test).
 
 ---
 
@@ -19,17 +19,23 @@ Last updated: 2026-11-20 (Music Library doctor / tools/bin / music_deps_setup).
 | Browse catalog | — | — | — | — | Yes (`catalog.json`) |
 | Replacement WAV preview | — | — | — | — | Yes (in-process) |
 | A/B (replacement side) | — | — | — | — | Yes |
+| In-game replacement (after Prepare) | — | — | — | — | Yes (`music_mods` cache) |
 | Original preview | required | extract AAX | decode WAV | — | No |
 | Export original WAV | required | extract | decode | optional normalize | No |
 | Prepare (WAV→ADX/AAX→CPK) | required | ADX/AAX/CPK | — | resample 48 kHz | No |
 | Rebuild catalog from CPK | required | required | — | — | No (not needed if catalog ships) |
-| Cache / `current.json` | via prepare | via prepare | — | via prepare | After Prepare only |
 
-Discovery order: `tools/bin` (and `SCR_MUSIC_BIN`) → system `PATH`. Setup: `tools/music_deps_setup.sh` / `.cmd`. Report: `music_asset doctor` / Music UI **Check tools**.
+Discovery: `tools/bin` → `SCR_MUSIC_BIN` → `PATH`. Doctor **runs** each binary (`ok` / `missing` / `unusable`). Setup: `music_deps_setup` → drop-ins → **Check tools**. Isolation: `SCR_MUSIC_APP_BIN_ONLY=1`.
 
-**Bundling policy:** packages ship `music_asset*` + `tools/bin/README.md` + setup helpers only. Do **not** redistribute GPL FFmpeg, system Python, or cricodecs inside the ZIP/AppImage; place ISC vgmstream-cli and an LGPL FFmpeg build in `tools/bin/` when desired.
+**Bundling policy:** no GPL FFmpeg / Python / cricodecs in ZIP/AppImage.
 
-Evidence: `[auto]` `music_deps_test.sh` (doctor JSON + `tools/bin` preference); `[auto]` `SCR_MUSIC_PIPELINE=1` → `music_pipeline_smoke.sh` (prepare + payload proof on Linux host with deps).
+| Check | Linux | Windows | Evidence |
+|-------|-------|---------|----------|
+| Clean env: browse ready, prepare blocked | PASS `[auto]` | PASS `[source]` | `music_deps_test.sh` |
+| Invalid drop-in → unusable | PASS `[auto]` | PASS `[source]` | `music_deps_test.sh` |
+| Paths with spaces / Unicode | PASS `[auto]` | UNVERIFIED `[native]` | `music_deps_test.sh` |
+| Prepare + payload proof | PASS `[auto]` | UNVERIFIED `[native]` | `SCR_MUSIC_PIPELINE=1`; Wine ≠ native |
+| Wine `music_asset.exe` loads | N/A | PASS `[wine]` | `package_cross_check.sh` |
 
 ---
 
@@ -58,8 +64,8 @@ Evidence: `[auto]` `music_deps_test.sh` (doctor JSON + `tools/bin` preference); 
 | Music catalog browse | PASS `[auto]` | PASS `[auto]` | PASS package | `catalog.json` in both packages |
 | Music original CPK discovery | PASS `[auto]` | PASS `[auto]` | PASS `[auto]` | `MusicPaths_*` / `scr_music_paths_test` |
 | Music replacement cache status | PASS `[source]` | PASS `[source]` | PASS `[source]` | Clarified “not prepared yet” |
-| Music prepare / preview / export | PARTIAL | PARTIAL | PARTIAL | Host deps; `music_asset doctor` + `tools/bin` drop-ins + `music_deps_setup` |
-| Music dependency doctor | PASS `[auto]` | PASS `[source]` | PASS `[auto]` | `tools/music_deps_test.sh` |
+| Music prepare / preview / export | PARTIAL→PASS w/ deps `[auto]` | PARTIAL | PARTIAL | Linux pipeline smoke PASS; Windows prepare UNVERIFIED `[native]` |
+| Music dependency doctor | PASS `[auto]` | PASS `[wine]` load | PASS `[auto]` | Exec probe + clean-env + invalid drop-in |
 | Auto-update check + download | PASS `[source]` | PASS `[source]` | PASS `[source]` | Shared `update_check` |
 | Auto-update install | PASS AppImage `[source]` | PASS helper `[source]` | UNVERIFIED native | Win: `apply_update.ps1`; Linux: AppImage replace |
 | Crash / diagnostics | PASS | PASS `[source]` | UNVERIFIED | Win dump richer |
@@ -183,6 +189,7 @@ Follow `docs/windows-native-checklist.md`. Items marked UNVERIFIED above stay UN
 
 | Date | Change |
 |------|--------|
+| 2026-11-20 | Doctor exec/version probe, clean-env tests, setup.steps, optional ffmpeg fix, AppDir isolated doctor |
 | 2026-11-20 | Ship `libwinpthread-1.dll` next to `tools/music_asset.exe`; Wine doctor smoke in `package_cross_check` |
 | 2026-11-20 | Music deps doctor, `tools/bin` discovery, music_deps_setup, Music UI Check tools |
 | 2026-11-20 | Initial `CROSS_PLATFORM_COMPATIBILITY.md`; AppImage ships `music_asset`; `package_cross_check.sh`; MusicTool prefers exe dir |

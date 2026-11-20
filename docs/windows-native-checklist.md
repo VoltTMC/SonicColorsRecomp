@@ -54,7 +54,9 @@ what you can prove — note that in any report.
 - [ ] Status says “Replacement CPK: not prepared yet” before Prepare (not a hard error); originals still preview when tools are installed
 - [ ] With game data installed, Music finds `sonic2010_0.cpk` under `game\extracted\DATA\files\` (portable) even if launched from another cwd
 - [ ] Assign Replacement writes `mods\music\manifest.toml` + `tracks\`; Prepare writes `music_mods\current.json`; Play uses the same cache folder
-- [ ] Music → Check tools reports missing deps clearly; after `tools\music_deps_setup.cmd` + tools in `tools\bin` or PATH, doctor is OK
+- [ ] Music → Check tools reports missing/`unusable` deps and ready|blocked ops; after `tools\music_deps_setup.cmd` + tools in `tools\bin`, re-check is OK
+- [ ] Extract ZIP to a path with spaces; drop-ins in `tools\bin` still discovered
+- [ ] Prepare + export original WAV work with payload/output validation (not exit code alone); original CPK hash unchanged
 - [ ] Prepare works when Python/cricodecs/vgmstream/ffmpeg are installed (see `tools\MUSIC_ASSET_WINDOWS.txt`)
 - [ ] System → Check for updates (network); Open Releases page; Download update package → `downloads\` (newest 3 kept)
 - [ ] After download → Reveal package / Open downloads; Play shows What's new after a version bump
