@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-20 — Maximized restore + release-notes unit test
+
+- `window_maximized` restored on launch; SoftenReleaseBody moved to `release_notes.h` with `scr_release_notes_test`.
+
 ## 2026-11-20 — Persist game window size + pause on minimize
 
 - Closing the game writes the last windowed client size to config.ini.

@@ -162,6 +162,13 @@ int main()
     CHECK(Config_Text(g_config).find("settings_tab") != std::string::npos);
     CHECK(Config_Text(g_config).find("launcher_width") != std::string::npos);
     CHECK(Config_Text(g_config).find("last_seen_version") != std::string::npos);
+    CHECK(Config_Text(g_config).find("window_maximized") != std::string::npos);
+
+    g_config.windowMaximized = true;
+    CHECK(Config_Save());
+    g_config = Config{};
+    Config_Load(tmp.string());
+    CHECK(g_config.windowMaximized);
 
     g_config.lastSeenVersion = "v0.1.0";
     CHECK(Config_Save());

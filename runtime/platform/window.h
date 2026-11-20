@@ -15,8 +15,10 @@ bool Window_TakeResized();
 // Settings changed while the game runs; safe from any thread.
 void Window_SetFullscreen(bool on);
 void Window_SetSize(int width, int height);
-// Writes the last windowed client size into config.ini (no-op while fullscreen).
+// Writes the last windowed client size + maximized flag into config.ini (no-op while fullscreen).
 void Window_PersistSize();
+// Maximize / restore the windowed game window (ignored while fullscreen).
+void Window_SetMaximized(bool on);
 // The window has the keyboard focus (keyboard/mouse input and rumble are only used then).
 bool Window_Focused();
 // Mouse cursor in some fixed coordinate space (it changes only when the mouse moves).

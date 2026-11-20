@@ -15,6 +15,7 @@ struct Config
     int internalScale = 3;       // EFB resolution multiplier (1 = 640x528)
     int windowWidth = 1280;
     int windowHeight = 720;
+    bool windowMaximized = false; // last windowed session was maximized (ignored while fullscreen)
     bool fullscreen = false;
     bool exclusiveFullscreen = false; // false = borderless desktop (default); true = exclusive mode
     bool vsync = false;

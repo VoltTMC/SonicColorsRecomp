@@ -14,12 +14,15 @@ static HWND s_hwnd = nullptr;
 static std::atomic<bool> s_resized{ false };
 static bool s_fullscreen = false;   // window thread only
 static int s_lastWindowedW = 0, s_lastWindowedH = 0;
+static bool s_maximized = false;
 constexpr UINT WM_APP_FULLSCREEN = WM_APP + 1;   // wParam: 1 fullscreen, 0 windowed
 constexpr UINT WM_APP_WINDOWSIZE = WM_APP + 2;   // wParam: width, lParam: height
 
 static void RememberWindowedSize(HWND hwnd)
 {
     if (s_fullscreen || IsIconic(hwnd)) return;
+    s_maximized = IsZoomed(hwnd) != FALSE;
+    if (s_maximized) return;
     RECT rc{};
     if (!GetClientRect(hwnd, &rc)) return;
     const int w = rc.right - rc.left;
@@ -209,11 +212,26 @@ void Window_SetSize(int w, int h) { if (s_hwnd) PostMessageW(s_hwnd, WM_APP_WIND
 
 void Window_PersistSize()
 {
-    if (s_lastWindowedW < 320 || s_lastWindowedH < 240) return;
-    if (g_config.windowWidth == s_lastWindowedW && g_config.windowHeight == s_lastWindowedH) return;
-    g_config.windowWidth = s_lastWindowedW;
-    g_config.windowHeight = s_lastWindowedH;
-    Config_Save();
+    bool dirty = false;
+    if (s_lastWindowedW >= 320 && s_lastWindowedH >= 240 &&
+        (g_config.windowWidth != s_lastWindowedW || g_config.windowHeight != s_lastWindowedH))
+    {
+        g_config.windowWidth = s_lastWindowedW;
+        g_config.windowHeight = s_lastWindowedH;
+        dirty = true;
+    }
+    if (!s_fullscreen && g_config.windowMaximized != s_maximized)
+    {
+        g_config.windowMaximized = s_maximized;
+        dirty = true;
+    }
+    if (dirty) Config_Save();
+}
+
+void Window_SetMaximized(bool on)
+{
+    if (!s_hwnd || s_fullscreen) return;
+    ShowWindow(s_hwnd, on ? SW_MAXIMIZE : SW_RESTORE);
 }
 
 bool Window_Focused() { return GetForegroundWindow() == s_hwnd; }

@@ -109,6 +109,11 @@ Ranked for the continuous-improvement goal. Spiral/H7 excluded.
 
 ## Session log
 
+### 2026-11-20 — Maximized restore + release-notes unit test
+
+- Persist/restore maximized; SoftenReleaseBody covered by regression_smoke.
+- Next: Win native checklist; Recomp Achievements; signed builds.
+
 ### 2026-11-20 — Persist game window size + pause on minimize
 
 - Last windowed size saved on quit; minimize pauses with focus-loss option.

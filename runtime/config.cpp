@@ -51,6 +51,8 @@ std::string Config_Text(const Config& c)
     s += "; internal resolution multiplier (1 = 640x528, 3 = 1920x1584)\n";
     s += std::format("internal_scale = {}\n", c.internalScale);
     s += std::format("window_width = {}\nwindow_height = {}\n", c.windowWidth, c.windowHeight);
+    s += "; restore maximized windowed state on next launch (ignored while fullscreen)\n";
+    s += std::format("window_maximized = {}\n", Bool(c.windowMaximized));
     s += "; F11 or Alt+Enter toggles fullscreen at runtime\n";
     s += std::format("fullscreen = {}\n", Bool(c.fullscreen));
     s += "; exclusive = monitor mode change (Linux); off = borderless desktop fullscreen\n";
@@ -480,6 +482,8 @@ std::string Config_VideoProfileText(const Config& c)
     s += std::format("host_fps_cap = {}\n", c.hostFpsCap);
     s += std::format("internal_scale = {}\n", c.internalScale);
     s += std::format("window_width = {}\nwindow_height = {}\n", c.windowWidth, c.windowHeight);
+    s += "; restore maximized windowed state on next launch (ignored while fullscreen)\n";
+    s += std::format("window_maximized = {}\n", Bool(c.windowMaximized));
     s += std::format("fullscreen = {}\n", Bool(c.fullscreen));
     s += std::format("exclusive_fullscreen = {}\n", Bool(c.exclusiveFullscreen));
     s += std::format("vsync = {}\n", Bool(c.vsync));
@@ -521,6 +525,7 @@ bool Config_ApplyVideoProfileText(const std::string& text, Config& c)
         else if (key == "internal_scale") c.internalScale = std::clamp(atoi(val.c_str()), 1, 8);
         else if (key == "window_width") c.windowWidth = std::max(320, atoi(val.c_str()));
         else if (key == "window_height") c.windowHeight = std::max(240, atoi(val.c_str()));
+        else if (key == "window_maximized") c.windowMaximized = ParseBool(val);
         else if (key == "fullscreen") c.fullscreen = ParseBool(val);
         else if (key == "exclusive_fullscreen") c.exclusiveFullscreen = ParseBool(val);
         else if (key == "vsync") c.vsync = ParseBool(val);
@@ -657,6 +662,7 @@ void Config_Load(const std::string& path)
             else if (key == "internal_scale") c.internalScale = std::clamp(atoi(val.c_str()), 1, 8);
             else if (key == "window_width") c.windowWidth = std::max(320, atoi(val.c_str()));
             else if (key == "window_height") c.windowHeight = std::max(240, atoi(val.c_str()));
+            else if (key == "window_maximized") c.windowMaximized = ParseBool(val);
             else if (key == "fullscreen") c.fullscreen = ParseBool(val);
             else if (key == "exclusive_fullscreen") c.exclusiveFullscreen = ParseBool(val);
             else if (key == "vsync") c.vsync = ParseBool(val);

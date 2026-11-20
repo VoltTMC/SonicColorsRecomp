@@ -156,6 +156,23 @@ if(WIN32 OR LINUX)
                                                               RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
                                                               RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
 
+    add_executable(scr_release_notes_test EXCLUDE_FROM_ALL tools/release_notes_test/main.cpp)
+    if(LINUX)
+        target_compile_options(scr_release_notes_test PRIVATE -include ${CMAKE_SOURCE_DIR}/runtime/platform/compat.h)
+        target_link_options(scr_release_notes_test PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
+    if(MSVC_FRONTEND)
+        target_compile_options(scr_release_notes_test PRIVATE /EHsc /utf-8)
+    endif()
+    if(MINGW)
+        set_target_properties(scr_release_notes_test PROPERTIES WIN32_EXECUTABLE FALSE)
+        target_link_options(scr_release_notes_test PRIVATE -mconsole
+                            -static-libgcc -static-libstdc++ -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic)
+    endif()
+    set_target_properties(scr_release_notes_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${SCR_OUT_DIR}
+                                                            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
+                                                            RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
+
     include(cmake/mod_deps.cmake)
 
     # scr_mods_test: checks the mod overlay of the disc layer on a synthetic disc (tools/mods_test)

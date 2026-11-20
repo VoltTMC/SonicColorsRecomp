@@ -123,6 +123,8 @@ bool Video_Init()
 {
     Platform_LogHost();
     if (!Window_Create(g_videoConfig.windowWidth, g_videoConfig.windowHeight, g_videoConfig.fullscreen)) return false;
+    if (!g_videoConfig.fullscreen && g_config.windowMaximized)
+        Window_SetMaximized(true);
     HWND hwnd = (HWND)Window_Handle();
 
     UINT flags = 0;

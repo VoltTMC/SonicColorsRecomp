@@ -18,6 +18,7 @@ static std::atomic<int> s_mouseX{ -1 }, s_mouseY{ -1 };
 static std::atomic<bool> s_mouseInside{ false };
 static int s_windowW = 1, s_windowH = 1;   // in window coordinates (mouse), main thread
 static int s_lastWindowedW = 0, s_lastWindowedH = 0;
+static bool s_maximized = false;
 
 static void UpdateSize()
 {
@@ -26,7 +27,9 @@ static void UpdateSize()
     s_pixelW = w;
     s_pixelH = h;
     SDL_GetWindowSize(s_window, &s_windowW, &s_windowH);
-    if (!(SDL_GetWindowFlags(s_window) & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_MINIMIZED)) &&
+    const Uint32 flags = SDL_GetWindowFlags(s_window);
+    s_maximized = (flags & SDL_WINDOW_MAXIMIZED) != 0;
+    if (!(flags & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_MINIMIZED)) && !s_maximized &&
         s_windowW >= 320 && s_windowH >= 240)
     {
         s_lastWindowedW = s_windowW;
@@ -151,12 +154,35 @@ void Window_SetSize(int w, int h)
 
 void Window_PersistSize()
 {
-    if (s_lastWindowedW < 320 || s_lastWindowedH < 240) return;
-    if (g_config.windowWidth == s_lastWindowedW && g_config.windowHeight == s_lastWindowedH) return;
-    g_config.windowWidth = s_lastWindowedW;
-    g_config.windowHeight = s_lastWindowedH;
-    Config_Save();
+    bool dirty = false;
+    if (s_lastWindowedW >= 320 && s_lastWindowedH >= 240 &&
+        (g_config.windowWidth != s_lastWindowedW || g_config.windowHeight != s_lastWindowedH))
+    {
+        g_config.windowWidth = s_lastWindowedW;
+        g_config.windowHeight = s_lastWindowedH;
+        dirty = true;
+    }
+    if (!s_window || !(SDL_GetWindowFlags(s_window) & SDL_WINDOW_FULLSCREEN))
+    {
+        if (g_config.windowMaximized != s_maximized)
+        {
+            g_config.windowMaximized = s_maximized;
+            dirty = true;
+        }
+    }
+    if (dirty) Config_Save();
 }
+
+static void SetMaximizedOnMain(void* on)
+{
+    if (!s_window || (SDL_GetWindowFlags(s_window) & SDL_WINDOW_FULLSCREEN)) return;
+    if (on)
+        SDL_MaximizeWindow(s_window);
+    else
+        SDL_RestoreWindow(s_window);
+}
+
+void Window_SetMaximized(bool on) { SDL_RunOnMainThread(SetMaximizedOnMain, on ? (void*)1 : nullptr, false); }
 
 bool Window_Focused() { return s_window && s_focused; }
 

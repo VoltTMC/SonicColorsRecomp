@@ -25,6 +25,13 @@ else
   cmake --build --preset linux-clang --target scr_install_helpers_test -j"$(nproc 2>/dev/null || echo 4)"
   run scr_install_helpers_test "$OUT/scr_install_helpers_test"
 fi
+if [[ -x "$OUT/scr_release_notes_test" ]]; then
+  run scr_release_notes_test "$OUT/scr_release_notes_test"
+else
+  echo "building scr_release_notes_test..."
+  cmake --build --preset linux-clang --target scr_release_notes_test -j"$(nproc 2>/dev/null || echo 4)"
+  run scr_release_notes_test "$OUT/scr_release_notes_test"
+fi
 run install_manifest_check "$ROOT/tools/install_manifest_check.sh"
 run package_smoke "$ROOT/tools/package_smoke.sh"
 
