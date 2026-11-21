@@ -947,7 +947,18 @@ void A2c_OnArchivedFrame()
     {
         havePrev = true;
         EvaluatePass(prevPkt, prevReport);
-        if (pkt.crossEdgeCount == 0 && SelftestPairOk(prevReport, report))
+        // Synthetic retain selftest is opt-in (SCR_A2G_SELFTEST=1). Default on when
+        // scratch replay is enabled, unless natural-trace-only discovery sets it off.
+        static int selfEnv = -1;
+        if (selfEnv < 0)
+        {
+            const char* v = std::getenv("SCR_A2G_SELFTEST");
+            if (v && v[0] == '0')
+                selfEnv = 0;
+            else
+                selfEnv = 1;  // default: keep A2g synthetic regression
+        }
+        if (selfEnv && pkt.crossEdgeCount == 0 && SelftestPairOk(prevReport, report))
         {
             SynthesizeSelftestEdges(prevPkt, pkt);
             a2gSelftest = pkt.crossEdgeCount > 0;

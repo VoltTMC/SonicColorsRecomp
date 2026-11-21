@@ -6,6 +6,7 @@
 #include "vertex_loader.h"
 #include "hires.h"
 #include "../tas/tas.h"
+#include "../debug/a2g_natural_trace.h"
 #include <algorithm>
 #include <type_traits>
 #include <thread>
@@ -290,6 +291,7 @@ struct TexEntry
     uint64_t efbGenId = 0;
     uint32_t createFrame = ~0u;   // s_frame when this GPU copy was produced
     uint64_t createXfb = 0;
+    uint64_t createSim = 0;       // Perf_GuestFrameIndex at production
 };
 static std::unordered_map<uint64_t, TexEntry> s_texCache;   // key: addr | fmt | w | h
 static std::unordered_map<uint32_t, TexEntry> s_efbCopiesLive;     // live game path
@@ -1171,22 +1173,20 @@ static ID3D11ShaderResourceView* GetTexture(int map, uint32_t* outW, uint32_t* o
         if (e.hashedFrame == s_frame || e.ramHash == Hash64(PhysPtr(addr), e.ramSize))
         {
             const bool crossFrame = (e.createFrame != ~0u && e.createFrame < s_frame);
-            static uint32_t s_efbSampSame = 0, s_efbSampCross = 0;
-            if (crossFrame) s_efbSampCross++;
-            else s_efbSampSame++;
-            if (A2c_ClosureCaptureEnabled() && !s_replayIsolation &&
-                (crossFrame || ((s_efbSampSame + s_efbSampCross) % 25000) == 1))
-            {
-                LOG_INFO("A2g samp: dest={:08x} gen={} createF={} curF={} cross={} same/cross={}/{}",
-                         efbKey, e.efbGenId, e.createFrame, s_frame, crossFrame ? 1 : 0, s_efbSampSame,
-                         s_efbSampCross);
-            }
             e.lastFrame = s_frame;
             e.hashedFrame = s_frame;
-            if (A2c_ClosureCaptureEnabled() && !s_replayIsolation)
-                A2b_OnEfbCopySampled(efbKey, e.efbGenId, e.createFrame, e.createXfb, crossFrame);
+            if (!s_replayIsolation)
+            {
+                if (A2gNat_Enabled())
+                    A2gNat_OnSample(efbKey, e.efbGenId, e.createFrame, e.createXfb, e.createSim,
+                                    s_frame, Perf_XfbFrameIndex(), Perf_GuestFrameIndex());
+                if (A2c_ClosureCaptureEnabled())
+                    A2b_OnEfbCopySampled(efbKey, e.efbGenId, e.createFrame, e.createXfb, crossFrame);
+            }
             return e.srv;
         }
+        if (!s_replayIsolation && A2gNat_Enabled())
+            A2gNat_OnInvalidate(efbKey, e.efbGenId, e.lastFrame != ~0u && e.lastFrame != e.createFrame);
         ReleaseTex(e);
         efbMap.erase(ec);
     }
@@ -2756,6 +2756,7 @@ static void DoEFBCopy()
             }
         }
         Tas_OnPresent([](const char* path) { SaveTextureBMP(s_xfbTex, path); });
+        A2gNat_OnPresent();
         s_frame++;
         // Evict stale GPU textures so long sessions do not unbounded-grow VRAM.
         // Age threshold ~600 presents; hard caps catch thrashing/unique-addr storms.
@@ -2813,6 +2814,7 @@ static void DoEFBCopy()
 
         auto& efbMap = EfbCopyMap();
         const uint32_t efbKey = EfbCopyKey(destAddr);
+        const bool replacedPrior = (efbMap.find(efbKey) != efbMap.end() && efbMap[efbKey].efbGenId != 0);
         TexEntry& e = efbMap[efbKey];
         if (!e.tex || e.w != rw || e.h != rh)
         {
@@ -2853,6 +2855,10 @@ static void DoEFBCopy()
         e.efbGenId = s_efbCopyGenCounter++;
         e.createFrame = s_frame;
         e.createXfb = g_framesPresented;
+        e.createSim = Perf_GuestFrameIndex();
+        if (!s_replayIsolation && A2gNat_Enabled())
+            A2gNat_OnCreate(efbKey, e.efbGenId, s_frame, e.createXfb, e.createSim, rw, rh, fmt,
+                            replacedPrior);
         if (A2c_ClosureCaptureEnabled() && !s_replayIsolation)
         {
             uint32_t cf = 0;

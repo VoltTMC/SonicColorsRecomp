@@ -12,6 +12,7 @@
 #include "../debug/a1c_gx_capture.h"
 #include "../debug/a2b_fifo_archive.h"
 #include "../debug/a2c_scratch_replay.h"
+#include "../debug/a2g_natural_trace.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
 #include "../tas/tas.h"
@@ -316,6 +317,13 @@ void Overlay_Render(float w, float h)
                 A2c_OverlayLine(a2c, sizeof(a2c));
                 if (a2c[0])
                     ImGui::TextUnformatted(a2c);
+            }
+            if (A2gNat_Enabled())
+            {
+                char nat[160];
+                A2gNat_OverlayLine(nat, sizeof(nat));
+                if (nat[0])
+                    ImGui::TextUnformatted(nat);
             }
         }
         ImGui::End();

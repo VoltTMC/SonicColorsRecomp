@@ -234,6 +234,7 @@ Opt-in immutable snapshots at completed sim-frame boundaries for future host int
 | A2e | Second independent static/UI pass MATCH | Two structurally different families both MATCH | **Done (experiment)** |
 | A2f | Controlled EFB→tex feedback replay | Scratch-sourced copy chain MATCH | **Done (experiment)** |
 | A2g | Cross-frame EFB texture retain/replay | Sequential scratch retain MATCH | **Done (experiment)** |
+| A2g-Natural | Live cross-frame EFB sample discovery | Trace-only; 0 natural next/multi samples | **Done (report)** |
 | A3 | Interpolated second XFB without guest update | `unique_xfb` >60 behind debug flag | Later |
 | A4 | Quality gate; promote to uncapped | Honest unique>60 in production | Later |
 
@@ -654,6 +655,34 @@ Prove scratch can **retain** EFB→tex generations produced in guest/present fra
 8. **Next:** find natural live cross-frame sample **or** longer history chain — still no scene-wide / no interp.
 
 **Verdict:** A2g proves scratch **independently generates, retains across a frame boundary, and samples** EFB-derived textures with exact MATCH (controlled dual-frame idle selftest).
+
+### Approach A2g-Natural — live cross-frame discovery (2026-11-21)
+
+Opt-in `SCR_A2G_NATURAL_TRACE=1` observes unmodified live EFB→tex create / replace / GetTexture-bind (draw sample) / invalidate. **Does not** suppress copies or force retention. Distinct from `SCR_A2G_SELFTEST` synthetic retain.
+
+| Classification | Meaning |
+|----------------|---------|
+| Same-frame | Sample present == create present |
+| Next-XFB | First sample on the next present |
+| Multi-XFB | First sample ≥2 presents later |
+| Replacement | New gen at same canonical dest |
+
+**Sampling event:** `GetTexture` returning a live `s_efbCopiesLive` SRV for a draw bind (not a bare cache poke).
+
+#### Scenes / evidence (`out/phase24_nat_*.log`)
+
+| Scene | Presents | Creates | Samples (binds) | Same-frame gens | Next-XFB | Multi-XFB | CROSS lines |
+|-------|--------:|--------:|----------------:|----------------:|---------:|----------:|------------:|
+| Title idle (~35s) | ~1600 | ~24k | ~110k | all | **0** | **0** | **0** |
+| TAS title→menu mash (~150s) | ~8600 | ~129k | ~593k | all | **0** | **0** | **0** |
+
+Final TAS snapshot: `presents≈8600`, `creates≈129058`, `samples≈593331`, `sameFrame≈111787`, `nextXfb=0`, `multiXfb=0`, `replacements≈129041`, `crossEdges=0`. Trace overhead: sim stays ~60 Hz. Capture off remains silent.
+
+**Natural producer/consumer:** **none found** on inspected title/menu paths. Host copies persist in the map but are **replaced every present before any later-frame sample**. Tropical Resort Act 1 proper was not reached without a usable save; menu/transition mash still showed zero natural cross samples.
+
+**Synthetic selftest** (`SCR_A2G_SELFTEST=1`, default with scratch replay): still `edges=5/5 retain=1 MATCH` — labeled synthetic, not natural.
+
+**Next milestone (evidence-based):** Prefer a **multi-frame synthetic history stress** (3–8 frames, replacement + multi-consumer cleanup) to harden lifetime mechanics — clearly labeled non-natural — **or** a NAND/save path that can enter TR1 gameplay for a second natural search. Still no scene-wide / no interp / no unique-FPS.
 
 ### Audio
 

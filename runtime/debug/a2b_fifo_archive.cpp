@@ -4,6 +4,7 @@
 #include "a1b_pose_capture.h"
 #include "a1c_gx_capture.h"
 #include "a2c_scratch_replay.h"
+#include "a2g_natural_trace.h"
 #include "../gx/gx_state.h"
 #include "../kernel/memory.h"
 #include "../log.h"
@@ -772,6 +773,7 @@ void A2b_NoteDraw()
 
 void A2b_OnSimFrameEnd()
 {
+    A2gNat_OnGuestFrame();  // independent of FIFO capture
     if (!EnvOn()) return;
     s_simTag.store(Perf_GuestFrameIndex(), std::memory_order_relaxed);
 }

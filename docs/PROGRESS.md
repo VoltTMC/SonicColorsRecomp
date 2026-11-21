@@ -1,5 +1,15 @@
 # Progress log
 
+## 2026-11-21 — A2g-Natural: live cross-frame EFB discovery
+
+**Goal:** Find whether the unmodified game samples an unrecreated EFB→tex generation across a guest/present boundary.
+
+**Shipped:** `SCR_A2G_NATURAL_TRACE=1` (`a2g_natural_trace.*`) — create/replace/sample/invalidate counters + bounded CROSS edges; `SCR_A2G_SELFTEST` gates synthetic retain (default on with scratch replay).
+
+**Evidence:** Title + 150s TAS menu mash — **0** next/multi natural samples (`phase24_nat_*.log`); ~129k creates / ~593k same-frame binds; replacements ≈ creates. Trace @ ~60 Hz. Selftest still MATCH; off silent; `regression_smoke` OK.
+
+**Natural replay:** not started (no consumer). **Next:** synthetic multi-frame history stress **or** TR1 with a real save — do not call selftest “natural.”
+
 ## 2026-11-21 — Approach A2g: cross-frame EFB texture persistence
 
 **Goal:** Retain scratch EFB→tex generations across a guest/present frame boundary and sample them in the next frame with exact live MATCH.
