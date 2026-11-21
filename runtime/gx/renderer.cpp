@@ -213,6 +213,7 @@ static ID3D11RenderTargetView* s_scratchRTV = nullptr;
 static ID3D11Texture2D* s_scratchDepth = nullptr;
 static ID3D11DepthStencilView* s_scratchDSV = nullptr;
 static bool s_replayIsolation = false;
+static bool s_scratchSkipEfbTexCopy = false;  // A2g selftest: keep retained gens
 
 // Incoming EFB snapshot ring (lossless GPU copies at pass entry).
 static constexpr int kEfbInSlots = 4;
@@ -285,10 +286,31 @@ struct TexEntry
     uint32_t ramSize = 0;
     uint64_t dataHash = 0;        // CI textures: hash of the index data alone
     uint32_t dataHashFrame = ~0u;
+    // A2g: EFB-copy generation / cross-frame lifetime
+    uint64_t efbGenId = 0;
+    uint32_t createFrame = ~0u;   // s_frame when this GPU copy was produced
+    uint64_t createXfb = 0;
 };
 static std::unordered_map<uint64_t, TexEntry> s_texCache;   // key: addr | fmt | w | h
-static std::unordered_map<uint32_t, TexEntry> s_efbCopies;   // key: dest address
+static std::unordered_map<uint32_t, TexEntry> s_efbCopiesLive;     // live game path
+static std::unordered_map<uint32_t, TexEntry> s_efbCopiesScratch;  // isolation-only (A2g retain)
+static uint64_t s_efbCopyGenCounter = 1;
 static uint32_t s_frame = 0;
+
+static std::unordered_map<uint32_t, TexEntry>& EfbCopyMap()
+{
+    return s_replayIsolation ? s_efbCopiesScratch : s_efbCopiesLive;
+}
+
+// Match A2b CanonGuestEa so archive dest keys hit the same map entries.
+static uint32_t EfbCopyKey(uint32_t ea)
+{
+    if (!ea) return 0;
+    const uint32_t hi = ea >> 28;
+    if (hi == 0x8 || hi == 0x9 || hi == 0xC || hi == 0xD)
+        return ea;
+    return 0x80000000u | (ea & 0x1FFFFFFFu);
+}
 static std::vector<uint32_t> s_decodeBuf;
 
 static void ReleaseTex(TexEntry& e)
@@ -1139,21 +1161,34 @@ static ID3D11ShaderResourceView* GetTexture(int map, uint32_t* outW, uint32_t* o
     *outH = h;
     *hasMips = false;
 
-    // EFB copy at this address?
-    auto ec = s_efbCopies.find(addr);
-    if (ec != s_efbCopies.end())
+    // EFB copy at this address? Live and scratch maps are independent (A2g).
+    auto& efbMap = EfbCopyMap();
+    const uint32_t efbKey = EfbCopyKey(addr);
+    auto ec = efbMap.find(efbKey);
+    if (ec != efbMap.end())
     {
         TexEntry& e = ec->second;
         if (e.hashedFrame == s_frame || e.ramHash == Hash64(PhysPtr(addr), e.ramSize))
         {
+            const bool crossFrame = (e.createFrame != ~0u && e.createFrame < s_frame);
+            static uint32_t s_efbSampSame = 0, s_efbSampCross = 0;
+            if (crossFrame) s_efbSampCross++;
+            else s_efbSampSame++;
+            if (A2c_ClosureCaptureEnabled() && !s_replayIsolation &&
+                (crossFrame || ((s_efbSampSame + s_efbSampCross) % 25000) == 1))
+            {
+                LOG_INFO("A2g samp: dest={:08x} gen={} createF={} curF={} cross={} same/cross={}/{}",
+                         efbKey, e.efbGenId, e.createFrame, s_frame, crossFrame ? 1 : 0, s_efbSampSame,
+                         s_efbSampCross);
+            }
             e.lastFrame = s_frame;
             e.hashedFrame = s_frame;
             if (A2c_ClosureCaptureEnabled() && !s_replayIsolation)
-                A2b_OnEfbCopySampled(addr);
+                A2b_OnEfbCopySampled(efbKey, e.efbGenId, e.createFrame, e.createXfb, crossFrame);
             return e.srv;
         }
         ReleaseTex(e);
-        s_efbCopies.erase(ec);
+        efbMap.erase(ec);
     }
 
     uint32_t maxLod = ((mode1 >> 8) & 0xFF) >> 4;
@@ -1561,14 +1596,18 @@ static bool EnsureScratchTargets()
     return true;
 }
 
-static void DropReplayTexCaches()
+static void DropReplayTexCaches(bool keepScratchEfbCopies)
 {
     for (auto& kv : s_texCache)
         ReleaseTex(kv.second);
     s_texCache.clear();
-    for (auto& kv : s_efbCopies)
-        ReleaseTex(kv.second);
-    s_efbCopies.clear();
+    // Never touch live EFB copies during isolation teardown/setup.
+    if (!keepScratchEfbCopies)
+    {
+        for (auto& kv : s_efbCopiesScratch)
+            ReleaseTex(kv.second);
+        s_efbCopiesScratch.clear();
+    }
 }
 
 static bool EnsureEfbInSlot(int slot)
@@ -1664,9 +1703,15 @@ uint32_t Render_EfbIncomingDepthHash(int slot)
 
 bool Render_ScratchBeginFromIncoming(int incomingSlot, uint32_t* outW, uint32_t* outH)
 {
+    return Render_ScratchBeginFromIncomingEx(incomingSlot, false, outW, outH);
+}
+
+bool Render_ScratchBeginFromIncomingEx(int incomingSlot, bool retainScratchEfbCopies,
+                                       uint32_t* outW, uint32_t* outH)
+{
     if (!EnsureScratchTargets()) return false;
     if (!Render_EfbIncomingValid(incomingSlot)) return false;
-    DropReplayTexCaches();
+    DropReplayTexCaches(retainScratchEfbCopies);
     Render_ResetHostDrawState();
     g_ctx->CopyResource(s_scratchColor, s_efbIn[incomingSlot].color);
     g_ctx->CopyResource(s_scratchDepth, s_efbIn[incomingSlot].depth);
@@ -1680,7 +1725,7 @@ bool Render_ScratchBeginFromIncoming(int incomingSlot, uint32_t* outW, uint32_t*
 bool Render_ScratchBeginCleared(uint32_t* outW, uint32_t* outH)
 {
     if (!EnsureScratchTargets()) return false;
-    DropReplayTexCaches();
+    DropReplayTexCaches(false);
     Render_ResetHostDrawState();
     float clear[4] = { 0, 0, 0, 1 };
     g_ctx->ClearRenderTargetView(s_scratchRTV, clear);
@@ -1691,6 +1736,48 @@ bool Render_ScratchBeginCleared(uint32_t* outW, uint32_t* outH)
     if (outW) *outW = w;
     if (outH) *outH = h;
     return true;
+}
+
+void Render_SetScratchSkipEfbTexCopy(bool skip) { s_scratchSkipEfbTexCopy = skip; }
+bool Render_ScratchSkipEfbTexCopy() { return s_scratchSkipEfbTexCopy; }
+
+void Render_ScratchDropEfbCopies()
+{
+    for (auto& kv : s_efbCopiesScratch)
+        ReleaseTex(kv.second);
+    s_efbCopiesScratch.clear();
+}
+
+uint32_t Render_ScratchEfbCopyCount()
+{
+    return (uint32_t)s_efbCopiesScratch.size();
+}
+
+bool Render_ScratchHasEfbCopy(uint32_t destAddr)
+{
+    return s_efbCopiesScratch.find(EfbCopyKey(destAddr)) != s_efbCopiesScratch.end();
+}
+
+uint64_t Render_ScratchEfbCopyGen(uint32_t destAddr)
+{
+    auto it = s_efbCopiesScratch.find(EfbCopyKey(destAddr));
+    return it == s_efbCopiesScratch.end() ? 0 : it->second.efbGenId;
+}
+
+uint32_t Render_HashLiveEfbCopy(uint32_t destAddr)
+{
+    auto it = s_efbCopiesLive.find(EfbCopyKey(destAddr));
+    if (it == s_efbCopiesLive.end() || !it->second.tex) return 0;
+    Flush();
+    return HashTextureContents(it->second.tex, true);
+}
+
+uint32_t Render_HashScratchEfbCopy(uint32_t destAddr)
+{
+    auto it = s_efbCopiesScratch.find(EfbCopyKey(destAddr));
+    if (it == s_efbCopiesScratch.end() || !it->second.tex) return 0;
+    Flush();
+    return HashTextureContents(it->second.tex, true);
 }
 
 uint32_t Render_ScratchEndDepthHash()
@@ -2692,19 +2779,28 @@ static void DoEFBCopy()
                 }
             };
             evictAged(s_texCache, 600);
-            evictAged(s_efbCopies, 600);
+            evictAged(s_efbCopiesLive, 600);
             evictCap(s_texCache, 4096);
-            evictCap(s_efbCopies, 256);
+            evictCap(s_efbCopiesLive, 256);
         }
         HiRes_TickEvict(s_frame);
         if ((g_framesPresented % 300) == 0)
             LOG_INFO("GX: {} frames, {} shaders (vs {} / ps {}), {} textures, {} efbCopies, {} hires",
                      g_framesPresented, s_vsCache.size() + s_psCache.size(),
                      s_vsCache.size(), s_psCache.size(), s_texCache.size(),
-                     s_efbCopies.size(), HiRes_LoadedCount());
+                     s_efbCopiesLive.size(), HiRes_LoadedCount());
     }
     else
     {
+        // A2g selftest: do not overwrite retained scratch EFB→tex gens; still honour
+        // the EFB clear bit so subsequent producer draws match live ordering.
+        if (s_replayIsolation && s_scratchSkipEfbTexCopy)
+        {
+            if (clear)
+                ClearEFB(sx, sy, sx + sw, sy + sh);
+            SetEFBTarget();
+            return;
+        }
         // copy to texture
         uint32_t fmt = ((ctl >> 4) & 7) * 2 + ((ctl >> 3) & 1) * 0;   // placeholder, replaced below
         uint32_t tp = (ctl >> 3) & 0xF;
@@ -2715,7 +2811,9 @@ static void DoEFBCopy()
         uint32_t th = half ? std::max(1, sh / 2) : sh;
         uint32_t rw = tw * s_scale, rh = th * s_scale;
 
-        TexEntry& e = s_efbCopies[destAddr];
+        auto& efbMap = EfbCopyMap();
+        const uint32_t efbKey = EfbCopyKey(destAddr);
+        TexEntry& e = efbMap[efbKey];
         if (!e.tex || e.w != rw || e.h != rh)
         {
             ReleaseTex(e);
@@ -2752,19 +2850,22 @@ static void DoEFBCopy()
         e.hashedFrame = s_frame;
         e.efbCopy = true;
         e.lastFrame = s_frame;
+        e.efbGenId = s_efbCopyGenCounter++;
+        e.createFrame = s_frame;
+        e.createXfb = g_framesPresented;
         if (A2c_ClosureCaptureEnabled() && !s_replayIsolation)
         {
             uint32_t cf = 0;
             if (half) cf |= A2bEfbCopy_Half;
             if (depthSrc) cf |= A2bEfbCopy_DepthSrc;
             if (intensity) cf |= A2bEfbCopy_Intensity;
-            A2b_OnEfbCopy(destAddr, ctl, (uint32_t)sx, (uint32_t)sy, (uint32_t)sw, (uint32_t)sh,
-                          fmt, cf);
+            A2b_OnEfbCopy(efbKey, ctl, (uint32_t)sx, (uint32_t)sy, (uint32_t)sw, (uint32_t)sh,
+                          fmt, cf, e.efbGenId, e.createFrame, e.createXfb);
         }
         if (Capturing())
         {
             char path[64];
-            snprintf(path, sizeof(path), "efb_%08x_f%u.bmp", destAddr, fmt);
+            snprintf(path, sizeof(path), "efb_%08x_f%u.bmp", efbKey, fmt);
             SaveTextureBMP(e.tex, path);
         }
         // also report actual texel dimensions (unscaled) through w/h used for texDim

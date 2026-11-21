@@ -20,7 +20,8 @@ enum A2cReadyFlags : uint32_t
     A2cReady_PassSelected = 1u << 7,
     A2cReady_EfbIncoming = 1u << 8,   // pass-entry EFB snapshot present
     A2cReady_EfbFeedback = 1u << 9,   // A2f: producer→copy→sample chain closed (or N/A)
-    A2cReady_All = 0x3FFu,
+    A2cReady_CrossFrame = 1u << 10,   // A2g: producer→retain→consumer chain closed
+    A2cReady_All = 0x7FFu,
 };
 
 // Structural families — classified by cmd/draw/dep profile, not addresses.
@@ -30,7 +31,8 @@ enum A2cPassFamily : uint32_t
     A2cFamily_A2dIdle = 1,     // title/boot idle HUD without required EFB feedback
     A2cFamily_A2eMultiTex = 2, // richer static/UI (~10–16 KiB, ~80+ draws, ≥6 deps)
     A2cFamily_A2fEfbFb = 3,    // EFB→tex mip/feedback chain sampled in-pass
-    A2cFamily_Other = 4,
+    A2cFamily_A2gCrossEfb = 4, // EFB→tex produced in prior frame, sampled this frame
+    A2cFamily_Other = 5,
 };
 
 enum A2cCompareStatus : uint32_t
@@ -57,7 +59,12 @@ struct A2cPassReport
     uint32_t depTmem = 0;
     uint32_t depEfbCopy = 0;
     uint32_t depEfbCopySampled = 0;
+    uint32_t depEfbCopyCross = 0;  // A2g: sampled generations created earlier
     uint32_t depOther = 0;
+    uint64_t producerXfb = 0;
+    uint64_t consumerXfb = 0;
+    uint32_t crossEdgeCount = 0;
+    uint32_t crossResolved = 0;
     uint32_t unresolvedRequired = 0;
     uint32_t readyFlags = 0;
     uint32_t failFlags = 0;
@@ -84,6 +91,12 @@ struct A2cReplayResult
     bool seedColorMatch = false;   // scratch after seed == incoming colour hash
     bool seedDepthMatch = false;
     bool efbFeedbackOk = false;    // scratch-sourced EFB copies used (A2f)
+    bool crossFrameOk = false;     // A2g: consumer sampled scratch-retained gens
+    bool noLiveFallback = false;   // scratch map used; live EFB copies untouched
+    uint32_t crossCopyMatch = 0;   // producer dest hashes equal live vs scratch
+    uint32_t crossCopyTotal = 0;
+    uint64_t producerXfb = 0;
+    uint64_t consumerXfb = 0;
     uint32_t compareStatus = A2cCompare_None;
     uint32_t family = A2cFamily_None;
     uint32_t liveEfbHash = 0;

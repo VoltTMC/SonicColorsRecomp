@@ -116,6 +116,19 @@ uint32_t Render_EfbIncomingDepthHash(int slot);
 
 // Scratch: seed from incoming (no clear) or clear-to-black (legacy probe).
 bool Render_ScratchBeginFromIncoming(int incomingSlot, uint32_t* outW, uint32_t* outH);
+// A2g: retainScratchEfbCopies keeps isolation EFB→tex map across sequential frames.
+bool Render_ScratchBeginFromIncomingEx(int incomingSlot, bool retainScratchEfbCopies,
+                                       uint32_t* outW, uint32_t* outH);
+void Render_ScratchDropEfbCopies();
+uint32_t Render_ScratchEfbCopyCount();
+bool Render_ScratchHasEfbCopy(uint32_t destAddr);
+uint64_t Render_ScratchEfbCopyGen(uint32_t destAddr);
+uint32_t Render_HashLiveEfbCopy(uint32_t destAddr);
+uint32_t Render_HashScratchEfbCopy(uint32_t destAddr);
+// A2g selftest: when true under isolation, non-toXFB EFB→tex copies are no-ops
+// so retained producer generations are sampled by the consumer frame.
+void Render_SetScratchSkipEfbTexCopy(bool skip);
+bool Render_ScratchSkipEfbTexCopy();
 bool Render_ScratchBeginCleared(uint32_t* outW, uint32_t* outH);
 uint32_t Render_ScratchEndHash();          // color fingerprint; ends isolation
 uint32_t Render_ScratchEndDepthHash();    // depth fingerprint; call before EndHash

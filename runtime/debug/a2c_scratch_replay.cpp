@@ -35,8 +35,8 @@ std::mutex s_mu;
 A2cPassReport s_pass{};
 A2cReplayResult s_lastReplay{};
 bool s_havePass = false;
-// Per-family last ready report + replay (A2d / A2e / A2f).
-constexpr uint32_t kFamilySlots = 5;
+// Per-family last ready report + replay (A2d / A2e / A2f / A2g).
+constexpr uint32_t kFamilySlots = 6;
 A2cPassReport s_familyPass[kFamilySlots]{};
 A2cReplayResult s_familyReplay[kFamilySlots]{};
 bool s_haveFamilyPass[kFamilySlots]{};
@@ -161,9 +161,13 @@ void CaptureIndexedArrays(int vat, uint32_t count, const uint8_t* stream, uint32
     }
 }
 
-uint32_t ClassifyFamily(uint32_t passBytes, uint32_t draws, uint32_t deps, uint32_t efbCopySampled)
+uint32_t ClassifyFamily(uint32_t passBytes, uint32_t draws, uint32_t deps, uint32_t efbCopySampled,
+                        uint32_t efbCopyCross)
 {
     // Structural fingerprints only — no guest addresses / hard-coded EAs.
+    // A2g: any pass that samples an EFB generation created in an earlier frame.
+    if (efbCopyCross >= 1)
+        return A2cFamily_A2gCrossEfb;
     // A2f: idle-scale pass with sampled EFB→tex feedback (mip-chain HUD).
     if (efbCopySampled >= 1 && passBytes >= 4000 && passBytes <= 7000 && draws >= 60 &&
         draws <= 75)
@@ -176,6 +180,27 @@ uint32_t ClassifyFamily(uint32_t passBytes, uint32_t draws, uint32_t deps, uint3
     if (passBytes >= 10000 && passBytes <= 16000 && draws >= 75 && draws <= 100 && deps >= 6)
         return A2cFamily_A2eMultiTex;
     return A2cFamily_Other;
+}
+
+bool FindProducerForEdge(const A2bArchivePacket& prev, const A2bCrossEfbEdge& edge,
+                         A2bResource* outRes)
+{
+    for (uint32_t i = 0; i < prev.resCount; i++)
+    {
+        const A2bResource& r = prev.resources[i];
+        if (r.type != A2bRes_EfbCopy) continue;
+        if (edge.genId && r.genId == edge.genId)
+        {
+            if (outRes) *outRes = r;
+            return true;
+        }
+        if (!edge.genId && r.guestEa == edge.destAddr && r.createXfb == edge.createXfb)
+        {
+            if (outRes) *outRes = r;
+            return true;
+        }
+    }
+    return false;
 }
 
 void EvaluatePass(const A2bArchivePacket& pkt, A2cPassReport& out)
@@ -235,24 +260,33 @@ void EvaluatePass(const A2bArchivePacket& pkt, A2cPassReport& out)
             out.depEfbCopy++;
             if (r.lifetime & A2bEfbCopy_Sampled)
                 out.depEfbCopySampled++;
+            if (r.lifetime & A2bEfbCopy_CrossFrame)
+                out.depEfbCopyCross++;
         }
         else
             out.depOther++;
         const bool incomplete = (r.flags & A2bRes_Unresolved) || (r.flags & A2bRes_Truncated) ||
                                 ((r.flags & A2bRes_Copied) == 0);
-        if (incomplete) reqUnres++;
+        // Cross-frame consumer stubs are resolved at sequence level, not alone.
+        const bool crossStub = (r.type == A2bRes_EfbCopy) && (r.lifetime & A2bEfbCopy_CrossFrame) &&
+                               !(r.lifetime & ~((uint32_t)(A2bEfbCopy_Sampled | A2bEfbCopy_CrossFrame))) &&
+                               r.copiedSize == 0 && r.size == 0;
+        if (incomplete && !crossStub) reqUnres++;
         if (r.type == A2bRes_VertexArray && incomplete) vertOk = false;
         if ((r.type == A2bRes_Texture || r.type == A2bRes_TlutRam || r.type == A2bRes_TmemWindow) &&
             incomplete)
             texOk = false;
         if (r.type == A2bRes_DisplayList && incomplete) dlOk = false;
         if (r.type == A2bRes_IndexedXf && incomplete) vertOk = false;
-        if (r.type == A2bRes_EfbCopy && incomplete) texOk = false;
+        if (r.type == A2bRes_EfbCopy && incomplete && !crossStub) texOk = false;
     }
     out.depCount = deps;
     out.depBytes = depBytes;
     out.unresolvedRequired = reqUnres;
-    out.family = ClassifyFamily(out.passBytes, out.drawCount, deps, out.depEfbCopySampled);
+    out.crossEdgeCount = pkt.crossEdgeCount;
+    out.consumerXfb = pkt.summary.xfbIndex;
+    out.family =
+        ClassifyFamily(out.passBytes, out.drawCount, deps, out.depEfbCopySampled, out.depEfbCopyCross);
 
     ok(A2cReady_VertexComplete, vertOk);
     ok(A2cReady_TextureComplete, texOk);
@@ -260,15 +294,22 @@ void EvaluatePass(const A2bArchivePacket& pkt, A2cPassReport& out)
 
     // EFB feedback: if the pass produced copies, every required copy must be
     // metadata-complete; A2f also requires at least one sampled consumer.
+    // Cross-frame-only consumers are handled by A2cReady_CrossFrame.
     const bool efbFbOk =
-        (out.depEfbCopy == 0) ||
+        (out.depEfbCopy == 0) || (out.depEfbCopyCross > 0 && out.depEfbCopySampled == out.depEfbCopyCross) ||
         (out.depEfbCopySampled >= 1 && out.depEfbCopy >= out.depEfbCopySampled);
     ok(A2cReady_EfbFeedback, efbFbOk);
 
+    // A2g single-packet: cross edges present → need producer packet (checked later).
+    // Without edges, CrossFrame readiness is N/A (vacuously true).
+    ok(A2cReady_CrossFrame, out.depEfbCopyCross == 0 || pkt.crossEdgeCount > 0);
+
     // Selection: static/UI-scale pass (not full TR1 scenes). Named families preferred
     // but Other within size bounds remains selectable for diagnostics.
-    const bool selected = out.passBytes > 256 && out.passBytes <= (128u << 10) &&
-                          out.drawCount > 0 && out.drawCount <= 128 && pkt.gxStartValid;
+    // A2g may use slightly larger consumer passes when edges are present.
+    const bool selected =
+        out.passBytes > 256 && out.passBytes <= (128u << 10) && out.drawCount > 0 &&
+        out.drawCount <= 128 && pkt.gxStartValid;
     ok(A2cReady_PassSelected, selected);
 
     out.readyFlags = ready;
@@ -292,10 +333,10 @@ void EvaluatePass(const A2bArchivePacket& pkt, A2cPassReport& out)
     {
         std::snprintf(out.reason, sizeof(out.reason),
                       "ready fam=%s passBytes=%u draws=%u deps=%u "
-                      "(dl=%u tex=%u vert=%u tmem=%u efbC=%u/%u) efbIn=%08x/%08x",
+                      "(dl=%u tex=%u vert=%u tmem=%u efbC=%u/%u x=%u) efbIn=%08x/%08x",
                       A2c_FamilyName(out.family), out.passBytes, out.drawCount, deps, out.depDl,
                       out.depTex, out.depVert, out.depTmem, out.depEfbCopySampled, out.depEfbCopy,
-                      out.efbInColorHash, out.efbInDepthHash);
+                      out.depEfbCopyCross, out.efbInColorHash, out.efbInDepthHash);
     }
 }
 
@@ -527,6 +568,290 @@ void RunScratchReplay(A2bArchivePacket& pkt, const A2cPassReport& pass, A2cRepla
              Render_CompareQueueDepth(), s_compareSkipped);
 }
 
+struct A2gSeqReady
+{
+    bool ready = false;
+    uint32_t resolved = 0;
+    uint32_t edges = 0;
+    uint64_t producerXfb = 0;
+    char reason[160]{};
+};
+
+A2gSeqReady EvaluateCrossSequence(const A2bArchivePacket& producer, const A2bArchivePacket& consumer,
+                                  const A2cPassReport& prodPass, const A2cPassReport& consPass)
+{
+    A2gSeqReady s{};
+    s.edges = consumer.crossEdgeCount;
+    s.producerXfb = producer.summary.xfbIndex;
+    if (!prodPass.replayReady)
+    {
+        std::snprintf(s.reason, sizeof(s.reason), "producer not ready: %s", prodPass.reason);
+        return s;
+    }
+    if (!consPass.replayReady)
+    {
+        std::snprintf(s.reason, sizeof(s.reason), "consumer not ready: %s", consPass.reason);
+        return s;
+    }
+    if (consumer.crossEdgeCount == 0)
+    {
+        std::snprintf(s.reason, sizeof(s.reason), "no cross-frame EFB edges");
+        return s;
+    }
+    uint32_t resolved = 0;
+    for (uint32_t i = 0; i < consumer.crossEdgeCount; i++)
+    {
+        A2bResource pr{};
+        if (FindProducerForEdge(producer, consumer.crossEdges[i], &pr) &&
+            (pr.flags & A2bRes_Copied) && !(pr.flags & A2bRes_Unresolved))
+            resolved++;
+    }
+    s.resolved = resolved;
+    if (resolved != consumer.crossEdgeCount)
+    {
+        std::snprintf(s.reason, sizeof(s.reason), "unresolved cross edges %u/%u (prodXfb=%llu)",
+                      resolved, consumer.crossEdgeCount,
+                      (unsigned long long)producer.summary.xfbIndex);
+        return s;
+    }
+    s.ready = true;
+    std::snprintf(s.reason, sizeof(s.reason),
+                  "seq ready prodXfb=%llu consXfb=%llu edges=%u",
+                  (unsigned long long)producer.summary.xfbIndex,
+                  (unsigned long long)consumer.summary.xfbIndex, resolved);
+    return s;
+}
+
+void SynthesizeSelftestEdges(const A2bArchivePacket& producer, A2bArchivePacket& consumer)
+{
+    // Controlled A2g: no live cross-frame samples observed on title/menu. Use producer's
+    // EFB copy dests as the retained set the consumer must sample under skip-copy mode.
+    consumer.crossEdgeCount = 0;
+    for (uint32_t i = 0; i < producer.resCount && consumer.crossEdgeCount < 64; i++)
+    {
+        const A2bResource& r = producer.resources[i];
+        if (r.type != A2bRes_EfbCopy || !r.genId) continue;
+        A2bCrossEfbEdge& e = consumer.crossEdges[consumer.crossEdgeCount++];
+        e = A2bCrossEfbEdge{};
+        e.destAddr = r.guestEa;
+        e.genId = r.genId;
+        e.createFrame = r.createFrame;
+        e.createXfb = r.createXfb ? r.createXfb : producer.summary.xfbIndex;
+        e.sampleXfb = consumer.summary.xfbIndex;
+        e.sampleCount = 1;
+    }
+}
+
+bool SelftestPairOk(const A2cPassReport& prod, const A2cPassReport& cons)
+{
+    // Two consecutive A2f-scale passes with EFB copies — static enough for retention proof.
+    auto a2fish = [](const A2cPassReport& p) {
+        return p.replayReady && p.depEfbCopySampled >= 1 && p.passBytes >= 4000 &&
+               p.passBytes <= 7000 && p.drawCount >= 60 && p.drawCount <= 75;
+    };
+    return a2fish(prod) && a2fish(cons);
+}
+
+void RunCrossFrameReplay(A2bArchivePacket& producer, A2bArchivePacket& consumer,
+                         const A2cPassReport& prodPass, const A2cPassReport& consPass,
+                         const A2gSeqReady& seq, A2cReplayResult& rr, bool selftest)
+{
+    rr = A2cReplayResult{};
+    rr.attempted = true;
+    rr.family = A2cFamily_A2gCrossEfb;
+    rr.passHash = consPass.passHash;
+    rr.passBytes = consPass.passBytes;
+    rr.drawCount = consPass.drawCount;
+    rr.depCount = consPass.depCount;
+    rr.efbInColorHash = consPass.efbInColorHash;
+    rr.efbInDepthHash = consPass.efbInDepthHash;
+    rr.producerXfb = seq.producerXfb;
+    rr.consumerXfb = consPass.consumerXfb ? consPass.consumerXfb : consumer.summary.xfbIndex;
+    rr.crossCopyTotal = seq.resolved;
+    std::snprintf(rr.detail, sizeof(rr.detail), "starting");
+
+    if (!seq.ready)
+    {
+        std::snprintf(rr.detail, sizeof(rr.detail), "seq not ready: %s", seq.reason);
+        return;
+    }
+
+    rr.liveEfbHash = Render_HashLiveEfb();
+    rr.liveDepthHash = Render_HashLiveDepth();
+
+    GXState gxSaved = g_gx;
+    std::vector<uint8_t> tmemSaved(Render_TmemPtr(), Render_TmemPtr() + Render_TmemSize());
+    int32_t tevSaved[4][4];
+    memcpy(tevSaved, g_tevKonst, sizeof(tevSaved));
+
+    std::vector<RamSave> ramSavesProd, ramSavesCons;
+    ApplyResourcesToGuest(producer, ramSavesProd);
+
+    auto cleanup = [&]() {
+        GX_SetPeSuppress(false);
+        Render_SetReplayIsolation(false);
+        Render_ScratchDropEfbCopies();
+        g_gx = gxSaved;
+        memcpy(Render_TmemPtr(), tmemSaved.data(), tmemSaved.size());
+        memcpy(g_tevKonst, tevSaved, sizeof(tevSaved));
+        RestoreGuest(ramSavesCons);
+        RestoreGuest(ramSavesProd);
+        if (producer.efbIncomingValid)
+        {
+            Render_EfbIncomingRelease(producer.efbIncomingSlot);
+            producer.efbIncomingValid = false;
+            producer.efbIncomingSlot = -1;
+        }
+        if (consumer.efbIncomingValid)
+        {
+            Render_EfbIncomingRelease(consumer.efbIncomingSlot);
+            consumer.efbIncomingValid = false;
+            consumer.efbIncomingSlot = -1;
+        }
+        rr.stateRestored = true;
+    };
+
+    GX_SetPeSuppress(true);
+    Render_ScratchDropEfbCopies();  // explicit clear — no stale gens
+
+    uint32_t sw = 0, sh = 0;
+    g_gx = producer.gxStart;
+    Render_ResetHostDrawState();
+    if (!Render_ScratchBeginFromIncomingEx(producer.efbIncomingSlot, false, &sw, &sh))
+    {
+        std::snprintf(rr.detail, sizeof(rr.detail), "producer scratch begin failed");
+        cleanup();
+        return;
+    }
+    rr.isolationOk = true;
+    rr.seededFromIncoming = true;
+    rr.seedColorHash = Render_HashScratchColor();
+    rr.seedDepthHash = Render_HashScratchDepth();
+    // Producer seed vs its own incoming (not consumer).
+    const bool prodSeedC =
+        (rr.seedColorHash != 0 && rr.seedColorHash == producer.efbInColorHash);
+    const bool prodSeedD =
+        (rr.seedDepthHash != 0 && rr.seedDepthHash == producer.efbInDepthHash);
+    if (!Render_ScratchBeginFromIncomingEx(producer.efbIncomingSlot, false, &sw, &sh))
+    {
+        std::snprintf(rr.detail, sizeof(rr.detail), "producer re-seed failed");
+        cleanup();
+        return;
+    }
+    GX_ReplayCommands(producer.cmd.data(), prodPass.passBytes);
+
+    // Prove scratch produced the retained dests independently of live.
+    uint32_t copyMatch = 0;
+    for (uint32_t i = 0; i < consumer.crossEdgeCount; i++)
+    {
+        const uint32_t dest = consumer.crossEdges[i].destAddr;
+        if (!Render_ScratchHasEfbCopy(dest))
+            continue;
+        const uint32_t liveH = Render_HashLiveEfbCopy(dest);
+        const uint32_t scrH = Render_HashScratchEfbCopy(dest);
+        if (liveH && scrH && liveH == scrH)
+            copyMatch++;
+    }
+    rr.crossCopyMatch = copyMatch;
+    rr.noLiveFallback = true;  // isolation map is separate from live
+
+    // Consumer: retain scratch EFB copies from producer.
+    RestoreGuest(ramSavesProd);  // restore producer RAM patches before consumer apply
+    ramSavesProd.clear();
+    ApplyResourcesToGuest(consumer, ramSavesCons);
+    g_gx = consumer.gxStart;
+    Render_ResetHostDrawState();
+    if (!Render_ScratchBeginFromIncomingEx(consumer.efbIncomingSlot, true, &sw, &sh))
+    {
+        std::snprintf(rr.detail, sizeof(rr.detail), "consumer scratch begin failed");
+        cleanup();
+        return;
+    }
+    rr.scratchW = sw;
+    rr.scratchH = sh;
+    rr.seedColorHash = Render_HashScratchColor();
+    rr.seedDepthHash = Render_HashScratchDepth();
+    rr.seedColorMatch =
+        (rr.seedColorHash != 0 && rr.seedColorHash == rr.efbInColorHash) && prodSeedC;
+    rr.seedDepthMatch =
+        (rr.seedDepthHash != 0 && rr.seedDepthHash == rr.efbInDepthHash) && prodSeedD;
+    if (!Render_ScratchBeginFromIncomingEx(consumer.efbIncomingSlot, true, &sw, &sh))
+    {
+        std::snprintf(rr.detail, sizeof(rr.detail), "consumer re-seed failed");
+        cleanup();
+        return;
+    }
+
+    // Confirm retained scratch gens still present before consumer cmds.
+    uint32_t retained = 0;
+    for (uint32_t i = 0; i < consumer.crossEdgeCount; i++)
+        if (Render_ScratchHasEfbCopy(consumer.crossEdges[i].destAddr))
+            retained++;
+    rr.crossFrameOk = (retained == consumer.crossEdgeCount && retained > 0);
+
+    if (selftest)
+        Render_SetScratchSkipEfbTexCopy(true);
+    GX_ReplayCommands(consumer.cmd.data(), consPass.passBytes);
+    Render_SetScratchSkipEfbTexCopy(false);
+
+    // After consumer cmds, retained gens must still be the ones sampled (not replaced).
+    uint32_t stillRetained = 0;
+    for (uint32_t i = 0; i < consumer.crossEdgeCount; i++)
+        if (Render_ScratchHasEfbCopy(consumer.crossEdges[i].destAddr))
+            stillRetained++;
+    rr.crossFrameOk = rr.crossFrameOk && (stillRetained == consumer.crossEdgeCount);
+
+    // Sync compare for A2g acceptance (exact everyPixel).
+    RenderEfbCompare cmp{};
+    if (Render_CompareLiveVsScratch(cmp, true))
+    {
+        rr.compareStatus = A2cCompare_Completed;
+        rr.imageCompared = true;
+        rr.colorExact = cmp.colorExact;
+        rr.depthExact = cmp.depthExact;
+        rr.depthCompared = cmp.depthCompared;
+        rr.colorMismatch = cmp.colorMismatch;
+        rr.depthMismatch = cmp.depthMismatch;
+        rr.maxChannelDelta = cmp.maxChannelDelta;
+        rr.comparedPixels = cmp.comparedPixels;
+        rr.liveEfbHash = cmp.liveColorHash;
+        rr.scratchEfbHash = cmp.scratchColorHash;
+        rr.liveDepthHash = cmp.liveDepthHash;
+        rr.scratchDepthHash = cmp.scratchDepthHash;
+        rr.imageMatch = cmp.colorExact && cmp.depthCompared && cmp.depthExact &&
+                        rr.seedColorMatch && rr.seedDepthMatch && rr.crossFrameOk &&
+                        rr.noLiveFallback;
+        s_compareDone++;
+        if (!rr.imageMatch)
+            s_forcedCompareLeft = 4;
+    }
+    else
+    {
+        rr.compareStatus = A2cCompare_Failed;
+        s_compareFailed++;
+    }
+
+    Render_ScratchEndHash();
+    rr.completed = rr.crossFrameOk && rr.isolationOk && rr.seededFromIncoming;
+    cleanup();
+
+    const char* verdict = rr.imageMatch ? "MATCH" : "DIFF";
+    if (!rr.crossFrameOk)
+        verdict = "NO_RETAIN";
+    else if (!rr.seedColorMatch || !rr.seedDepthMatch)
+        verdict = "SEED_DIFF";
+    std::snprintf(rr.detail, sizeof(rr.detail),
+                  "fam=A2g-cross xfb=%llu←%llu edges=%u/%u copyH=%u/%u retain=%d self=%d "
+                  "seed=%d/%d colorMis=%u depthMis=%u dCmp=%d %s",
+                  (unsigned long long)rr.consumerXfb, (unsigned long long)rr.producerXfb,
+                  stillRetained, consumer.crossEdgeCount, rr.crossCopyMatch, rr.crossCopyTotal,
+                  rr.crossFrameOk ? 1 : 0, selftest ? 1 : 0, rr.seedColorMatch ? 1 : 0,
+                  rr.seedDepthMatch ? 1 : 0, rr.colorMismatch, rr.depthMismatch,
+                  rr.depthCompared ? 1 : 0, verdict);
+    LOG_INFO("A2g replay: {} liveC={:08x} scrC={:08x} liveD={:08x} scrD={:08x}", rr.detail,
+             rr.liveEfbHash, rr.scratchEfbHash, rr.liveDepthHash, rr.scratchDepthHash);
+}
+
 }  // namespace
 
 bool A2c_ScratchReplayEnabled() { return ReplayEnv(); }
@@ -612,6 +937,54 @@ void A2c_OnArchivedFrame()
     A2cPassReport report{};
     EvaluatePass(pkt, report);
 
+    // A2g: natural cross edges, or controlled selftest on consecutive A2f passes.
+    A2bArchivePacket prevPkt{};
+    A2cPassReport prevReport{};
+    A2gSeqReady seq{};
+    bool havePrev = false;
+    bool a2gSelftest = false;
+    if (A2b_ClonePreviousPacket(prevPkt))
+    {
+        havePrev = true;
+        EvaluatePass(prevPkt, prevReport);
+        if (pkt.crossEdgeCount == 0 && SelftestPairOk(prevReport, report))
+        {
+            SynthesizeSelftestEdges(prevPkt, pkt);
+            a2gSelftest = pkt.crossEdgeCount > 0;
+        }
+        if (pkt.crossEdgeCount > 0)
+        {
+            seq = EvaluateCrossSequence(prevPkt, pkt, prevReport, report);
+            report.crossResolved = seq.resolved;
+            report.crossEdgeCount = pkt.crossEdgeCount;
+            report.depEfbCopyCross = pkt.crossEdgeCount;
+            report.producerXfb = seq.producerXfb;
+            if (seq.ready)
+            {
+                report.family = A2cFamily_A2gCrossEfb;
+                report.readyFlags |= A2cReady_CrossFrame;
+                report.failFlags &= ~A2cReady_CrossFrame;
+                std::snprintf(report.reason, sizeof(report.reason), "%s%s", seq.reason,
+                              a2gSelftest ? " (selftest retain)" : "");
+                report.replayReady = true;
+            }
+            else
+            {
+                report.readyFlags &= ~A2cReady_CrossFrame;
+                report.failFlags |= A2cReady_CrossFrame;
+                if (report.family == A2cFamily_A2gCrossEfb)
+                    report.replayReady = false;
+                std::snprintf(report.reason, sizeof(report.reason), "%s", seq.reason);
+            }
+        }
+        if (!seq.ready && prevPkt.efbIncomingValid)
+        {
+            Render_EfbIncomingRelease(prevPkt.efbIncomingSlot);
+            prevPkt.efbIncomingValid = false;
+            havePrev = false;
+        }
+    }
+
     {
         std::lock_guard lk(s_mu);
         PollPendingComparesLocked();
@@ -628,27 +1001,67 @@ void A2c_OnArchivedFrame()
     const uint64_t now = Platform_TickMs();
     const bool namedFamily = report.family == A2cFamily_A2dIdle ||
                              report.family == A2cFamily_A2eMultiTex ||
-                             report.family == A2cFamily_A2fEfbFb;
+                             report.family == A2cFamily_A2fEfbFb ||
+                             report.family == A2cFamily_A2gCrossEfb;
+    if (pkt.crossEdgeCount > 0 && seq.ready && (now - lastLogMs >= 2000))
+    {
+        LOG_INFO("A2g edges: xfb={} count={} resolved={}/{} prodXfb={} — {}", pkt.summary.xfbIndex,
+                 pkt.crossEdgeCount, report.crossResolved, pkt.crossEdgeCount, report.producerXfb,
+                 seq.reason);
+    }
     if (now - lastLogMs >= 2500 || (report.replayReady && namedFamily && now - lastLogMs >= 800))
     {
         lastLogMs = now;
         LOG_INFO("A2f ready: fam={} xfb={} ready={} flags={:03x}/{:03x} passBytes={} draws={} "
-                 "deps={} (dl={} tex={} vert={} tmem={} efbC={}/{}) reqUnres={} efbIn={} — {}",
+                 "deps={} (dl={} tex={} vert={} tmem={} efbC={}/{} x={}) reqUnres={} efbIn={} — {}",
                  A2c_FamilyName(report.family), report.xfbIndex,
                  report.replayReady ? "yes" : "no", report.readyFlags, report.failFlags,
                  report.passBytes, report.drawCount, report.depCount, report.depDl, report.depTex,
                  report.depVert, report.depTmem, report.depEfbCopySampled, report.depEfbCopy,
-                 report.unresolvedRequired, report.efbIncomingValid ? "yes" : "no", report.reason);
+                 report.depEfbCopyCross, report.unresolvedRequired,
+                 report.efbIncomingValid ? "yes" : "no", report.reason);
     }
 
     if (!ReplayEnv() || !report.replayReady) return;
+
+    // Prefer A2g sequential replay when the sequence is ready.
+    if (report.family == A2cFamily_A2gCrossEfb && seq.ready && havePrev)
+    {
+        static uint64_t lastA2gMs = 0;
+        if (now - lastA2gMs < 2000)
+        {
+            if (prevPkt.efbIncomingValid)
+                Render_EfbIncomingRelease(prevPkt.efbIncomingSlot);
+            return;
+        }
+        {
+            std::lock_guard lk(s_mu);
+            if (s_haveFamilyReplay[A2cFamily_A2gCrossEfb] &&
+                s_familyReplay[A2cFamily_A2gCrossEfb].imageMatch && now - lastA2gMs < 12000)
+            {
+                if (prevPkt.efbIncomingValid)
+                    Render_EfbIncomingRelease(prevPkt.efbIncomingSlot);
+                return;
+            }
+        }
+        lastA2gMs = now;
+        s_lastReplayMsByFamily[A2cFamily_A2gCrossEfb] = now;
+        s_replayBudgetFrames++;
+        A2cReplayResult rr{};
+        RunCrossFrameReplay(prevPkt, pkt, prevReport, report, seq, rr, a2gSelftest);
+        std::lock_guard lk(s_mu);
+        s_lastReplay = rr;
+        s_familyReplay[A2cFamily_A2gCrossEfb] = rr;
+        s_haveFamilyReplay[A2cFamily_A2gCrossEfb] = true;
+        return;
+    }
 
     // Skip uncategorised Other once a named family has been observed.
     if (!namedFamily)
     {
         std::lock_guard lk(s_mu);
         if (s_haveFamilyPass[A2cFamily_A2dIdle] || s_haveFamilyPass[A2cFamily_A2eMultiTex] ||
-            s_haveFamilyPass[A2cFamily_A2fEfbFb])
+            s_haveFamilyPass[A2cFamily_A2fEfbFb] || s_haveFamilyPass[A2cFamily_A2gCrossEfb])
             return;
     }
 
@@ -666,8 +1079,6 @@ void A2c_OnArchivedFrame()
             ((s_haveFamilyReplay[A2cFamily_A2eMultiTex] &&
               s_familyReplay[A2cFamily_A2eMultiTex].imageMatch) ||
              !s_haveFamilyPass[A2cFamily_A2eMultiTex]);
-        // A2d-idle may be superseded by A2f on the same boot HUD; treat A2f as the
-        // primary idle-with-feedback result.
         if (selfMatch && allNamedMatch && now - s_lastReplayMsByFamily[report.family] < 10000)
             return;
         if (selfMatch && !allNamedMatch && namedFamily &&
@@ -732,6 +1143,7 @@ const char* A2c_FamilyName(uint32_t family)
     case A2cFamily_A2dIdle: return "A2d-idle";
     case A2cFamily_A2eMultiTex: return "A2e-multitex";
     case A2cFamily_A2fEfbFb: return "A2f-efbfb";
+    case A2cFamily_A2gCrossEfb: return "A2g-cross";
     case A2cFamily_Other: return "other";
     default: return "none";
     }
@@ -741,11 +1153,12 @@ void A2c_OverlayLine(char* buf, size_t bufSize)
 {
     if (!buf || bufSize == 0) return;
     buf[0] = 0;
-    A2cReplayResult a{}, b{}, f{};
+    A2cReplayResult a{}, b{}, f{}, g{};
     const bool haveA = A2c_GetFamilyReplay(A2cFamily_A2dIdle, a);
     const bool haveB = A2c_GetFamilyReplay(A2cFamily_A2eMultiTex, b);
     const bool haveF = A2c_GetFamilyReplay(A2cFamily_A2fEfbFb, f);
-    if (haveA || haveB || haveF)
+    const bool haveG = A2c_GetFamilyReplay(A2cFamily_A2gCrossEfb, g);
+    if (haveA || haveB || haveF || haveG)
     {
         auto tag = [](bool have, const A2cReplayResult& r) -> const char* {
             if (!have) return "-";
@@ -754,17 +1167,18 @@ void A2c_OverlayLine(char* buf, size_t bufSize)
             if (r.completed) return "DIFF";
             return "fail";
         };
-        std::snprintf(buf, bufSize, "A2d:%s A2e:%s A2f:%s", tag(haveA, a), tag(haveB, b),
-                      tag(haveF, f));
+        std::snprintf(buf, bufSize, "A2d:%s A2e:%s A2f:%s A2g:%s", tag(haveA, a), tag(haveB, b),
+                      tag(haveF, f), tag(haveG, g));
         return;
     }
     A2cPassReport p{};
     if (!A2c_GetPassReport(p))
     {
         if (A2c_ScratchReplayEnabled())
-            std::snprintf(buf, bufSize, "A2f: waiting");
+            std::snprintf(buf, bufSize, "A2g: waiting");
         return;
     }
-    std::snprintf(buf, bufSize, "A2f %s %s pass=%u d=%u efbC=%u", A2c_FamilyName(p.family),
-                  p.replayReady ? "READY" : "no", p.passBytes, p.depCount, p.depEfbCopySampled);
+    std::snprintf(buf, bufSize, "A2g %s %s pass=%u d=%u efbC=%u x=%u", A2c_FamilyName(p.family),
+                  p.replayReady ? "READY" : "no", p.passBytes, p.depCount, p.depEfbCopySampled,
+                  p.depEfbCopyCross);
 }

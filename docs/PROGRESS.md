@@ -1,5 +1,15 @@
 # Progress log
 
+## 2026-11-21 — Approach A2g: cross-frame EFB texture persistence
+
+**Goal:** Retain scratch EFB→tex generations across a guest/present frame boundary and sample them in the next frame with exact live MATCH.
+
+**Audit:** Live `s_efbCopies` persist on the host, but title/menu always re-copy before sample (0 cross-frame samples in >200k hits). Split live vs scratch maps; genId + canonical dest keys; prev/curr archive packets + edges.
+
+**Controlled proof:** Consecutive A2f idle passes; producer → retain scratch copies → consumer with skip-tex-copy under isolation. `edges=5/5`, `copyH=5/5`, `retain=1`, `dCmp=1 MATCH` (`phase23_a2g_selftest2.log`). A2f/A2e still MATCH. Capture off ~60 Hz; on-path still ~35 Hz.
+
+**Next:** Natural live cross-frame sample (gameplay history buffer) or longer history ring — no scene-wide / no unique-FPS. Docs: `docs/FRAME_RATE.md` A2g.
+
 ## 2026-11-21 — Approach A2f: controlled EFB-feedback capture/replay
 
 **Goal:** Archive and scratch-replay a pass with real EFB→tex feedback (producer → copy → sample → consume), with exact MATCH. Also defer everyPixel compare off the XFB critical path where possible.

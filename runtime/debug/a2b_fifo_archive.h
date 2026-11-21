@@ -44,6 +44,7 @@ enum A2bEfbCopyFlags : uint32_t
     A2bEfbCopy_DepthSrc = 1u << 1,
     A2bEfbCopy_Intensity = 1u << 2,
     A2bEfbCopy_Sampled = 1u << 3,  // GetTexture later consumed this dest
+    A2bEfbCopy_CrossFrame = 1u << 4, // sampled in a later guest/present frame than create
 };
 
 enum A2bResLifetime : uint32_t
@@ -84,6 +85,10 @@ struct A2bResource
     uint32_t submitSeq = 0;
     uint32_t aux = 0;            // stride / array idx / fmt|(w<<8)|(h<<20)
     uint32_t refCount = 0;       // how often referenced (dedupe)
+    // A2g: EFB-copy generation identity (0 = not applicable)
+    uint64_t genId = 0;
+    uint64_t createXfb = 0;
+    uint32_t createFrame = 0;
 };
 
 struct A2bGxStateSnap
@@ -154,6 +159,17 @@ struct A2bCompareResult
     uint32_t resCountDelta = 0;
 };
 
+// A2g: sample of an EFB generation created in an earlier present/sim frame.
+struct A2bCrossEfbEdge
+{
+    uint32_t destAddr = 0;
+    uint64_t genId = 0;
+    uint32_t createFrame = 0;
+    uint64_t createXfb = 0;
+    uint64_t sampleXfb = 0;
+    uint32_t sampleCount = 0;
+};
+
 // Full archive clone for A2c readiness/replay (deep copy of blobs).
 struct A2bArchivePacket
 {
@@ -169,8 +185,10 @@ struct A2bArchivePacket
     std::vector<uint8_t> tmemStart;   // optional TMEM window at frame start
     A2bSubmission subs[kA2bMaxSubsPerFrame]{};
     A2bResource resources[kA2bMaxResources]{};
+    A2bCrossEfbEdge crossEdges[64]{};
     uint32_t submitCount = 0;
     uint32_t resCount = 0;
+    uint32_t crossEdgeCount = 0;
 };
 
 bool A2b_FifoCaptureEnabled();
@@ -181,10 +199,13 @@ void A2b_OnVertexArray(uint32_t guestEa, uint32_t size, uint32_t stride, uint32_
 void A2b_OnTexture(uint32_t guestEa, uint32_t size, uint32_t fmt, uint32_t w, uint32_t h);
 void A2b_OnTlutRam(uint32_t guestEa, uint32_t size);
 void A2b_OnTmemWindow(uint32_t tmemOff, uint32_t size, const uint8_t* data);
-// A2f: non-toXFB EFB copy. aux packs sx|sy|sw|sh; size=fmt; lifetime flags via A2bEfbCopyFlags in flags high bits via contentHash reserved — see OnEfbCopy.
+// A2f/A2g: non-toXFB EFB copy. aux packs sx|sy|sw|sh; size packs sh|fmt.
+// genId/createFrame/createXfb identify the producer generation across frames.
 void A2b_OnEfbCopy(uint32_t destAddr, uint32_t ctl, uint32_t sx, uint32_t sy, uint32_t sw, uint32_t sh,
-                   uint32_t fmt, uint32_t copyFlags);
-void A2b_OnEfbCopySampled(uint32_t destAddr);
+                   uint32_t fmt, uint32_t copyFlags, uint64_t genId, uint32_t createFrame,
+                   uint64_t createXfb);
+void A2b_OnEfbCopySampled(uint32_t destAddr, uint64_t genId, uint32_t createFrame, uint64_t createXfb,
+                          bool crossFrame);
 void A2b_NoteDraw();
 void A2b_OnSimFrameEnd();
 void A2b_OnXfbCopy();
@@ -197,6 +218,9 @@ bool A2b_HasPair();
 bool A2b_GetCurrentSummary(A2bFrameSummary& out);
 bool A2b_GetPreviousSummary(A2bFrameSummary& out);
 bool A2b_CloneCurrentPacket(A2bArchivePacket& out);
+bool A2b_ClonePreviousPacket(A2bArchivePacket& out);
+uint32_t A2b_GetCrossEfbEdgeCount();
+bool A2b_GetCrossEfbEdge(uint32_t index, A2bCrossEfbEdge& out);
 void A2b_OverlayLine(char* buf, size_t bufSize);
 
 bool A2b_ExportLastFrame(const char* dirPath);

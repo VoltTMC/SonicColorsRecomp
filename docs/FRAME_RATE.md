@@ -233,6 +233,7 @@ Opt-in immutable snapshots at completed sim-frame boundaries for future host int
 | A2d | EFB initial-state + host-state closure | Live-vs-scratch pixel MATCH for selected pass | **Done (experiment)** |
 | A2e | Second independent static/UI pass MATCH | Two structurally different families both MATCH | **Done (experiment)** |
 | A2f | Controlled EFB→tex feedback replay | Scratch-sourced copy chain MATCH | **Done (experiment)** |
+| A2g | Cross-frame EFB texture retain/replay | Sequential scratch retain MATCH | **Done (experiment)** |
 | A3 | Interpolated second XFB without guest update | `unique_xfb` >60 behind debug flag | Later |
 | A4 | Quality gate; promote to uncapped | Honest unique>60 in production | Later |
 
@@ -618,6 +619,41 @@ Archive: `A2bRes_EfbCopy` metadata (dest, region, fmt, ctl, Sampled). Copy **res
 9. **Next:** third static/UI **or** smallest cross-frame EFB-texture lifetime test — still no scene-wide / no interp.
 
 **Verdict:** A2f proves isolated scratch **generates and samples its own EFB-derived textures** with exact live MATCH on the title mip-chain pass.
+
+### Approach A2g — cross-frame EFB texture persistence (2026-11-21)
+
+Prove scratch can **retain** EFB→tex generations produced in guest/present frame N and **sample them** in frame N+1 without live fallback.
+
+| Item | Detail |
+|------|--------|
+| Lifetime audit | Host `s_efbCopiesLive` persists across presents (age/cap eviction only); GetTexture reuses when RAM hash matches |
+| Live observation | Title/menu: **0** cross-frame samples in >200k EFB hits — game always re-copies in the same present before sampling |
+| Controlled test | Consecutive A2f idle passes; producer replay fills `s_efbCopiesScratch`; consumer begins with **retain**; consumer non-toXFB copies are no-ops under isolation (`Render_SetScratchSkipEfbTexCopy`) so draws sample retained gens |
+| Identity | `genId` + canonical dest key; multi-frame `A2b_ClonePreviousPacket` + `A2bCrossEfbEdge` |
+| Gate | `A2cReady_CrossFrame`; family `A2g-cross`; sequence ready only when every edge resolves to a producer copy |
+
+#### Results (`out/phase23_a2g_selftest2.log`)
+
+| Check | Result |
+|-------|--------|
+| A2g-cross | `edges=5/5`, `copyH=5/5`, `retain=1`, `self=1`, `colorMis=0`, `depthMis=0`, `dCmp=1`, `liveC==scrC` **MATCH** (e.g. xfb `4←3`) |
+| A2f / A2e under A2g | Still **MATCH** |
+| Natural live cross-sample | Not observed on title/menu (blocker for non-selftest path) |
+| Capture off | ~60 Hz (unchanged) |
+| Capture+replay on | Still ~33–37 Hz (workload cost; async compare alone insufficient) |
+
+#### Evaluation answers
+
+1. Host EFB copies survive frame boundaries? **Yes** (map persistence); title **replaces** before sample.
+2. Archive lifecycle? **Yes** — genId, createXfb, edges, prev/curr packets.
+3. Multiple generations? **Yes** — gen counter; same dest ≠ same gen.
+4. Longer history? Ring is prev+curr; extend later.
+5. Persistent effects reconstructible? **Scratch retain proven**; natural live cross-sample still needed for non-selftest.
+6. Unsupported: depth-copy consumers, true multi-frame history buffers, gameplay actors.
+7. Gameplay: need a scene that samples an unrecreated prior-frame EFB tex.
+8. **Next:** find natural live cross-frame sample **or** longer history chain — still no scene-wide / no interp.
+
+**Verdict:** A2g proves scratch **independently generates, retains across a frame boundary, and samples** EFB-derived textures with exact MATCH (controlled dual-frame idle selftest).
 
 ### Audio
 

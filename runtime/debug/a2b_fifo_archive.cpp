@@ -73,6 +73,8 @@ bool GuestPtrOk(uint32_t ea)
     return hi == 0x8 || hi == 0x9 || hi == 0xC || hi == 0xD;
 }
 
+constexpr uint32_t kA2bMaxCrossEdges = 64;
+
 struct FrameBuild
 {
     uint64_t simFrameId = 0;
@@ -104,6 +106,8 @@ struct FrameBuild
     A2bContextSnap ctx{};
     std::vector<uint8_t> cmd;
     std::vector<uint8_t> resData;
+    A2bCrossEfbEdge crossEdges[kA2bMaxCrossEdges]{};
+    uint32_t crossEdgeCount = 0;
 };
 
 std::mutex s_mu;
@@ -512,8 +516,30 @@ void A2b_OnTlutRam(uint32_t guestEa, uint32_t size)
     AddResource(A2bRes_TlutRam, guestEa, size, true, A2bResLife_FrameLocal, 0, true);
 }
 
+void NoteCrossEdgeLocked(uint32_t ea, uint64_t genId, uint32_t createFrame, uint64_t createXfb)
+{
+    for (uint32_t i = 0; i < s_build.crossEdgeCount; i++)
+    {
+        if (s_build.crossEdges[i].genId == genId && s_build.crossEdges[i].destAddr == ea)
+        {
+            s_build.crossEdges[i].sampleCount++;
+            return;
+        }
+    }
+    if (s_build.crossEdgeCount >= kA2bMaxCrossEdges) return;
+    A2bCrossEfbEdge& e = s_build.crossEdges[s_build.crossEdgeCount++];
+    e = A2bCrossEfbEdge{};
+    e.destAddr = ea;
+    e.genId = genId;
+    e.createFrame = createFrame;
+    e.createXfb = createXfb;
+    e.sampleXfb = s_build.xfbIndex ? s_build.xfbIndex : Perf_XfbFrameIndex();
+    e.sampleCount = 1;
+}
+
 void A2b_OnEfbCopy(uint32_t destAddr, uint32_t ctl, uint32_t sx, uint32_t sy, uint32_t sw,
-                   uint32_t sh, uint32_t fmt, uint32_t copyFlags)
+                   uint32_t sh, uint32_t fmt, uint32_t copyFlags, uint64_t genId,
+                   uint32_t createFrame, uint64_t createXfb)
 {
     if (!EnvOn()) return;
     std::lock_guard lk(s_mu);
@@ -521,7 +547,15 @@ void A2b_OnEfbCopy(uint32_t destAddr, uint32_t ctl, uint32_t sx, uint32_t sy, ui
     const uint32_t ea = CanonGuestEa(destAddr);
     const uint32_t aux = (sx & 0x3FF) | ((sy & 0x3FF) << 10) | ((sw & 0x3FF) << 20);
     const uint32_t size = (sh & 0xFFFF) | ((fmt & 0xFF) << 16);
-    int existing = FindResource(s_build, A2bRes_EfbCopy, ea, size, aux);
+    // Prefer matching the exact generation when present; else same dest+region.
+    int existing = -1;
+    for (uint32_t i = 0; i < s_build.resCount; i++)
+    {
+        A2bResource& er = s_build.resources[i];
+        if (er.type != A2bRes_EfbCopy || er.guestEa != ea) continue;
+        if (genId && er.genId == genId) { existing = (int)i; break; }
+        if (existing < 0 && er.size == size && er.aux == aux) existing = (int)i;
+    }
     if (existing >= 0)
     {
         A2bResource& er = s_build.resources[existing];
@@ -529,6 +563,12 @@ void A2b_OnEfbCopy(uint32_t destAddr, uint32_t ctl, uint32_t sx, uint32_t sy, ui
         er.flags |= A2bRes_Required | A2bRes_Copied;
         er.lifetime |= copyFlags;
         er.contentHash = ctl ? ctl : er.contentHash;
+        if (genId)
+        {
+            er.genId = genId;
+            er.createFrame = createFrame;
+            er.createXfb = createXfb;
+        }
         return;
     }
     if (s_build.resCount >= kA2bMaxResources)
@@ -546,26 +586,65 @@ void A2b_OnEfbCopy(uint32_t destAddr, uint32_t ctl, uint32_t sx, uint32_t sy, ui
     r.lifetime = copyFlags;
     r.refCount = 1;
     r.submitSeq = s_build.submitCount > 0 ? s_build.submitCount - 1 : 0;
+    r.genId = genId;
+    r.createFrame = createFrame;
+    r.createXfb = createXfb;
     // Metadata-complete: the copy is reproduced from scratch EFB + BP cmds at replay.
     r.flags = A2bRes_Required | A2bRes_Copied;
     r.copiedSize = 0;
 }
 
-void A2b_OnEfbCopySampled(uint32_t destAddr)
+void A2b_OnEfbCopySampled(uint32_t destAddr, uint64_t genId, uint32_t createFrame,
+                          uint64_t createXfb, bool crossFrame)
 {
     if (!EnvOn()) return;
     std::lock_guard lk(s_mu);
     const uint32_t ea = CanonGuestEa(destAddr);
+    bool found = false;
     for (uint32_t i = 0; i < s_build.resCount; i++)
     {
         A2bResource& r = s_build.resources[i];
-        if (r.type == A2bRes_EfbCopy && r.guestEa == ea)
+        if (r.type != A2bRes_EfbCopy || r.guestEa != ea) continue;
+        if (genId && r.genId && r.genId != genId) continue;
+        r.lifetime |= A2bEfbCopy_Sampled;
+        if (crossFrame) r.lifetime |= A2bEfbCopy_CrossFrame;
+        r.flags |= A2bRes_Required;
+        r.refCount++;
+        if (!r.genId && genId)
         {
-            r.lifetime |= A2bEfbCopy_Sampled;
-            r.flags |= A2bRes_Required;
-            r.refCount++;
+            r.genId = genId;
+            r.createFrame = createFrame;
+            r.createXfb = createXfb;
+        }
+        found = true;
+    }
+    if (!found)
+    {
+        // Consumer-only reference: producer lived in an earlier archived frame.
+        if (s_build.resCount >= kA2bMaxResources)
+        {
+            s_build.flags |= A2bFrame_OverflowResources | A2bFrame_Incomplete;
+        }
+        else
+        {
+            A2bResource& r = s_build.resources[s_build.resCount++];
+            r = A2bResource{};
+            r.type = A2bRes_EfbCopy;
+            r.guestEa = ea;
+            r.genId = genId;
+            r.createFrame = createFrame;
+            r.createXfb = createXfb;
+            r.lifetime = A2bEfbCopy_Sampled | (crossFrame ? A2bEfbCopy_CrossFrame : 0);
+            r.refCount = 1;
+            r.submitSeq = s_build.submitCount > 0 ? s_build.submitCount - 1 : 0;
+            // Copied=true for consumer stub: result comes from retained scratch gen, not bytes.
+            r.flags = A2bRes_Required | A2bRes_Copied;
+            if (!crossFrame)
+                r.flags |= A2bRes_Unresolved; // same-frame sample without producer is incomplete
         }
     }
+    if (crossFrame && genId)
+        NoteCrossEdgeLocked(ea, genId, createFrame, createXfb);
 }
 
 uint32_t A2b_CountEfbCopiesInCmd(const uint8_t* cmd, uint32_t n)
@@ -792,29 +871,59 @@ bool A2b_GetPreviousSummary(A2bFrameSummary& out)
     return true;
 }
 
+static void ClonePacketFromLocked(const FrameBuild& src, A2bArchivePacket& out, bool addEfbRef)
+{
+    out = A2bArchivePacket{};
+    FillSummary(src, out.summary);
+    out.gxStart = src.gxStart;
+    out.gxStartValid = src.gxStartValid;
+    out.efbIncomingSlot = src.efbIncomingSlot;
+    out.efbIncomingValid = src.efbIncomingValid;
+    out.efbInColorHash = src.efbInColorHash;
+    out.efbInDepthHash = src.efbInDepthHash;
+    if (addEfbRef && out.efbIncomingValid)
+        Render_EfbIncomingAddRef(out.efbIncomingSlot);
+    out.cmd = src.cmd;
+    out.resData = src.resData;
+    out.tmemStart = src.tmemStart;
+    out.submitCount = src.submitCount;
+    out.resCount = src.resCount;
+    out.crossEdgeCount = src.crossEdgeCount;
+    for (uint32_t i = 0; i < src.submitCount; i++)
+        out.subs[i] = src.subs[i];
+    for (uint32_t i = 0; i < src.resCount; i++)
+        out.resources[i] = src.resources[i];
+    for (uint32_t i = 0; i < src.crossEdgeCount; i++)
+        out.crossEdges[i] = src.crossEdges[i];
+}
+
 bool A2b_CloneCurrentPacket(A2bArchivePacket& out)
 {
     std::lock_guard lk(s_mu);
     if (!s_haveCurr) return false;
-    out = A2bArchivePacket{};
-    FillSummary(s_curr, out.summary);
-    out.gxStart = s_curr.gxStart;
-    out.gxStartValid = s_curr.gxStartValid;
-    out.efbIncomingSlot = s_curr.efbIncomingSlot;
-    out.efbIncomingValid = s_curr.efbIncomingValid;
-    out.efbInColorHash = s_curr.efbInColorHash;
-    out.efbInDepthHash = s_curr.efbInDepthHash;
-    if (out.efbIncomingValid)
-        Render_EfbIncomingAddRef(out.efbIncomingSlot);
-    out.cmd = s_curr.cmd;
-    out.resData = s_curr.resData;
-    out.tmemStart = s_curr.tmemStart;
-    out.submitCount = s_curr.submitCount;
-    out.resCount = s_curr.resCount;
-    for (uint32_t i = 0; i < s_curr.submitCount; i++)
-        out.subs[i] = s_curr.subs[i];
-    for (uint32_t i = 0; i < s_curr.resCount; i++)
-        out.resources[i] = s_curr.resources[i];
+    ClonePacketFromLocked(s_curr, out, true);
+    return true;
+}
+
+bool A2b_ClonePreviousPacket(A2bArchivePacket& out)
+{
+    std::lock_guard lk(s_mu);
+    if (!s_havePrev) return false;
+    ClonePacketFromLocked(s_prev, out, true);
+    return true;
+}
+
+uint32_t A2b_GetCrossEfbEdgeCount()
+{
+    std::lock_guard lk(s_mu);
+    return s_haveCurr ? s_curr.crossEdgeCount : 0;
+}
+
+bool A2b_GetCrossEfbEdge(uint32_t index, A2bCrossEfbEdge& out)
+{
+    std::lock_guard lk(s_mu);
+    if (!s_haveCurr || index >= s_curr.crossEdgeCount) return false;
+    out = s_curr.crossEdges[index];
     return true;
 }
 
