@@ -237,6 +237,8 @@ Opt-in immutable snapshots at completed sim-frame boundaries for future host int
 | A2g-Natural | Live cross-frame EFB sample discovery | Trace-only; 0 natural next/multi (title/menu) | **Done (report)** |
 | A2g-StageCoverage | Isolated NAND + TR1 natural search | TR1 entered; 0 natural next/multi in gameplay | **Done (report)** |
 | A3a | Draw-level PNMTXIDX attribution + scratch mtx override | Attribution + TestA/B; interp feasibility | **Done (experiment)** |
+| A3b | Camera-pose interpolation + scratch view delta | Math + FORCE_DX / TR1 pose ring | **Done (experiment)** |
+| A3c | Coherent TR1 env capture + natural camera interp | Env MATCH + natural mid DIFF | **Done (experiment)** |
 | A3 | Interpolated second XFB without guest update | `unique_xfb` >60 behind debug flag | Later |
 | A4 | Quality gate; promote to uncapped | Honest unique>60 in production | Later |
 
@@ -762,9 +764,51 @@ Prefer `SCR_A1B_POSE_CAPTURE=1` together with A3b so seq/proj/view pairing uses 
 | TR1 pose ring | Smooth `viewT` motion with `fail=000`; large jumps `fail=020` Cut (`phase27_a3b_tr1_view.log`) |
 | A2d/A2e/A2f | Still MATCH; capture-off ~60 Hz |
 
-**Coverage:** GX_PNMTX0..9 only. Full TR1 scene archive still incomplete — natural 3D midpoint on env geometry needs a bounded camera-sensitive archive (next). UI passes without force-DX stay hash-stable at α=0.5 when view is static.
+**Coverage:** GX_PNMTX0..9 only. Full TR1 scene archive still incomplete without A3c budgets — natural 3D midpoint on env geometry is A3c.
 
 **Not claimed:** full-scene camera interp readiness; intermediate XFB; unique FPS.
+
+### Approach A3c — coherent TR1 environment capture + natural camera interp (2026-11-21)
+
+Opt-in only. Extends A3b to a **bounded, camera-sensitive TR1 environment subset**. **No second XFB, no unique-FPS claim, no skeletal / player-body work.**
+
+| Switch | Role |
+|--------|------|
+| `SCR_A3C_ENV_CAPTURE=1` | Classify env/UI/skinned draws; env row mask; readiness |
+| `SCR_A3C_ENV_INTERP=1` | Natural-pose scratch probes on `A3cEnv` archives (no `FORCE_VIEW_DX`) |
+| (+ A2b/A2c/A3a/A3b/A1b) | FIFO archive, scratch replay, draw attr, camera ring |
+
+#### Selected environment group
+
+- **Kind:** static / single-matrix world geometry (`A3cKind_Env`) — DL or larger non-UI draws; excludes HUD (`vat≥5` tiny quads), skinned multi-row actors, player candidates.
+- **Family:** `A2cFamily_A3cEnv` — raised select bounds (≤800 draws, ≤512 KiB pass) when A3c flags on.
+- **Budgets (A3c-justified):** cmd 8 MiB, resources 2048 / 24 MiB, A3a draws 400. Default A2d–A2f paths unchanged when A3c off.
+- **Coherence:** pass is a contiguous archived GX submission with closed deps (`reqUnres=0`), EFB seed, and exact live/scratch MATCH before probes.
+
+#### Transform rules (documented before apply)
+
+| Matrix class | Rule |
+|--------------|------|
+| Guest model-view (env / PNMTX0..9) | \(M' = D · M\) with \(D = V_\alpha · V_{\mathrm{base}}^{-1}\) |
+| Archive base pose | TR1 archives embed **current** view → `baseIsPrev=false` (\(V_{\mathrm{base}}=V_{\mathrm{curr}}\)); α=1 is identity |
+| A3b FORCE_DX / prev-pose archives | `baseIsPrev=true` (\(V_{\mathrm{base}}=V_{\mathrm{prev}}\)) |
+| XF LoadXF during scratch | Re-apply δ once via `A3b_OnXfLoadIsolation` (immutable archived bytes) |
+| Skinned / unknown / UI | Not in env group; probes clear sparse env mask and apply default PNMTX0..9 so XF reloads are covered |
+| Projection | Unchanged; proj/cam-id/cut/invalid → fail closed |
+
+#### Validation (`out/phase28_a3c_tr1j.log`, `a2g_tr1_enter.txt`)
+
+| Test | Result |
+|------|--------|
+| A3c-env archive MATCH | Multiple exact colour+depth MATCH (e.g. xfb=884 pass≈93 KiB deps=651) |
+| A — α=1 archive pose | MATCH+exercised (`rows=18` `xfHooks=8`) |
+| B — α=0 previous pose | DIFF from archive-N baseline (natural motion) |
+| C — α=0.5 natural mid | **DIFF+deterministic** colour+depth; `camLerp=1` `camDist≈3.08`; also DEPTH-DIFF cases when colour saturates |
+| A2e / A2f | Still MATCH under same run |
+| Math unit | `scr_a3b_camera_math_test` OK |
+| Capture off | `regression_smoke` OK; experimental path may drop to ~20 Hz during probes |
+
+**Not claimed:** full TR1 scene (heavy frames still overflow); player body / skeletal interp; second XFB; unique FPS; native Windows GPU.
 
 ### Approach A3a — draw-level transform attribution + scratch substitution (2026-11-21)
 

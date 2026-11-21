@@ -32,7 +32,8 @@ enum A2cPassFamily : uint32_t
     A2cFamily_A2eMultiTex = 2, // richer static/UI (~10–16 KiB, ~80+ draws, ≥6 deps)
     A2cFamily_A2fEfbFb = 3,    // EFB→tex mip/feedback chain sampled in-pass
     A2cFamily_A2gCrossEfb = 4, // EFB→tex produced in prior frame, sampled this frame
-    A2cFamily_Other = 5,
+    A2cFamily_A3cEnv = 5,      // coherent TR1 env pass (A3c; raised draw/byte limits)
+    A2cFamily_Other = 6,
 };
 
 enum A2cCompareStatus : uint32_t

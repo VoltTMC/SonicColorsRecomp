@@ -56,6 +56,16 @@ bool s_havePrev = false, s_haveCurr = false;
 A3bMtx3x4 s_delta{};
 bool s_deltaActive = false;
 A3bCameraStats s_stats{};
+uint64_t s_rowMask = 0;  // 0 = default PNMTX0..9
+A3bCameraPair s_frozen{};
+bool s_haveFrozen = false;
+
+bool RowAllowed(uint32_t row)
+{
+    if (s_rowMask == 0)
+        return (row % 3u) == 0u && row < 30u;  // GX_PNMTX0..9
+    return row < 64u && (s_rowMask & (1ull << row)) != 0;
+}
 
 constexpr float kCutTrans = 25.f;     // metres-ish guest units
 constexpr float kCutQuatDot = 0.5f;   // >60° roughly
@@ -161,19 +171,34 @@ uint32_t DetectFails(const A3bCameraPose& a, const A3bCameraPose& b)
     return f;
 }
 
-void ApplyDeltaToAllPosMtx()
+void ApplyDeltaToSelectedPosMtx()
 {
     if (!s_deltaActive) return;
-    // GX_PNMTX0..9 → rows 0,3,...,27
-    for (int slot = 0; slot < 10; slot++)
+    if (s_rowMask == 0)
     {
-        const uint32_t row = (uint32_t)slot * 3u;
-        A3bMtx3x4 m{}, out{};
-        ReadXfMtx(row, m);
-        if (!A3b_MtxFinite(m)) continue;
-        A3b_ApplyCameraDelta(s_delta, m, out);
-        WriteXfMtx(row, out);
-        s_stats.rowsTouched++;
+        for (int slot = 0; slot < 10; slot++)
+        {
+            const uint32_t row = (uint32_t)slot * 3u;
+            A3bMtx3x4 m{}, out{};
+            ReadXfMtx(row, m);
+            if (!A3b_MtxFinite(m)) continue;
+            A3b_ApplyCameraDelta(s_delta, m, out);
+            WriteXfMtx(row, out);
+            s_stats.rowsTouched++;
+        }
+    }
+    else
+    {
+        for (uint32_t row = 0; row < 64; row++)
+        {
+            if (!RowAllowed(row)) continue;
+            A3bMtx3x4 m{}, out{};
+            ReadXfMtx(row, m);
+            if (!A3b_MtxFinite(m)) continue;
+            A3b_ApplyCameraDelta(s_delta, m, out);
+            WriteXfMtx(row, out);
+            s_stats.rowsTouched++;
+        }
     }
     s_stats.applyCount++;
     s_stats.exercised = true;
@@ -268,6 +293,11 @@ void A3b_OnXfbCopy()
 
 bool A3b_GetPair(A3bCameraPair& out)
 {
+    if (s_haveFrozen)
+    {
+        out = s_frozen;
+        return out.havePair;
+    }
     std::lock_guard lk(s_mu);
     out = A3bCameraPair{};
     if (!s_havePrev || !s_haveCurr) return false;
@@ -279,6 +309,20 @@ bool A3b_GetPair(A3bCameraPair& out)
     return true;
 }
 
+void A3b_FreezePair(const A3bCameraPair& p)
+{
+    s_frozen = p;
+    s_haveFrozen = p.havePair;
+}
+
+void A3b_ClearFrozenPair()
+{
+    s_haveFrozen = false;
+    s_frozen = A3bCameraPair{};
+}
+
+bool A3b_HasFrozenPair() { return s_haveFrozen; }
+
 bool A3b_PairInterpolable(const A3bCameraPair& p)
 {
     if (!p.havePair) return false;
@@ -289,7 +333,7 @@ bool A3b_PairInterpolable(const A3bCameraPair& p)
     return p.prev.viewValid && p.curr.viewValid;
 }
 
-bool A3b_BeginScratchCamera(float alpha)
+bool A3b_BeginScratchCamera(float alpha, bool baseIsPrev)
 {
     s_deltaActive = false;
     if (!EnvOn() || s_suspended || !Render_ReplayIsolationActive()) return false;
@@ -303,6 +347,7 @@ bool A3b_BeginScratchCamera(float alpha)
 
     A3bMtx3x4 view0 = pair.prev.view;
     A3bMtx3x4 view1 = pair.curr.view;
+    const A3bMtx3x4& viewBase = baseIsPrev ? view0 : view1;
     // Diagnostic: when live views are identical (static UI), synthesize a camera
     // world +X translation so midpoint application can be proven on a MATCH archive.
     // SCR_A3B_FORCE_VIEW_DX=<metres> (default 0 = off). Scratch-only.
@@ -330,10 +375,10 @@ bool A3b_BeginScratchCamera(float alpha)
         return false;
     }
     A3bMtx3x4 delta{};
-    // Identical poses / α≈0: exact identity delta (avoid rigid-invert noise on UI mats).
-    if (alpha <= 1e-6f || A3b_MtxNearEqual(view0, viewA, 1e-5f))
+    // D = Vα · inv(Vbase). Identity when Vα ≈ Vbase (α=0+basePrev or α=1+baseCurr).
+    if (A3b_MtxNearEqual(viewBase, viewA, 1e-5f))
         A3b_MtxIdentity(delta);
-    else if (!A3b_CameraDelta(view0, viewA, delta))
+    else if (!A3b_CameraDelta(viewBase, viewA, delta))
     {
         s_stats.failBits = A3bFail_Singular;
         return false;
@@ -349,22 +394,26 @@ bool A3b_BeginScratchCamera(float alpha)
     s_stats.failBits = 0;
     s_stats.rowsTouched = 0;
 
-    // α≈0 → delta ≈ I
     A3bMtx3x4 id{};
     A3b_MtxIdentity(id);
-    if (alpha <= 1e-4f || A3b_MtxNearEqual(delta, id, 1e-3f))
+    if (A3b_MtxNearEqual(delta, id, 1e-3f))
         s_stats.endpointMatch = true;
 
-    ApplyDeltaToAllPosMtx();
+    ApplyDeltaToSelectedPosMtx();
     return true;
 }
+
+void A3b_SetRowMask(uint64_t mask) { s_rowMask = mask; }
+void A3b_ClearRowMask() { s_rowMask = 0; }
+uint64_t A3b_GetRowMask() { return s_rowMask; }
 
 void A3b_OnXfLoadIsolation(uint32_t addr, uint32_t count)
 {
     if (!s_deltaActive || !EnvOn() || s_suspended || !Render_ReplayIsolationActive()) return;
     // Full pos-mtx writes only (12 floats, 12-aligned → PNMTXIDX = addr/4).
-    if (count < 12 || (addr % 12) != 0 || addr >= 120) return;
+    if (count < 12 || (addr % 12) != 0 || addr >= 256) return;
     const uint32_t row = addr / 4u;
+    if (!RowAllowed(row)) return;
     A3bMtx3x4 m{}, out{};
     ReadXfMtx(row, m);
     if (!A3b_MtxFinite(m)) return;

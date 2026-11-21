@@ -3,6 +3,7 @@
 #include "a2b_fifo_archive.h"
 #include "a3a_draw_attr.h"
 #include "a3b_camera_interp.h"
+#include "a3c_env_capture.h"
 #include "../gx/gx_state.h"
 #include "../gx/texture_decode.h"
 #include "../kernel/memory.h"
@@ -39,7 +40,7 @@ A2cPassReport s_pass{};
 A2cReplayResult s_lastReplay{};
 bool s_havePass = false;
 // Per-family last ready report + replay (A2d / A2e / A2f / A2g).
-constexpr uint32_t kFamilySlots = 6;
+constexpr uint32_t kFamilySlots = 7;
 A2cPassReport s_familyPass[kFamilySlots]{};
 A2cReplayResult s_familyReplay[kFamilySlots]{};
 bool s_haveFamilyPass[kFamilySlots]{};
@@ -182,6 +183,11 @@ uint32_t ClassifyFamily(uint32_t passBytes, uint32_t draws, uint32_t deps, uint3
     // A2e: richer static/UI — larger stream / multi-texture (EFB copies optional).
     if (passBytes >= 10000 && passBytes <= 16000 && draws >= 75 && draws <= 100 && deps >= 6)
         return A2cFamily_A2eMultiTex;
+    // A3c: TR1-scale env pass — multi-draw world layer (opt-in selection only).
+    // A3c: TR1-scale env — allow denser passes once resource budgets are raised.
+    if ((A3c_EnvCaptureEnabled() || A3c_EnvInterpEnabled()) && passBytes >= 8000 &&
+        passBytes <= (512u << 10) && draws >= 100 && draws <= 800 && deps >= 8)
+        return A2cFamily_A3cEnv;
     return A2cFamily_Other;
 }
 
@@ -310,14 +316,20 @@ void EvaluatePass(const A2bArchivePacket& pkt, A2cPassReport& out)
     // Selection: static/UI-scale pass (not full TR1 scenes). Named families preferred
     // but Other within size bounds remains selectable for diagnostics.
     // A2g may use slightly larger consumer passes when edges are present.
+    // A3cEnv: raised draw/byte caps for coherent TR1 environment archives.
+    const bool a3cSel = (A3c_EnvCaptureEnabled() || A3c_EnvInterpEnabled()) &&
+                        out.family == A2cFamily_A3cEnv && out.passBytes > 256 &&
+                        out.passBytes <= (512u << 10) && out.drawCount >= 100 &&
+                        out.drawCount <= 800 && pkt.gxStartValid;
     const bool selected =
-        out.passBytes > 256 && out.passBytes <= (128u << 10) && out.drawCount > 0 &&
-        out.drawCount <= 128 && pkt.gxStartValid;
+        a3cSel || (out.passBytes > 256 && out.passBytes <= (128u << 10) && out.drawCount > 0 &&
+                   out.drawCount <= 128 && pkt.gxStartValid);
     ok(A2cReady_PassSelected, selected);
 
     out.readyFlags = ready;
     out.failFlags = fail;
     out.replayReady = (fail == 0) && selected && reqUnres == 0;
+    A3c_NotePass(out.passBytes, deps, reqUnres, pkt.summary.flags, out.replayReady);
 
     if (!out.replayReady)
     {
@@ -429,6 +441,7 @@ void RunScratchReplay(A2bArchivePacket& pkt, const A2cPassReport& pass, A2cRepla
     GX_SetPeSuppress(true);
 
     uint32_t sw = 0, sh = 0;
+    uint32_t lastDepthHash = 0;
     auto replayOnce = [&](bool doCompare) -> uint32_t {
         g_gx = pkt.gxStart;
         Render_ResetHostDrawState();
@@ -459,9 +472,12 @@ void RunScratchReplay(A2bArchivePacket& pkt, const A2cPassReport& pass, A2cRepla
         // Suspended during primary live-vs-scratch MATCH; probe enables it explicitly.
         if (A3a_MatrixOverrideEnabled() && !A3a_OverrideSuspended())
             A3a_ApplyMatrixOverride();
-        // A3b: apply interpolated camera delta to PNMTX0..9 (model-view left-multiply).
+        // A3b/A3c: camera delta left-multiply. A3c natural archives are at curr pose.
         if (A3b_CameraInterpEnabled() && !A3b_CameraSuspended())
-            A3b_BeginScratchCamera(A3b_CameraAlpha());
+        {
+            const bool basePrev = !(A3c_EnvInterpEnabled() && pass.family == A2cFamily_A3cEnv);
+            A3b_BeginScratchCamera(A3b_CameraAlpha(), basePrev);
+        }
 
         GX_ReplayCommands(pkt.cmd.data(), pass.passBytes);
 
@@ -480,7 +496,9 @@ void RunScratchReplay(A2bArchivePacket& pkt, const A2cPassReport& pass, A2cRepla
                 const char* v = std::getenv("SCR_A2C_COMPARE_SYNC");
                 syncEnv = (v && v[0] && v[0] != '0') ? 1 : 0;
             }
-            const bool forceSync = syncEnv || s_forcedCompareLeft > 0;
+            // A3c probes need imageMatch before async settles — force sync for A3cEnv.
+            const bool forceSync = syncEnv || s_forcedCompareLeft > 0 ||
+                                   (pass.family == A2cFamily_A3cEnv && A3c_EnvInterpEnabled());
             if (forceSync)
             {
                 RenderEfbCompare cmp{};
@@ -532,6 +550,7 @@ void RunScratchReplay(A2bArchivePacket& pkt, const A2cPassReport& pass, A2cRepla
             }
         }
 
+        lastDepthHash = Render_HashScratchDepth();
         return Render_ScratchEndHash();
     };
 
@@ -633,9 +652,114 @@ void RunScratchReplay(A2bArchivePacket& pkt, const A2cPassReport& pass, A2cRepla
         }
     }
 
+    // A3c natural env probes (no FORCE_VIEW_DX). Archive embeds V_curr.
+    // Apply camera delta to all GX_PNMTX0..9 (rowMask=0). Sparse env attribution
+    // masks miss XF-reloaded slots (xfHooks=0) and falsely keep mid==baseline.
+    if (A3c_EnvInterpEnabled() && pass.family == A2cFamily_A3cEnv && rr.completed && h1 != 0 &&
+        rr.imageMatch)
+    {
+        if (!A3c_NaturalInterpEligible())
+            LOG_INFO("A3c probes skipped (eligible=0 fail={:03x})", A3c_GetStats().failBits);
+        else
+        {
+            A3bCameraPair frozen{};
+            A3b_GetPair(frozen);
+            A3b_FreezePair(frozen);  // hold archive-time poses across probe replays
+            A3b_SuspendCamera(true);
+            const uint32_t hBase = replayOnce(false);
+            const uint32_t dBase = lastDepthHash;
+            const uint64_t envMask = A3c_EnvRowMask();
+            uint32_t dCurr = 0, dPrev = 0, dMid = 0, dMid2 = 0;
+            auto runAlpha = [&](float a, const char* tag) -> uint32_t {
+                A3b_SetProbeAlpha(a);
+                A3b_SuspendCamera(false);
+                A3b_ResetCameraStats();
+                A3b_ClearRowMask();  // PNMTX0..9 — coherent env uses default + indexed slots
+                const uint32_t h = replayOnce(false);
+                A3b_SuspendCamera(true);
+                A3b_NoteCameraHashes(hBase, h);
+                A3b_SetProbeAlpha(NAN);
+                const A3bCameraStats st = A3b_GetCameraStats();
+                LOG_INFO("A3c {}: α={:.2f} base={:08x}/{:08x} res={:08x}/{:08x} rows={} "
+                         "xfHooks={} exercised={} endMatch={} midDiff={}",
+                         tag, a, hBase, dBase, h, lastDepthHash, st.rowsTouched, st.xfHookCount,
+                         st.exercised ? 1 : 0, st.endpointMatch ? 1 : 0,
+                         st.midpointDistinct ? 1 : 0);
+                return h;
+            };
+            const uint32_t hCurr = runAlpha(1.f, "TestA");
+            dCurr = lastDepthHash;
+            if (hBase == hCurr && A3b_GetCameraStats().exercised)
+                LOG_INFO("A3c TestA: α=1 archive-pose endpoint MATCH+exercised");
+            const uint32_t hPrev = runAlpha(0.f, "TestB");
+            dPrev = lastDepthHash;
+            if (hBase != hPrev && A3b_GetCameraStats().exercised)
+                LOG_INFO("A3c TestB: α=0 previous-pose DIFF from archive-N baseline");
+            const uint32_t hMid = runAlpha(0.5f, "TestC");
+            dMid = lastDepthHash;
+            A3b_SetProbeAlpha(0.5f);
+            A3b_SuspendCamera(false);
+            A3b_ResetCameraStats();
+            A3b_ClearRowMask();
+            const uint32_t hMid2 = replayOnce(false);
+            dMid2 = lastDepthHash;
+            A3b_SuspendCamera(true);
+            A3b_NoteCameraHashes(hBase, hMid2);
+            A3b_SetProbeAlpha(NAN);
+            const A3bCameraStats midSt = A3b_GetCameraStats();
+            // Camera-to-world translation must be the lerp midpoint (rigid path).
+            A3bMtx3x4 cam0{}, cam1{}, camA{}, viewA{};
+            uint32_t ifail = 0;
+            const bool viewAOk =
+                A3b_InterpolateView(frozen.prev.view, frozen.curr.view, 0.5f, viewA, &ifail) &&
+                A3b_MtxInvertRigid(frozen.prev.view, cam0) &&
+                A3b_MtxInvertRigid(frozen.curr.view, cam1) &&
+                A3b_MtxInvertRigid(viewA, camA);
+            const float lx = 0.5f * (cam0.m[3] + cam1.m[3]);
+            const float ly = 0.5f * (cam0.m[7] + cam1.m[7]);
+            const float lz = 0.5f * (cam0.m[11] + cam1.m[11]);
+            const float elex = std::fabs(camA.m[3] - lx);
+            const float eley = std::fabs(camA.m[7] - ly);
+            const float elez = std::fabs(camA.m[11] - lz);
+            const float camDist = std::sqrt((cam0.m[3] - cam1.m[3]) * (cam0.m[3] - cam1.m[3]) +
+                                           (cam0.m[7] - cam1.m[7]) * (cam0.m[7] - cam1.m[7]) +
+                                           (cam0.m[11] - cam1.m[11]) * (cam0.m[11] - cam1.m[11]));
+            const bool midBetween =
+                viewAOk && camDist > 1e-3f && elex < 1e-3f && eley < 1e-3f && elez < 1e-3f;
+            const bool mathDistinct = midSt.viewAHash != 0 &&
+                                      midSt.viewAHash != midSt.view0Hash &&
+                                      midSt.viewAHash != midSt.view1Hash &&
+                                      midSt.deltaHash != 0 && !midSt.endpointMatch;
+            const bool colorMidDiff = (hMid != 0 && hMid == hMid2 && hMid != hBase && hMid != hPrev);
+            const bool depthMidDiff =
+                (dMid != 0 && dMid == dMid2 && dMid != dBase && (dPrev == 0 || dMid != dPrev));
+            if (colorMidDiff && midSt.exercised && mathDistinct)
+                LOG_INFO("A3c TestC: α=0.5 natural midpoint DIFF+deterministic "
+                         "envMask={:016x} v0={:08x} v1={:08x} vA={:08x} d={:08x} "
+                         "camLerp={} camDist={:.4f} depth={:08x}/{:08x}",
+                         (unsigned long long)envMask, frozen.prev.viewHash, frozen.curr.viewHash,
+                         midSt.viewAHash, midSt.deltaHash, midBetween ? 1 : 0, camDist, dMid,
+                         dBase);
+            else if (depthMidDiff && hPrev != hBase && midSt.exercised && mathDistinct && midBetween)
+                LOG_INFO("A3c TestC: α=0.5 natural midpoint DEPTH-DIFF+deterministic "
+                         "color={:08x} depth={:08x}/{:08x} vA={:08x} d={:08x} camDist={:.4f}",
+                         hMid, dMid, dBase, midSt.viewAHash, midSt.deltaHash, camDist);
+            else
+                LOG_INFO("A3c TestC: mid={:08x}/{:08x} d={:08x}/{:08x} vs base={:08x}/{:08x} "
+                         "prev={:08x}/{:08x} vA={:08x} delta={:08x} camLerp={} camDist={:.4f}",
+                         hMid, hMid2, dMid, dMid2, hBase, dBase, hPrev, dPrev, midSt.viewAHash,
+                         midSt.deltaHash, midBetween ? 1 : 0, camDist);
+            A3b_ClearFrozenPair();
+            (void)dCurr;
+            (void)envMask;
+        }
+    }
+
     A3a_SuspendOverride(false);
     A3b_SuspendCamera(false);
     A3b_SetProbeAlpha(NAN);
+    A3b_ClearRowMask();
+    A3b_ClearFrozenPair();
 
     cleanup();
 
@@ -1112,7 +1236,8 @@ void A2c_OnArchivedFrame()
     const bool namedFamily = report.family == A2cFamily_A2dIdle ||
                              report.family == A2cFamily_A2eMultiTex ||
                              report.family == A2cFamily_A2fEfbFb ||
-                             report.family == A2cFamily_A2gCrossEfb;
+                             report.family == A2cFamily_A2gCrossEfb ||
+                             report.family == A2cFamily_A3cEnv;
     if (pkt.crossEdgeCount > 0 && seq.ready && (now - lastLogMs >= 2000))
     {
         LOG_INFO("A2g edges: xfb={} count={} resolved={}/{} prodXfb={} — {}", pkt.summary.xfbIndex,
@@ -1171,7 +1296,8 @@ void A2c_OnArchivedFrame()
     {
         std::lock_guard lk(s_mu);
         if (s_haveFamilyPass[A2cFamily_A2dIdle] || s_haveFamilyPass[A2cFamily_A2eMultiTex] ||
-            s_haveFamilyPass[A2cFamily_A2fEfbFb] || s_haveFamilyPass[A2cFamily_A2gCrossEfb])
+            s_haveFamilyPass[A2cFamily_A2fEfbFb] || s_haveFamilyPass[A2cFamily_A2gCrossEfb] ||
+            s_haveFamilyPass[A2cFamily_A3cEnv])
             return;
     }
 
@@ -1189,13 +1315,18 @@ void A2c_OnArchivedFrame()
             ((s_haveFamilyReplay[A2cFamily_A2eMultiTex] &&
               s_familyReplay[A2cFamily_A2eMultiTex].imageMatch) ||
              !s_haveFamilyPass[A2cFamily_A2eMultiTex]);
-        if (selfMatch && allNamedMatch && now - s_lastReplayMsByFamily[report.family] < 10000)
+        // Keep re-probing A3cEnv until a natural-camera midpoint has been attempted.
+        const bool a3cNeedProbe =
+            report.family == A2cFamily_A3cEnv && A3c_EnvInterpEnabled() &&
+            A3c_NaturalInterpEligible();
+        if (selfMatch && allNamedMatch && !a3cNeedProbe &&
+            now - s_lastReplayMsByFamily[report.family] < 10000)
             return;
-        if (selfMatch && !allNamedMatch && namedFamily &&
+        if (selfMatch && !allNamedMatch && namedFamily && !a3cNeedProbe &&
             now - s_lastReplayMsByFamily[report.family] < 6000)
             return;
         if (now - s_lastReplayMsByFamily[report.family] < 2000 &&
-            s_haveFamilyReplay[report.family])
+            s_haveFamilyReplay[report.family] && !a3cNeedProbe)
             return;
     }
 
@@ -1254,6 +1385,7 @@ const char* A2c_FamilyName(uint32_t family)
     case A2cFamily_A2eMultiTex: return "A2e-multitex";
     case A2cFamily_A2fEfbFb: return "A2f-efbfb";
     case A2cFamily_A2gCrossEfb: return "A2g-cross";
+    case A2cFamily_A3cEnv: return "A3c-env";
     case A2cFamily_Other: return "other";
     default: return "none";
     }

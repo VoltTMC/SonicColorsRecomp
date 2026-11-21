@@ -65,12 +65,24 @@ void A3b_OnXfbCopy();      // finalize proj/viewport; detect cuts
 bool A3b_GetPair(A3bCameraPair& out);
 bool A3b_PairInterpolable(const A3bCameraPair& p);
 
+// Freeze pair for scratch probes (archive-time poses). Clear after probes.
+void A3b_FreezePair(const A3bCameraPair& p);
+void A3b_ClearFrozenPair();
+bool A3b_HasFrozenPair();
+
 // Scratch isolation: build delta from pair at alpha; apply to XF pos matrices.
-// Left-multiply D=Vα·inv(V0) onto GX_PNMTX0..9 (rows 0,3,…,27) — model-view form.
-bool A3b_BeginScratchCamera(float alpha);
+// Left-multiply D=Vα·inv(Vbase) onto selected PNMTX rows (default: GX_PNMTX0..9).
+// baseIsPrev: true → Vbase=prev (A3b FORCE_DX / archives at previous pose);
+//             false → Vbase=curr (A3c natural archives captured at current pose).
+bool A3b_BeginScratchCamera(float alpha, bool baseIsPrev = true);
 void A3b_OnXfLoadIsolation(uint32_t addr, uint32_t count);
 void A3b_EndScratchCamera();
 bool A3b_ScratchCameraActive();
+
+// Optional row filter (bit i = PNMTXIDX row i). 0 = all PNMTX0..9 slots.
+void A3b_SetRowMask(uint64_t mask);
+void A3b_ClearRowMask();
+uint64_t A3b_GetRowMask();
 
 void A3b_ResetCameraStats();
 A3bCameraStats A3b_GetCameraStats();

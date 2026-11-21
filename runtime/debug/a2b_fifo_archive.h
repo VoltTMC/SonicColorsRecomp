@@ -10,11 +10,11 @@
 // A2c extends resource closure + readiness; see a2c_scratch_replay.h.
 
 constexpr uint32_t kA2bMaxSubsPerFrame = 512;
-constexpr uint32_t kA2bMaxBytesPerFrame = 4u << 20;   // 4 MiB command bytes
+constexpr uint32_t kA2bMaxBytesPerFrame = 8u << 20;   // 8 MiB command bytes (A3c TR1)
 constexpr uint32_t kA2bMaxBytesPerSub = 256u << 10;   // coalesce ring drains up to 256 KiB/sub
-constexpr uint32_t kA2bMaxResources = 256;            // unique resources (deduped)
-constexpr uint32_t kA2bMaxResBytes = 4u << 20;        // 4 MiB resource snapshots
-constexpr uint32_t kA2bMaxResCopy = 256u << 10;       // per-resource copy cap
+constexpr uint32_t kA2bMaxResources = 2048;           // unique resources (deduped; A3c TR1)
+constexpr uint32_t kA2bMaxResBytes = 24u << 20;       // 24 MiB resource snapshots (A3c TR1)
+constexpr uint32_t kA2bMaxResCopy = 512u << 10;       // per-resource copy cap
 constexpr uint32_t kA2bTmemSnapshotBytes = 64u << 10; // TLUT-relevant TMEM window
 
 enum A2bFrameFlags : uint32_t

@@ -10,7 +10,7 @@
 
 // PNMTXIDX is a row index into XF mem (0,3,6,…). One 3×4 pos matrix = 3 rows
 // = 12 floats starting at xfmem[row*4].
-constexpr int kA3aMaxDrawsPerFrame = 256;
+constexpr int kA3aMaxDrawsPerFrame = 400;  // A3c TR1 env passes ~100–400 draws
 constexpr int kA3aMaxMtxPerDraw = 8;
 
 enum A3aCorrKind : uint8_t
