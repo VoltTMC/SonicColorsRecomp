@@ -1,4 +1,5 @@
 #include "a2g_natural_trace.h"
+#include "a3e_budgets.h"
 #include "../log.h"
 #include "../platform/platform.h"
 
@@ -236,6 +237,8 @@ void A2gNat_OnGuestFrame()
 
 void A2gNat_OnStageHint(const char* stage, const char* via)
 {
+    // Always notify A3e arming even when natural-trace dump is off.
+    if (stage && stage[0]) A3e_OnStageEntered(stage);
     if (!EnvOn() || !stage || !stage[0]) return;
     static char s_last[16]{};
     if (std::strncmp(s_last, stage, sizeof(s_last)) == 0) return;

@@ -5,6 +5,7 @@
 #include "a1c_gx_capture.h"
 #include "a2c_scratch_replay.h"
 #include "a2g_natural_trace.h"
+#include "a3e_budgets.h"
 #include "../gx/gx_state.h"
 #include "../kernel/memory.h"
 #include "../log.h"
@@ -29,9 +30,15 @@ bool EnvOn()
         const char* v = std::getenv("SCR_A2B_FIFO_CAPTURE");
         c = (v && v[0] && v[0] != '0') ? 1 : 0;
         if (c)
-            LOG_INFO("A2b: FIFO archive enabled (SCR_A2B_FIFO_CAPTURE); no replay / no extra XFB");
+            LOG_INFO("A2b: FIFO archive enabled (SCR_A2B_FIFO_CAPTURE); no replay / no extra XFB; {}",
+                     A3e_BudgetSummary());
     }
     return c != 0;
+}
+
+bool CaptureActive()
+{
+    return EnvOn() && A3e_CaptureArmed();
 }
 
 bool DumpOn()
@@ -89,6 +96,7 @@ struct FrameBuild
     uint32_t truncated = 0;
     uint32_t skippedSubs = 0;
     uint32_t skippedBytes = 0;
+    uint32_t rejectedResources = 0;
     uint32_t drawCount = 0;
     uint32_t requiredResources = 0;
     uint32_t requiredUnresolved = 0;
@@ -101,8 +109,8 @@ struct FrameBuild
     uint32_t efbInW = 0;
     uint32_t efbInH = 0;
     std::vector<uint8_t> tmemStart;
-    A2bSubmission subs[kA2bMaxSubsPerFrame]{};
-    A2bResource resources[kA2bMaxResources]{};
+    std::vector<A2bSubmission> subs;
+    std::vector<A2bResource> resources;
     A2bGxStateSnap gx{};
     A2bContextSnap ctx{};
     std::vector<uint8_t> cmd;
@@ -110,6 +118,16 @@ struct FrameBuild
     A2bCrossEfbEdge crossEdges[kA2bMaxCrossEdges]{};
     uint32_t crossEdgeCount = 0;
 };
+
+void EnsureBuildCapsLocked(FrameBuild& f)
+{
+    const uint32_t maxSubs = A2b_CapMaxSubs();
+    const uint32_t maxRes = A2b_CapMaxResources();
+    if (f.subs.capacity() < maxSubs) f.subs.reserve(maxSubs);
+    if (f.resources.capacity() < maxRes) f.resources.reserve(maxRes);
+    if (f.subs.size() < maxSubs) f.subs.resize(maxSubs);
+    if (f.resources.size() < maxRes) f.resources.resize(maxRes);
+}
 
 std::mutex s_mu;
 FrameBuild s_build{};
@@ -211,10 +229,13 @@ void FillSummary(const FrameBuild& f, A2bFrameSummary& out)
     out.truncatedResources = f.truncated;
     out.skippedSubmissions = f.skippedSubs;
     out.skippedBytes = f.skippedBytes;
+    out.rejectedResources = f.rejectedResources;
     out.drawCount = f.drawCount;
     out.requiredResources = f.requiredResources;
     out.requiredUnresolved = f.requiredUnresolved;
     out.flags = f.flags;
+    out.capResources = A2b_CapMaxResources();
+    out.capResBytes = A2b_CapMaxResBytes();
     out.commandHash = f.cmd.empty() ? 0 : HashBytes(f.cmd.data(), f.cmd.size());
     out.gxStartValid = f.gxStartValid;
     out.efbIncomingValid = f.efbIncomingValid;
@@ -272,9 +293,11 @@ void AddResourceLocked(uint32_t type, uint32_t ea, uint32_t size, bool tryCopy,
         return;
     }
 
-    if (s_build.resCount >= kA2bMaxResources)
+    EnsureBuildCapsLocked(s_build);
+    if (s_build.resCount >= A2b_CapMaxResources())
     {
         s_build.flags |= A2bFrame_OverflowResources | A2bFrame_Incomplete;
+        s_build.rejectedResources++;
         return;
     }
 
@@ -299,13 +322,13 @@ void AddResourceLocked(uint32_t type, uint32_t ea, uint32_t size, bool tryCopy,
     }
 
     uint32_t copyN = size;
-    if (copyN > kA2bMaxResCopy)
+    if (copyN > A2b_CapMaxResCopy())
     {
-        copyN = kA2bMaxResCopy;
+        copyN = A2b_CapMaxResCopy();
         r.flags |= A2bRes_Truncated;
         s_build.truncated++;
     }
-    if (s_build.resBytes + copyN > kA2bMaxResBytes)
+    if (s_build.resBytes + copyN > A2b_CapMaxResBytes())
     {
         s_build.flags |= A2bFrame_OverflowResBytes | A2bFrame_Incomplete;
         r.flags |= A2bRes_Unresolved;
@@ -325,7 +348,7 @@ void AddResourceLocked(uint32_t type, uint32_t ea, uint32_t size, bool tryCopy,
 void AddResource(uint32_t type, uint32_t ea, uint32_t size, bool tryCopy,
                  uint32_t lifetime, uint32_t aux, bool required)
 {
-    if (!EnvOn()) return;
+    if (!CaptureActive()) return;
     std::lock_guard lk(s_mu);
     EnsureGxStartLocked();
     AddResourceLocked(type, ea, size, tryCopy, lifetime, aux, required);
@@ -439,12 +462,13 @@ bool A2b_FifoCaptureEnabled() { return EnvOn(); }
 
 void A2b_OnFifoSubmission(const uint8_t* data, size_t n)
 {
-    if (!EnvOn() || !data || n == 0) return;
+    if (!CaptureActive() || !data || n == 0) return;
 
     std::lock_guard lk(s_mu);
+    EnsureBuildCapsLocked(s_build);
     EnsureGxStartLocked();
 
-    if (s_build.totalBytes + n > kA2bMaxBytesPerFrame)
+    if (s_build.totalBytes + n > A2b_CapMaxBytes())
     {
         s_build.flags |= A2bFrame_OverflowBytes | A2bFrame_Incomplete;
         s_build.skippedSubs++;
@@ -456,7 +480,7 @@ void A2b_OnFifoSubmission(const uint8_t* data, size_t n)
     if (s_build.submitCount > 0)
     {
         A2bSubmission& cur = s_build.subs[s_build.submitCount - 1];
-        if (cur.byteCount + n <= kA2bMaxBytesPerSub)
+        if (cur.byteCount + n <= A2b_CapMaxBytesPerSub())
         {
             s_build.cmd.insert(s_build.cmd.end(), data, data + n);
             cur.byteCount += (uint32_t)n;
@@ -468,7 +492,7 @@ void A2b_OnFifoSubmission(const uint8_t* data, size_t n)
         }
     }
 
-    if (s_build.submitCount >= kA2bMaxSubsPerFrame)
+    if (s_build.submitCount >= A2b_CapMaxSubs())
     {
         s_build.flags |= A2bFrame_OverflowSubs | A2bFrame_Incomplete;
         s_build.skippedSubs++;
@@ -542,8 +566,9 @@ void A2b_OnEfbCopy(uint32_t destAddr, uint32_t ctl, uint32_t sx, uint32_t sy, ui
                    uint32_t sh, uint32_t fmt, uint32_t copyFlags, uint64_t genId,
                    uint32_t createFrame, uint64_t createXfb)
 {
-    if (!EnvOn()) return;
+    if (!CaptureActive()) return;
     std::lock_guard lk(s_mu);
+    EnsureBuildCapsLocked(s_build);
     EnsureGxStartLocked();
     const uint32_t ea = CanonGuestEa(destAddr);
     const uint32_t aux = (sx & 0x3FF) | ((sy & 0x3FF) << 10) | ((sw & 0x3FF) << 20);
@@ -572,9 +597,10 @@ void A2b_OnEfbCopy(uint32_t destAddr, uint32_t ctl, uint32_t sx, uint32_t sy, ui
         }
         return;
     }
-    if (s_build.resCount >= kA2bMaxResources)
+    if (s_build.resCount >= A2b_CapMaxResources())
     {
         s_build.flags |= A2bFrame_OverflowResources | A2bFrame_Incomplete;
+        s_build.rejectedResources++;
         return;
     }
     A2bResource& r = s_build.resources[s_build.resCount++];
@@ -598,8 +624,9 @@ void A2b_OnEfbCopy(uint32_t destAddr, uint32_t ctl, uint32_t sx, uint32_t sy, ui
 void A2b_OnEfbCopySampled(uint32_t destAddr, uint64_t genId, uint32_t createFrame,
                           uint64_t createXfb, bool crossFrame)
 {
-    if (!EnvOn()) return;
+    if (!CaptureActive()) return;
     std::lock_guard lk(s_mu);
+    EnsureBuildCapsLocked(s_build);
     const uint32_t ea = CanonGuestEa(destAddr);
     bool found = false;
     for (uint32_t i = 0; i < s_build.resCount; i++)
@@ -622,9 +649,10 @@ void A2b_OnEfbCopySampled(uint32_t destAddr, uint64_t genId, uint32_t createFram
     if (!found)
     {
         // Consumer-only reference: producer lived in an earlier archived frame.
-        if (s_build.resCount >= kA2bMaxResources)
+        if (s_build.resCount >= A2b_CapMaxResources())
         {
             s_build.flags |= A2bFrame_OverflowResources | A2bFrame_Incomplete;
+            s_build.rejectedResources++;
         }
         else
         {
@@ -721,8 +749,9 @@ uint32_t A2b_CountEfbCopiesInCmd(const uint8_t* cmd, uint32_t n)
 
 void A2b_OnTmemWindow(uint32_t tmemOff, uint32_t size, const uint8_t* data)
 {
-    if (!EnvOn() || !data || size == 0) return;
+    if (!CaptureActive() || !data || size == 0) return;
     std::lock_guard lk(s_mu);
+    EnsureBuildCapsLocked(s_build);
     EnsureGxStartLocked();
     int existing = FindResource(s_build, A2bRes_TmemWindow, tmemOff, size, 0);
     if (existing >= 0)
@@ -731,15 +760,16 @@ void A2b_OnTmemWindow(uint32_t tmemOff, uint32_t size, const uint8_t* data)
         s_build.resources[existing].flags |= A2bRes_Required;
         return;
     }
-    if (s_build.resCount >= kA2bMaxResources)
+    if (s_build.resCount >= A2b_CapMaxResources())
     {
         s_build.flags |= A2bFrame_OverflowResources | A2bFrame_Incomplete;
+        s_build.rejectedResources++;
         return;
     }
     uint32_t copyN = size;
-    if (copyN > kA2bMaxResCopy)
-        copyN = kA2bMaxResCopy;
-    if (s_build.resBytes + copyN > kA2bMaxResBytes)
+    if (copyN > A2b_CapMaxResCopy())
+        copyN = A2b_CapMaxResCopy();
+    if (s_build.resBytes + copyN > A2b_CapMaxResBytes())
     {
         s_build.flags |= A2bFrame_OverflowResBytes | A2bFrame_Incomplete;
         return;
@@ -766,7 +796,7 @@ void A2b_OnTmemWindow(uint32_t tmemOff, uint32_t size, const uint8_t* data)
 
 void A2b_NoteDraw()
 {
-    if (!EnvOn()) return;
+    if (!CaptureActive()) return;
     std::lock_guard lk(s_mu);
     s_build.drawCount++;
 }
@@ -781,6 +811,13 @@ void A2b_OnSimFrameEnd()
 void A2b_OnXfbCopy()
 {
     if (!EnvOn()) return;
+    // Soft-arm: still advance empty frames so ring stays consistent once armed.
+    if (!A3e_CaptureArmed())
+    {
+        std::lock_guard lk(s_mu);
+        s_build = FrameBuild{};
+        return;
+    }
 
     {
         std::lock_guard lk(s_mu);
@@ -891,10 +928,8 @@ static void ClonePacketFromLocked(const FrameBuild& src, A2bArchivePacket& out, 
     out.submitCount = src.submitCount;
     out.resCount = src.resCount;
     out.crossEdgeCount = src.crossEdgeCount;
-    for (uint32_t i = 0; i < src.submitCount; i++)
-        out.subs[i] = src.subs[i];
-    for (uint32_t i = 0; i < src.resCount; i++)
-        out.resources[i] = src.resources[i];
+    out.subs.assign(src.subs.begin(), src.subs.begin() + src.submitCount);
+    out.resources.assign(src.resources.begin(), src.resources.begin() + src.resCount);
     for (uint32_t i = 0; i < src.crossEdgeCount; i++)
         out.crossEdges[i] = src.crossEdges[i];
 }

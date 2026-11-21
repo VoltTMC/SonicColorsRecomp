@@ -60,6 +60,7 @@ struct A3dCoverageReport
     uint32_t a2bRequired = 0;
     uint32_t a2bReqUnresolved = 0;
     uint32_t a2bTruncated = 0;
+    uint32_t a2bRejected = 0;     // A3e: resources refused by capacity
     uint32_t a2bFlags = 0;
     bool a2bComplete = false;     // reqUnres=0 && !(Incomplete)
     bool a2bEfbIn = false;

@@ -5,6 +5,7 @@
 #include "a3b_camera_interp.h"
 #include "a3c_env_capture.h"
 #include "a3d_scene_coverage.h"
+#include "a3e_budgets.h"
 #include "../gx/gx_state.h"
 #include "../gx/texture_decode.h"
 #include "../kernel/memory.h"
@@ -41,7 +42,7 @@ A2cPassReport s_pass{};
 A2cReplayResult s_lastReplay{};
 bool s_havePass = false;
 // Per-family last ready report + replay (A2d / A2e / A2f / A2g).
-constexpr uint32_t kFamilySlots = 7;
+constexpr uint32_t kFamilySlots = 8;
 A2cPassReport s_familyPass[kFamilySlots]{};
 A2cReplayResult s_familyReplay[kFamilySlots]{};
 bool s_haveFamilyPass[kFamilySlots]{};
@@ -189,6 +190,11 @@ uint32_t ClassifyFamily(uint32_t passBytes, uint32_t draws, uint32_t deps, uint3
     if ((A3c_EnvCaptureEnabled() || A3c_EnvInterpEnabled()) && passBytes >= 8000 &&
         passBytes <= (512u << 10) && draws >= 100 && draws <= 800 && deps >= 8)
         return A2cFamily_A3cEnv;
+    // A3e: dense complete gameplay (beyond A2e/A3c bands). Explicit family so
+    // selection budgets can rise without mis-labeling as Other.
+    if (A3e_DenseEnabled() && passBytes >= 7000 && passBytes <= (1024u << 10) && draws >= 150 &&
+        draws <= 16384 && deps >= 8)
+        return A2cFamily_A3eDense;
     return A2cFamily_Other;
 }
 
@@ -322,9 +328,15 @@ void EvaluatePass(const A2bArchivePacket& pkt, A2cPassReport& out)
                         out.family == A2cFamily_A3cEnv && out.passBytes > 256 &&
                         out.passBytes <= (512u << 10) && out.drawCount >= 100 &&
                         out.drawCount <= 800 && pkt.gxStartValid;
+    const bool a3eSel = A3e_DenseEnabled() && out.family == A2cFamily_A3eDense &&
+                        out.passBytes > 256 && out.passBytes <= (1024u << 10) &&
+                        out.drawCount >= 150 && out.drawCount <= 16384 && pkt.gxStartValid &&
+                        !(pkt.summary.flags & A2bFrame_Incomplete) &&
+                        pkt.summary.rejectedResources == 0;
     const bool selected =
-        a3cSel || (out.passBytes > 256 && out.passBytes <= (128u << 10) && out.drawCount > 0 &&
-                   out.drawCount <= 128 && pkt.gxStartValid);
+        a3cSel || a3eSel ||
+        (out.passBytes > 256 && out.passBytes <= (128u << 10) && out.drawCount > 0 &&
+         out.drawCount <= 128 && pkt.gxStartValid);
     ok(A2cReady_PassSelected, selected);
 
     out.readyFlags = ready;
@@ -1339,7 +1351,8 @@ void A2c_OnArchivedFrame()
                              report.family == A2cFamily_A2eMultiTex ||
                              report.family == A2cFamily_A2fEfbFb ||
                              report.family == A2cFamily_A2gCrossEfb ||
-                             report.family == A2cFamily_A3cEnv;
+                             report.family == A2cFamily_A3cEnv ||
+                             report.family == A2cFamily_A3eDense;
     if (pkt.crossEdgeCount > 0 && seq.ready && (now - lastLogMs >= 2000))
     {
         LOG_INFO("A2g edges: xfb={} count={} resolved={}/{} prodXfb={} — {}", pkt.summary.xfbIndex,
@@ -1489,6 +1502,7 @@ const char* A2c_FamilyName(uint32_t family)
     case A2cFamily_A2gCrossEfb: return "A2g-cross";
     case A2cFamily_A3cEnv: return "A3c-env";
     case A2cFamily_Other: return "other";
+    case A2cFamily_A3eDense: return "A3e-dense";
     default: return "none";
     }
 }

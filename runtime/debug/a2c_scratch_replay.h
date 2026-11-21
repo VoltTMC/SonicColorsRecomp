@@ -34,6 +34,7 @@ enum A2cPassFamily : uint32_t
     A2cFamily_A2gCrossEfb = 4, // EFB→tex produced in prior frame, sampled this frame
     A2cFamily_A3cEnv = 5,      // coherent TR1 env pass (A3c; raised draw/byte limits)
     A2cFamily_Other = 6,
+    A2cFamily_A3eDense = 7,    // A3e dense complete gameplay frame (raised caps)
 };
 
 enum A2cCompareStatus : uint32_t

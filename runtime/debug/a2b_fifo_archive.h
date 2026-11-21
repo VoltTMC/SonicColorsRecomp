@@ -8,14 +8,26 @@
 // SCR_A2B_FIFO_CAPTURE=1 enables; SCR_A2B_FIFO_DUMP=1 logs/exports diagnostics.
 // Bytes are copied before ProcessFifo consumes them. Guest/FIFO behaviour unchanged.
 // A2c extends resource closure + readiness; see a2c_scratch_replay.h.
+//
+// A3e: capacities are runtime-configurable (see a3e_budgets.h). Compile-time
+// constants below are the non-dense defaults / documentation anchors. Hitting a
+// hard cap sets Incomplete — never silently discards required records.
 
-constexpr uint32_t kA2bMaxSubsPerFrame = 512;
-constexpr uint32_t kA2bMaxBytesPerFrame = 8u << 20;   // 8 MiB command bytes (A3c TR1)
-constexpr uint32_t kA2bMaxBytesPerSub = 256u << 10;   // coalesce ring drains up to 256 KiB/sub
-constexpr uint32_t kA2bMaxResources = 2048;           // unique resources (deduped; A3c TR1)
-constexpr uint32_t kA2bMaxResBytes = 24u << 20;       // 24 MiB resource snapshots (A3c TR1)
-constexpr uint32_t kA2bMaxResCopy = 512u << 10;       // per-resource copy cap
+constexpr uint32_t kA2bDefaultMaxSubs = 512;
+constexpr uint32_t kA2bDefaultMaxBytes = 8u << 20;
+constexpr uint32_t kA2bDefaultMaxBytesPerSub = 256u << 10;
+constexpr uint32_t kA2bDefaultMaxResources = 2048;
+constexpr uint32_t kA2bDefaultMaxResBytes = 24u << 20;
+constexpr uint32_t kA2bDefaultMaxResCopy = 512u << 10;
 constexpr uint32_t kA2bTmemSnapshotBytes = 64u << 10; // TLUT-relevant TMEM window
+
+// Deprecated aliases kept for call sites that still name the old constants.
+constexpr uint32_t kA2bMaxSubsPerFrame = kA2bDefaultMaxSubs;
+constexpr uint32_t kA2bMaxBytesPerFrame = kA2bDefaultMaxBytes;
+constexpr uint32_t kA2bMaxBytesPerSub = kA2bDefaultMaxBytesPerSub;
+constexpr uint32_t kA2bMaxResources = kA2bDefaultMaxResources;
+constexpr uint32_t kA2bMaxResBytes = kA2bDefaultMaxResBytes;
+constexpr uint32_t kA2bMaxResCopy = kA2bDefaultMaxResCopy;
 
 enum A2bFrameFlags : uint32_t
 {
@@ -132,10 +144,13 @@ struct A2bFrameSummary
     uint32_t truncatedResources = 0;
     uint32_t skippedSubmissions = 0;
     uint32_t skippedBytes = 0;
+    uint32_t rejectedResources = 0;  // A3e: unique resources refused by capacity
     uint32_t drawCount = 0;
     uint32_t requiredResources = 0;
     uint32_t requiredUnresolved = 0;
     uint32_t flags = 0;
+    uint32_t capResources = 0;       // active budget at capture time
+    uint32_t capResBytes = 0;
     uint32_t commandHash = 0;
     bool gxStartValid = false;
     bool efbIncomingValid = false;
@@ -183,8 +198,8 @@ struct A2bArchivePacket
     std::vector<uint8_t> cmd;
     std::vector<uint8_t> resData;
     std::vector<uint8_t> tmemStart;   // optional TMEM window at frame start
-    A2bSubmission subs[kA2bMaxSubsPerFrame]{};
-    A2bResource resources[kA2bMaxResources]{};
+    std::vector<A2bSubmission> subs;  // sized to active cap (A3e heap-backed)
+    std::vector<A2bResource> resources;
     A2bCrossEfbEdge crossEdges[64]{};
     uint32_t submitCount = 0;
     uint32_t resCount = 0;

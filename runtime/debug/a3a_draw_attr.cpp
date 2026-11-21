@@ -1,6 +1,8 @@
 // Approach A3a — draw-level PNMTXIDX attribution + scratch matrix override.
 #include "a3a_draw_attr.h"
 #include "a1b_pose_capture.h"
+#include "a3e_budgets.h"
+#include "a3e_player_palette.h"
 #include "../gx/vertex_loader.h"
 #include "../gx/gx_state.h"
 #include "../log.h"
@@ -142,9 +144,22 @@ float ParseF(const char* name, float def)
     return (float)std::atof(e);
 }
 
+void EnsureDrawCap(A3aFrameSnap& snap)
+{
+    const uint32_t cap = A3a_CapMaxDraws();
+    if (snap.drawCap != cap || snap.draws.size() != cap)
+    {
+        snap.draws.assign(cap, A3aDrawRec{});
+        snap.drawCap = cap;
+    }
+}
+
 void ResetBuild()
 {
+    const uint32_t cap = A3a_CapMaxDraws();
     s_build = A3aFrameSnap{};
+    s_build.draws.assign(cap, A3aDrawRec{});
+    s_build.drawCap = cap;
     s_drawSeq.store(0, std::memory_order_relaxed);
 }
 
@@ -456,7 +471,8 @@ void A3a_OnDraw(int prim, int vat, uint32_t count, const void* hostVerts, uint32
         if (r < 64) s_build.rowMask |= (1ull << r);
     }
     if (rec.flags & 1) s_build.playerCandidates++;
-    if (s_build.drawStored < kA3aMaxDrawsPerFrame)
+    EnsureDrawCap(s_build);
+    if (s_build.drawStored < s_build.drawCap)
         s_build.draws[s_build.drawStored++] = rec;
     else
     {
@@ -491,6 +507,8 @@ void A3a_OnXfbCopy()
     s_curr = s_build;
     s_haveCurr = true;
     Correlate();
+    A3e_NoteObservedDraws(s_curr.drawCount);
+    A3e_PlayerPalette_OnFrame(s_curr, s_havePrev ? &s_prev : nullptr);
     DumpFrameLocked();
     ResetBuild();
 }

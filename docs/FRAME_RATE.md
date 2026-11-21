@@ -241,6 +241,7 @@ Opt-in immutable snapshots at completed sim-frame boundaries for future host int
 | A3c | Coherent TR1 env capture + natural camera interp | Env MATCH + natural mid DIFF | **Done (experiment)** |
 | A3c.1 | Endpoint reference semantics + depth classification | Labeled A–D/Mid; depthClass | **Done (experiment)** |
 | A3d | Full-scene archive coverage audit | Category matrix + obs/cap/complete | **Done (audit)** |
+| A3e | Dense-frame archive scalability + player palette | Raised caps + soft-arm; palette stable; A3e-dense MATCH | **Done (experiment)** |
 | A3 | Interpolated second XFB without guest update | `unique_xfb` >60 behind debug flag | Later |
 | A4 | Quality gate; promote to uncapped | Honest unique>60 in production | Later |
 
@@ -872,6 +873,38 @@ Opt-in diagnostics. Establishes **how much** of a real frame A2/A3 can observe, 
 **Perf:** `SCR_A3D_SCENE_COVERAGE` alone ≈ flags-off (~60 Hz). Cost is A2b/A3a capture under load. Dumps bounded; disabled → quiet.
 
 **Not claimed:** full-scene coverage; player bone interp; second XFB; unique FPS; native Windows GPU (**UNVERIFIED**).
+
+### Approach A3e — dense-frame archive scalability + player palette (2026-11-21)
+
+Opt-in only. Raises A2b/A3a heap budgets for busy TR1, soft-arms capture to avoid stage-load hangs on slow GPUs, and captures a stable player bone-palette identity across consecutive frames. **No interpolation, no second XFB, no unique-FPS claim.**
+
+| Switch | Role |
+|--------|------|
+| `SCR_A3E_DENSE=1` | Dense A2b/A3a caps (`res` 16384 / 128 MiB, cmd 16 MiB, A3a draws 16384); A2c family `A3e-dense` |
+| `SCR_A3E_ARM_ON_DRAWS=N` | Soft-arm A2b until a frame observes ≥N draws (default 150); stage enter also arms |
+| `SCR_A3E_PLAYER_PALETTE=1` | Consecutive-frame palette snap for one skinned cand draw (`identityKey`); needs A3a (+A1b when body EA available) |
+| `SCR_A2B_MAX_*` / `SCR_A3A_MAX_DRAWS` | Per-budget overrides (still apply when dense) |
+
+**Completeness:** Hitting a hard cap sets `Incomplete` + `rejectedResources` (never silent). Stratified/sampled modes must not report `complete=1`.
+
+**GPU note (Linux/DXVK):** Cursor/agent shells can pollute `LD_LIBRARY_PATH` and break NVIDIA `CreateDevice`. Use [`tools/run_nvidia_clean.sh`](../tools/run_nvidia_clean.sh) (`env -i` + `VK_ICD_FILENAMES=nvidia_icd.json`). Do not fall back to RADV/iGPU for validation.
+
+#### Evidence (RTX 3080 clean env)
+
+| Item | Result | Log |
+|------|--------|-----|
+| Device | NVIDIA GeForce RTX 3080 | `phase30_a3e_tr1_nv2.log` |
+| Early complete | 167/167 draws, 356 res, `complete=1`, A3e-dense MATCH | same |
+| Busy complete | cover peak **632/632** @ 651 res; ready/MATCH peak **deps=6933–6934**, pass≈256 KiB, `rej=0`, A3a drop=0 | same + `phase30_a3e_tr1_nv.log` |
+| A3e-dense MATCH | colour+depth exact (`colorMis=0` `depthMis=0`) incl. deps≈6933 | `phase30_a3e_tr1_nv*.log` |
+| Player palette | `id=66308a11` stable **31** consecutive XFBs; `mtxN=4`; matrices change (`changed=1`); body EA still 0 (PARTIAL ownership) | `phase30_a3e_tr1_nv2.log` |
+| Soft-arm / watchdog | Armed at draws=167; **0** watchdog hangs on NVIDIA | same |
+| Flags-off perf | ~60 Hz sim/xfb on RTX 3080 | `phase30_a3e_perf_off_nv.log` |
+| Exact title MATCH | A2f-efbfb MATCH preserved | `phase30_a3e_exact_nv.log` |
+
+**Limits:** Peak observed draws under dense soft-arm still below prior ~31k uncapped peaks (soft-arm + host cost); body/shell EA often unset without A1b latch; denser-than-cap scenes still Incomplete (honest). Native Windows GPU **UNVERIFIED**.
+
+**Not claimed:** full ~31k-draw busy completeness; skeletal interpolation; second XFB; unique FPS.
 
 ### Approach A3a — draw-level transform attribution + scratch substitution (2026-11-21)
 

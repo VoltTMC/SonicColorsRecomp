@@ -1,5 +1,21 @@
 # Progress log
 
+## 2026-11-21 — A3e: dense-frame archive scalability + player palette
+
+**Goal:** Complete busy TR1 A2b/A3a archives without silent truncation; stable player skeletal palette across consecutive frames (no interp). Preserve A2/A3 exact-match; guest/audio timing; no second XFB / unique-FPS.
+
+**Shipped:**
+- `a3e_budgets.*` — `SCR_A3E_DENSE` heap caps (A2b res **16384**/128 MiB, cmd 16 MiB, A3a draws **16384**); soft-arm `SCR_A3E_ARM_ON_DRAWS`; `rejectedResources` + Incomplete (honest); overlay line
+- `a3e_player_palette.*` — `SCR_A3E_PLAYER_PALETTE`; identityKey-stable cand palette; mtx row hashes; no interp
+- A2b → vectors + runtime caps; A3a → heap draws / `A3a_CapMaxDraws`; A2c family `A3e-dense` (slots=8); a2g → `A3e_OnStageEntered`
+- `tools/run_nvidia_clean.sh` — clean-env RTX path (`VK_ICD_FILENAMES=nvidia_icd.json`); Cursor LD pollution broke DXVK CreateDevice (do not use RADV for validation)
+
+**Evidence (RTX 3080):** `out/phase30_a3e_tr1_nv2.log` (+ `phase30_a3e_tr1_nv.log`). Early 167/167 complete + MATCH; busy cover peak 632/632 @ 651 res; A3e-dense MATCH at deps≈6933 pass≈256 KiB (`colorMis=0`); palette `id=66308a11` stable 31 XFBs mtxN=4 changing (body EA=0 PARTIAL); soft-arm @167; watchdog 0. Flags-off ~60 Hz (`phase30_a3e_perf_off_nv.log`). Exact A2f MATCH (`phase30_a3e_exact_nv.log`). `regression_smoke` OK; MinGW links; native Win GPU **UNVERIFIED**.
+
+**Limits:** Soft-arm + capture cost → peak obs below prior ~31k uncapped; body EA often unset; still Incomplete past caps (honest).
+
+**Next:** Player body-EA latch / stronger ownership; denser-than-16k strategy or stratified sampling; still before second XFB.
+
 ## 2026-11-21 — A3d: full-scene GX archive coverage audit
 
 **Goal:** Evidence-based accounting of what a real gameplay frame archives/replays — beyond the A3c env subset. No second XFB / no unique-FPS / no skeletal interpolation.
@@ -15,11 +31,11 @@
 | Busy TR1 | Prior `phase28_a3c1_tr1b.log` (A3a@400) | Peak **drawCount≈31027** with massive store drop; A2b hits **2048** resource cap → not full-scene complete |
 | Exact MATCH | `phase29_a3d_exact_title.log` / `phase29_a3d_tr1_cover.log` | A2e multitex + A2f efbfb colour+depth MATCH (selected families ≠ full scene) |
 
-**Perf (RADV iGPU, diagnostics):** flags-off / A3d-only ≈60 Hz; A2b+A3a adds cost under load (title scale2 ≈30 Hz historically). Disabled → no A3d spam.
+**Perf:** flags-off / A3d-only ≈60 Hz (RTX 3080 via `tools/run_nvidia_clean.sh`); A2b+A3a adds cost under load. Disabled → no A3d spam.
 
-**Limits:** Busy frames still exceed A3a detail store and A2b resource budget; skinned object identity is candidate-heuristic (not stable character IDs); NVIDIA CreateDevice currently broken on this host (captures used RADV); stage-load watchdog hangs on slow GPU after early TR1; native Windows GPU **UNVERIFIED**.
+**Limits (superseded in part by A3e):** Busy frames exceeded A3a/A2b caps at A3d time; skinned IDs candidate-heuristic; RADV stage-load watchdog hangs; native Windows GPU **UNVERIFIED**.
 
-**Next (A3e):** Raise/stream A2b resources for busy TR1 **or** stratified sampling of uncapped draws; stable player bone-palette capture for one skinned draw — still before second XFB.
+**Next:** → A3e (done above).
 
 ## 2026-11-21 — A3c.1: endpoint reference semantics + depth classification
 

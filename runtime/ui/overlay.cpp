@@ -17,6 +17,8 @@
 #include "../debug/a3b_camera_interp.h"
 #include "../debug/a3c_env_capture.h"
 #include "../debug/a3d_scene_coverage.h"
+#include "../debug/a3e_budgets.h"
+#include "../debug/a3e_player_palette.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
 #include "../tas/tas.h"
@@ -342,6 +344,20 @@ void Overlay_Render(float w, float h)
                 A3d_OverlayLine(a3d, sizeof(a3d));
                 if (a3d[0])
                     ImGui::TextUnformatted(a3d);
+            }
+            if (A3e_DenseEnabled())
+            {
+                char a3e[128];
+                A3e_OverlayLine(a3e, sizeof(a3e));
+                if (a3e[0])
+                    ImGui::TextUnformatted(a3e);
+            }
+            if (A3e_PlayerPaletteEnabled())
+            {
+                char pal[160];
+                A3e_PlayerPalette_OverlayLine(pal, sizeof(pal));
+                if (pal[0])
+                    ImGui::TextUnformatted(pal);
             }
             if (A2b_FifoCaptureEnabled() || A2c_ScratchReplayEnabled())
             {

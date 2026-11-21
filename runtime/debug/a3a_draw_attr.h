@@ -3,6 +3,7 @@
 #include "a1b_pose_capture.h"
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 // Approach A3a — draw-level GX transform attribution + scratch matrix override.
 // Opt-in: SCR_A3A_DRAW_ATTR=1 (capture), SCR_A3A_MATRIX_OVERRIDE=1 (scratch only).
@@ -10,10 +11,11 @@
 
 // PNMTXIDX is a row index into XF mem (0,3,6,…). One 3×4 pos matrix = 3 rows
 // = 12 floats starting at xfmem[row*4].
-// A3d: quiet/early TR1 ≈ 70–200 draws; busy TR1 can exceed 30k. Store cap bounds
-// attribution detail (~800 KiB/snap at 1536); overflow still counted in drawCount /
-// overflowCat[] (no silent drop of observations).
-constexpr int kA3aMaxDrawsPerFrame = 1536;
+// A3d/A3e: quiet/early TR1 ≈ 70–200 draws; busy TR1 often ~4–8k, peaks higher.
+// Default store 1536; SCR_A3E_DENSE / SCR_A3A_MAX_DRAWS raise the heap-backed
+// capacity (see A3a_CapMaxDraws). Overflow still counted in drawCount/overflowCat[].
+constexpr int kA3aDefaultMaxDraws = 1536;
+constexpr int kA3aMaxDrawsPerFrame = kA3aDefaultMaxDraws;  // docs / overflow comment anchor
 constexpr int kA3aMaxMtxPerDraw = 8;
 constexpr int kA3aOverflowCatCount = 8;
 
@@ -80,7 +82,8 @@ struct A3aFrameSnap
     // Indices match A3dDrawCat; classified without cross-frame corr (env→static bucket).
     uint32_t overflowCat[kA3aOverflowCatCount]{};
     uint32_t overflowTotal = 0;
-    A3aDrawRec draws[kA3aMaxDrawsPerFrame]{};
+    uint32_t drawCap = 0;                 // active A3a_CapMaxDraws at snap time
+    std::vector<A3aDrawRec> draws;        // heap-backed; sized to drawCap
 };
 
 struct A3aOverrideStats

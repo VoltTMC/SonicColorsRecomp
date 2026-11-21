@@ -1,6 +1,7 @@
 #include "a3d_scene_coverage.h"
 #include "a2b_fifo_archive.h"
 #include "a2c_scratch_replay.h"
+#include "a3e_budgets.h"
 #include "../log.h"
 #include "../perf.h"
 
@@ -153,9 +154,11 @@ void A3d_OnXfbCopy()
         r.a2bRequired = a2b.requiredResources;
         r.a2bReqUnresolved = a2b.requiredUnresolved;
         r.a2bTruncated = a2b.truncatedResources;
+        r.a2bRejected = a2b.rejectedResources;
         r.a2bFlags = a2b.flags;
         r.a2bEfbIn = a2b.efbIncomingValid;
-        r.a2bComplete = (a2b.requiredUnresolved == 0) && !(a2b.flags & A2bFrame_Incomplete);
+        r.a2bComplete = (a2b.requiredUnresolved == 0) && !(a2b.flags & A2bFrame_Incomplete) &&
+                        a2b.rejectedResources == 0;
         r.a2bCapped = (a2b.flags & A2bFrame_Incomplete) != 0;
         r.a2bEfbCopies = A2b_GetCrossEfbEdgeCount();
     }
@@ -189,12 +192,13 @@ void A3d_OnXfbCopy()
         const uint32_t capPct =
             r.drawsObserved ? (r.drawsCaptured * 100u) / r.drawsObserved : 100u;
         LOG_INFO("A3d cover: xfb={} sim={} a3a obs/cap/drop={}/{}/{} ({}%) rows={} plyCand={} "
-                 "a2b draws={} bytes={} res={}/{} reqUnres={} trunc={} complete={} efbIn={} "
-                 "flags={:02x} capped={}/{}",
+                 "a2b draws={} bytes={} res={}/{} reqUnres={} trunc={} rej={} complete={} efbIn={} "
+                 "flags={:02x} capped={}/{} a3eArmed={} a3aCap={}",
                  r.xfbIndex, r.simFrameId, r.drawsObserved, r.drawsCaptured, r.drawsDropped, capPct,
                  r.uniqueRows, r.playerCandidates, r.a2bDraws, r.a2bBytes, r.a2bRes, r.a2bRequired,
-                 r.a2bReqUnresolved, r.a2bTruncated, r.a2bComplete ? 1 : 0, r.a2bEfbIn ? 1 : 0,
-                 r.a2bFlags, r.a3aCapped ? 1 : 0, r.a2bCapped ? 1 : 0);
+                 r.a2bReqUnresolved, r.a2bTruncated, r.a2bRejected, r.a2bComplete ? 1 : 0,
+                 r.a2bEfbIn ? 1 : 0, r.a2bFlags, r.a3aCapped ? 1 : 0, r.a2bCapped ? 1 : 0,
+                 A3e_CaptureArmed() ? 1 : 0, A3a_CapMaxDraws());
         LOG_INFO("A3d cats: hud={} envS={} envM={} skinP={} skinO={} part={} other={} "
                  "stable/weak envS={}/{} skinP_multi={} ovf={}/{}/{}/{}/{}/{}/{}/{}",
                  r.cat[A3dCat_HudUi].observed, r.cat[A3dCat_EnvStatic].observed,
