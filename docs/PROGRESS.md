@@ -1,5 +1,17 @@
 # Progress log
 
+## 2026-11-21 — Approach A1c: scene-wide GX transform capture
+
+**Goal:** Observe GX position-matrix loads + guest `BodyGetWorldMtx` refreshes without extra sim/XFB.
+
+**Player (`fn_80053718`):** Refreshes `body+0x0C` via `fn_800533E8` only when dirty bit0 at `+0x2DD8`; returns `+0x0C`. A1b identity-T came from reading without that path / T often 0 even after refresh. Position stays at `+0x168`. Capture is post-`PPC_ORIGINAL(BodyGetWorldMtx)` only.
+
+**Shipped:** `SCR_A1C_GX_CAPTURE` / `SCR_A1C_GX_DUMP` — bounded XF pos-mtx loads (≤128/frame, slots 0–9), body EA samples (≤48), curr/prev frame, overlay. `Render_OnXF(..., indexed)`.
+
+**TR1 evidence (`out/phase17_a1c_tr1*.log`):** slots 1–9 T move with camera/scene (e.g. (−34,−22,−167) → (−0.3,−16,−64)); player `bodyEa` stable with hash changes; ≤1 guest body EA (player); 1000+ loads/frame truncated; sim≈60, underruns≈0; capture-off silent. **No unique-frame claim.**
+
+**Ready for A2?** Observation yes; object-stable interp **no** without FIFO archive + better actor tagging. Next: A2b archive XF/draw bytes.
+
 ## 2026-11-21 — Approach A1b: guest pose / camera-state capture
 
 **Goal:** Immutable guest pose snapshots for future host interpolation (Approach A). No extra unique XFBs.

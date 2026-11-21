@@ -226,7 +226,7 @@ static void LoadXF(uint32_t addr, uint32_t count, const uint8_t* data)
         if (a < 0x1000) g_gx.xfmem[a] = v;
         else if (a < 0x1100) g_gx.xfregs[a - 0x1000] = v;
     }
-    Render_OnXF(addr, count);
+    Render_OnXF(addr, count, false);
 }
 
 static void LoadIndexedXF(int array, uint32_t word)
@@ -240,7 +240,7 @@ static void LoadIndexedXF(int array, uint32_t word)
     Render_Flush();
     for (uint32_t i = 0; i < size; i++)
         g_gx.xfmem[(addr + i) & 0xFFF] = BE32(src + 4 * i);
-    Render_OnXF(addr, size);
+    Render_OnXF(addr, size, true);
 }
 
 void GX_PE_Finish()
@@ -298,12 +298,18 @@ static void LoadBP(uint32_t word)
 static size_t RunCommands(const uint8_t* p, size_t n, bool inDisplayList);
 
 static uint32_t s_curDL = 0, s_curDLSize = 0;   // for diagnostics
+static int s_dlDepth = 0;
+
+bool GX_InDisplayList() { return s_dlDepth > 0; }
+
 static void CallDisplayList(uint32_t addr, uint32_t size)
 {
     s_curDL = addr;
     s_curDLSize = size;
     const uint8_t* p = PhysPtr(addr);
+    ++s_dlDepth;
     RunCommands(p, size, true);
+    --s_dlDepth;
 }
 
 // Returns number of bytes consumed (only complete commands are consumed).

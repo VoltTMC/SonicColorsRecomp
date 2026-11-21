@@ -43,6 +43,8 @@ BoostPluginTick              func 80088CB8
 PlayerGetWorldMtxPtr         func 80033C78
 # A1b: copy world position (fn_80033C34); r3=dst float[3], r4=shell (widely called)
 PlayerGetPos                 func 80033C34
+# A1c: body world-mtx accessor (fn_80053718); refreshes +0x0C via fn_800533E8 if dirty bit0; returns body+0x0C
+BodyGetWorldMtx              func 80053718
 # cCameraManager large method containing PushWorldUpVector @ 80571B44; r3=this at entry
 CameraManagerTick            func 80571720
 # Boot-time type-0x88C0 alloc (fn_80015E84); NOT the player shell (+0x28 chain fails)

@@ -84,8 +84,10 @@ enum
 // Renderer callbacks (implemented by the D3D backend)
 void Render_Draw(int primitive, int vat, uint32_t count, const uint8_t* data, const VertexLayout& layout);
 void Render_OnBP(uint32_t reg, uint32_t oldValue, uint32_t newValue);
-void Render_OnXF(uint32_t addr, uint32_t count);
+void Render_OnXF(uint32_t addr, uint32_t count, bool indexed = false);
 void Render_OnCP(uint32_t reg);
+// True while RunCommands is nested inside CallDisplayList (GPU thread).
+bool GX_InDisplayList();
 void Render_EFBCopy();
 void Render_LoadTLUT();
 void Render_PreloadTMEM();

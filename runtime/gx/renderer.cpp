@@ -24,6 +24,7 @@
 #include "../platform/image.h"
 #include "../ui/overlay.h"
 #include "../debug/a1b_pose_capture.h"
+#include "../debug/a1c_gx_capture.h"
 
 #include <chrono>
 #include <cstdlib>
@@ -1708,7 +1709,7 @@ void Render_Draw(int prim, int vat, uint32_t count, const uint8_t* data, const V
 
 void Render_Flush() { Flush(); }
 
-void Render_OnXF(uint32_t addr, uint32_t count)
+void Render_OnXF(uint32_t addr, uint32_t count, bool indexed)
 {
     if (addr < 0x1000) s_xfDirty = true;
     // A1b: first full pos-matrix-0 upload of the XFB frame ≈ guest view/modelview seed.
@@ -1723,6 +1724,8 @@ void Render_OnXF(uint32_t addr, uint32_t count)
         }
         A1b_OnXfPosMtx0(m);
     }
+    if (A1c_GxCaptureEnabled())
+        A1c_OnXfLoad(addr, count, indexed);
 }
 
 void Render_OnCP(uint32_t reg)

@@ -226,10 +226,71 @@ Opt-in immutable snapshots at completed sim-frame boundaries for future host int
 | A0 | Honest metrics + docs | No claim of unique>60 | Done |
 | A1 | XF / camera capture investigation + XF snap groundwork | Overlay shows XF snaps; zero gameplay change; docs of A–D | Done |
 | A1b | Resolve player/camera world matrices in guest RAM | Stable addresses or type-walk; debug overlay poses | **Done** |
+| A1c | Scene-wide GX pos-mtx + body refresh capture | Bounded opt-in dumps; coverage/correspondence report | **Done** |
 | A2 | Debug-only host warp/composite from two captures | Visual check; **not** counted as `unique_xfb` | Later |
 | A2b | Optional FIFO archive (flag) + IRQ-safe replay spike | Can re-issue last frame’s draws into EFB under flag | Later |
 | A3 | Interpolated second XFB without guest update | `unique_xfb` >60 behind debug flag | Later |
 | A4 | Quality gate; promote to uncapped | Honest unique>60 in production | Later |
+
+### Approach A1c — scene-wide GX transform capture (2026-11-21)
+
+Instrumentation only: observe the position matrices the GX pipeline actually uses, plus guest body world-mtx refreshes. **No interpolation, FIFO replay, or extra XFBs.**
+
+| Item | Detail |
+|------|--------|
+| Code | [`runtime/debug/a1c_gx_capture.cpp`](../runtime/debug/a1c_gx_capture.cpp) |
+| Enable | `SCR_A1C_GX_CAPTURE=1`; `SCR_A1C_GX_DUMP=1` for periodic logs |
+| Bounds | ≤128 pos-mtx loads stored/frame; 10 PNMTX slots tracked; ≤48 body EAs |
+
+#### Player transform investigation (`fn_80053718`)
+
+| Fact | Evidence |
+|------|----------|
+| Role | `BodyGetWorldMtx(body)`: if `body+0x2DD8` bit0 set → `fn_800533E8` composes `+0xA4`/`+0xB0` into `+0x0C`, clears bit0; **returns `body+0x0C`** (`text_80046CB8.c`) |
+| Timing | Called by many systems when they need a world mtx; after guest returns, `+0x0C` is authoritative |
+| Why A1b saw T≈0 | `PlayerGetWorldMtxPtr` returns `+0x0C` **without** refresh; even after natural `BodyGetWorldMtx`, **translation at `+0x0C` often stays 0** while rotation/hash changes |
+| Position space | `PlayerGetPos` / `body+0x168` is a separate Vec3 (not the MTX translation) |
+| Capture rule | Hook `BodyGetWorldMtx` **after** `PPC_ORIGINAL` — never call `fn_80053718`/`fn_800533E8` ourselves |
+
+**Layers:** shell → body; `+0x168` position; `+0x0C` body world mtx (orientation-heavy); GX PNMTX loads = **rendered** modelview (full T). Do not treat these as one interchangeable matrix.
+
+#### GX position-matrix pipeline
+
+```
+Guest GXLoadPosMtxImm / indexed XF
+  → FIFO opcode 0x10 LoadXF  / 0x20–0x38 LoadIndexedXF
+  → gx_fifo LoadXF / LoadIndexedXF → g_gx.xfmem[addr..]
+  → Render_OnXF(addr, count, indexed)
+       → A1c_OnXfLoad (slots addr/12 for addr<120)
+  → draws use CP_MATINDEX_A / per-vertex pos mtx index
+```
+
+- Slots **GX_PNMTX0..9** = XF words `0..119` (12 floats each).
+- First slot-0 load ≠ always camera (menus often identity / 2D; A1b still snapshots first slot-0 separately).
+- Slot index is a **draw-time register**, not a stable object id.
+
+#### Scene coverage (TR1, `userdata` + input script)
+
+| Category | Classification |
+|----------|----------------|
+| Sonic body via `BodyGetWorldMtx` | **Captured and identifiable** (stable `bodyEa`; hash moves across frames) |
+| Sonic `+0x0C` translation | Often 0 — **not** the rendered world T; use `+0x168` / GX |
+| Sonic skeletal bones | **Requires separate instrumentation** (not this accessor) |
+| Enemies / other actors (guest body API) | **Sparse / absent** in TR1 window (often only player EA) — **needs more guest hooks** |
+| Dynamic scene geometry (GX slots 1–9) | **Captured but correspondence unresolved** (slot hashes change every frame; T moves with gameplay) |
+| Moving env / platforms | Appear as GX slot traffic — **not EA-tagged** |
+| Particles / transparency / HUD | **Unsuitable** for object-transform interp (slot0 UI/2D noise; particles not body mtx) |
+
+#### Architecture decision (A1c → A2)
+
+1. **Cross-frame object identity via slot index alone: no.** Slots are reused; hashes churn even when T is similar.
+2. **Skeletal via same BodyGetWorldMtx path: no.** Need pose-accumulator / bone hooks.
+3. **Camera vs object:** A1b view/first-slot0 + A1c slot change masks help; not a hard classifier yet.
+4. **Missing dynamics:** Most non-player actors never hit `BodyGetWorldMtx` in the measured TR1 path; GX still sees their draws.
+5. **FIFO archive must preserve:** raw XF load bytes (addr/count/payload), indexed XF source addresses, CP mat-index, DL nesting, and preferably a guest-side object tag when available.
+6. **Minimum before A2:** optional FIFO ring of XF+draw ops between XFBs (debug flag); PE IRQ suppression plan; do **not** rely on PNMTX slot as object id.
+
+**Verdict:** GX matrix capture is a **viable observation layer** for proving live scene motion and for designing archive contents. It is **not** by itself a complete object-stable pose stream for scene-wide interpolation. Proceed to **A2b FIFO archive** next (A2 warp can stay later).
 
 ### Audio
 
