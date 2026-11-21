@@ -1,42 +1,65 @@
 # Frame rate — Sonic Colors Recomp
 
-Guest VI wait fields and derived `dt` (`fn_803E19B0` → SDA `0x808F2D98`).
+Guest VI wait fields and derived `dt` (`fn_803E19B0` → SDA `0x808F2D98` / `lbl_808F2D98`).
 
-| Config | Wait fields | Guest update rate | Notes |
-|--------|-------------|-------------------|-------|
-| `frame_rate=30` | 2 | 30 Hz | Original pacing |
-| `frame_rate=60` / `--60fps` | 1 | 60 Hz | Spring cooldown gate on by default |
-| `--guest-60` / `SCR_GUEST_60=1` | 1 | 60 Hz | Forces wait=1 even if `frame_rate` is 30 |
-| `frame_rate=0` | 0 (uncapped) | host-limited | Wall-clock `dt`; optional `host_fps_cap` |
+| Config | Wait fields | Simulation rate | Presentation | Notes |
+|--------|-------------|-----------------|--------------|-------|
+| `frame_rate=30` | 2 | 30 Hz | ~1∶1 with sim | Original pacing |
+| `frame_rate=60` / `--60fps` | 1 | 60 Hz | ~1∶1 with sim | Spring cooldown gate on by default |
+| `--guest-60` / `SCR_GUEST_60=1` | 1 | 60 Hz | ~1∶1 with sim | Forces wait=1 even if `frame_rate` is 30 |
+| `frame_rate=0` | 0 (VI waits skipped) | **60 Hz fixed** | Uncapped re-present | Optional `host_fps_cap` |
 
 `SCR_SPRING_CD_GATE=0` disables the WideSpring activate hold.
 
+## Semantics of `lbl_808F2D98` (SDA float dt)
+
+From the SNCP8P decomp (`fn_803E19B0` / `fn_800115BC`):
+
+- Integer wait fields `N` are stored at SDA `0x808F2D94` (`lbl_808F2D94`).
+- Float `dt = N / 60` (seconds per guest step) is stored at `0x808F2D98`.
+- `fn_800115BC` passes **both** the float (`sp.x`) and a tick count derived from `fn_803E19E4()` into the update path (`fn_80014AA8`).
+
+So the float is a **per-simulation-step duration in seconds**, published once per `FrameLoopWait`, not a host-frame multiplier. Motion that multiplies by `dt` stays wall-time correct when `N` and the loop rate stay matched (e.g. wait=1 at 60 Hz → `dt=1/60`).
+
+Many guest systems still advance **once per loop iteration** (frame counters, collide-then-activate, scripted path steps). Those do **not** become frame-rate independent just because `0x808F2D98` is overwritten with wall-clock elapsed time.
+
 ## Uncapped mode (`--frame-rate 0` / `frame_rate=0`)
 
-### Root cause of the former ~60 FPS lock
+### Why aacec3a accelerated gameplay
 
-Bypassing only the `VIGetRetraceCount` EQ spin in `FrameLoopWait` (`fn_800126EC`) was **not** enough. After that spin the guest still called:
+1. VI EQ spin + `VIFlushAndWait` + `VIWaitNextRetrace` were skipped → guest loop reached hundreds of Hz.
+2. Wall-clock overwrite of `0x808F2D98` only helped dt-scaled integrators.
+3. Per-iteration systems still ran once per loop → Sonic / timers / collisions advanced too fast.
 
-1. **`fn_80354320` (`VIFlushAndWait`)** — drains pending VI register writes; IRQ-paced on hardware.
-2. **`fn_80353360` (`VIWaitNextRetrace`)** — busy-waits until the SDA retrace counter (same cell as `VIGetRetraceCount`) increments.
+### Architecture (sim vs present)
 
-Both synchronise to the emulated 60 Hz VI field. `--perf` showed **0 EQ spins** but a hard **~16.7 ms** guest∶XFB∶present period (`in-wait + gap`). Present/VSync were not the limiter (`Present` ~0.01 ms with default `vsync=false`).
+```
+each FrameLoopWait (uncapped):
+  publish N=1, dt=1/60          # same sim step as --60fps
+  skip VI EQ / flush / retrace  # no 60 Hz presentation lock
+  PaceUncappedHost:
+    until next 60 Hz sim deadline:
+      Renderer_RepeatLastXfb()  # extra presents, no guest update
+    return                      # one sim step per 1/60 s wall time
+```
 
-### Fix
+| Quantity | Uncapped behaviour |
+|----------|--------------------|
+| Simulation (`FrameLoopWait` / guest update) | Locked to **60 Hz** wall clock |
+| Unique XFB copies | ~60 Hz (one per sim step) |
+| Presented FPS | Can exceed 60 via re-presents |
+| `host_fps_cap` | Caps **re-present** rate (0 ≈ up to ~1000 Hz floor, not a 60 Hz cap) |
+| VSync | Unchanged; independent of frame-rate mode |
 
-When uncapped, those two post-EQ barriers return immediately (`runtime/kernel/hle_os.cpp`), same as the EQ-spin bypass. Host XFB presentation does not need VI scanout latch timing.
+`--perf` reports `sim` Hz vs `present` Hz (`repeat` = re-presents). Healthy uncapped: **sim ≈ 60**, **present > 60**.
 
-### Simulation vs presentation
+### What uncapped is not
 
-- **Integer** wait field published as **1** (compatibility with paths that read field counts).
-- **Float** `dt` at SDA `0x808F2D98` is overwritten with **wall-clock elapsed seconds** (clamped to ~1/300…1/15 s) so gameplay keeps real-time speed while the loop can exceed 60 Hz.
-- Present stays coupled ~1∶1 with guest updates (no separate interpolate/extrapolate path).
-- Optional `host_fps_cap` (0 = unlimited) paces guest updates after the wait.
-- **VSync** (`vsync` setting / Present swap interval) is independent; uncapped does not force it off, and 30/60 modes do not change VSync.
+- Not “run the guest as fast as possible” (that fast-forwards per-frame logic).
+- Not variable-dt chaos across the whole engine.
+- Not a return of VI-locked 60 Hz presentation.
 
-On a display above 60 Hz with `vsync=false` (or a matching refresh with `vsync=true`), presented FPS can exceed 60 when the CPU/GPU allow.
-
-Use **30** or **60** for the compatibility-safe fixed field pacing; use **uncapped** when you want host-limited rate with wall-clock `dt`.
+Use **30** / **60** for fixed VI-paced modes; use **uncapped** for 60 Hz simulation with unlocked presentation.
 
 ## Spring soft-lock (TR1 WideSpring) — FIXED
 

@@ -1,10 +1,26 @@
 # Progress log
 
+## 2026-11-21 — Uncapped: 60 Hz sim + unlocked re-present (no gameplay speedup)
+
+**Regression after aacec3a:** Skipping VI barriers unlocked ~400–540 present Hz, but the guest loop also ran that fast. Wall-clock overwrite of `lbl_808F2D98` was insufficient — many systems advance once per `FrameLoopWait` (see decomp `fn_800115BC` + FRAME_RATE audit).
+
+**Fix:** Keep VI barrier bypass for presentation. Publish fixed `N=1` / `dt=1/60`. `PaceUncappedHost` holds **sim at 60 Hz** and calls `Renderer_RepeatLastXfb()` until the next sim slot. `host_fps_cap` limits re-presents only. See `docs/FRAME_RATE.md`.
+
+Boot-path `--perf` (scale=3), measured:
+
+| Mode | Sim Hz | Present Hz | Notes |
+|------|-------:|-----------:|-------|
+| `--frame-rate 30` | ~30 | ~30 | unchanged |
+| `--60fps` | ~60 | ~60 | unchanged |
+| `--frame-rate 0` | **~60** | **~790–835** | ~730+ re-presents/s; xfb ~60 |
+
+Logs: `out/phase10_perf_{30,60,uncapped}.log`.
+
 ## 2026-11-21 — Uncapped mode: remove secondary 60 Hz VI barriers
 
 **Root cause:** After bypassing `FrameLoopWait`'s `VIGetRetraceCount` EQ spin, the guest still blocked on `fn_80354320` (VI flush drain) and `fn_80353360` (wait for retrace-counter bump). Both sync to emulated 60 Hz VI — explaining `--perf` with **0 EQ spins** but a hard ~16.7 ms guest∶XFB∶present period.
 
-**Fix:** Override those as `VIFlushAndWait` / `VIWaitNextRetrace`; no-op while uncapped. Publish wall-clock float `dt` at SDA `0x808F2D98` (integer wait stays 1). VSync unchanged. See `docs/FRAME_RATE.md`.
+**Fix (partial):** Override those as `VIFlushAndWait` / `VIWaitNextRetrace`; no-op while uncapped. Superseded for gameplay timing by the sim/present split above.
 
 ## 2026-11-20 — Release v0.3.7 (hotfix)
 

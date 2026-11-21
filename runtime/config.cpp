@@ -44,9 +44,9 @@ std::string Config_Text(const Config& c)
     s += "; SonicColorsRecomp settings (also editable in the launcher and in game: View button / F1)\n\n";
     s += "[Video]\n";
     s += "; 30 = original (wait 2). 60 = true 60 Hz guest (wait=1) with spring cooldown gate.\n";
-    s += "; 0 = uncapped (no VI wait). See docs/FRAME_RATE.md\n";
+    s += "; 0 = uncapped present (sim fixed 60 Hz). See docs/FRAME_RATE.md\n";
     s += std::format("frame_rate = {}\n", c.frameRate);
-    s += "; when frame_rate is 0 (uncapped): max guest updates per second (0 = unlimited)\n";
+    s += "; when frame_rate is 0: max re-present rate (0 ≈ unlimited; sim stays 60 Hz)\n";
     s += std::format("host_fps_cap = {}\n", c.hostFpsCap);
     s += "; internal resolution multiplier (1 = 640x528, 3 = 1920x1584)\n";
     s += std::format("internal_scale = {}\n", c.internalScale);

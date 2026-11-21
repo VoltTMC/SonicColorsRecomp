@@ -10,8 +10,8 @@
 struct Config
 {
     // [Video]
-    int frameRate = 30;          // 30 (original), 60, or 0 (uncapped / no VI wait)
-    int hostFpsCap = 0;          // when uncapped: max guest updates/sec (0 = unlimited)
+    int frameRate = 30;          // 30 (original), 60, or 0 (uncapped present / 60 Hz sim)
+    int hostFpsCap = 0;          // when uncapped: max re-present rate (0 ≈ unlimited)
     int internalScale = 3;       // EFB resolution multiplier (1 = 640x528)
     int windowWidth = 1280;
     int windowHeight = 720;

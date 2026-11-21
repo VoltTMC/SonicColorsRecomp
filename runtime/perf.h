@@ -19,7 +19,7 @@ void Perf_OnGuestFrameBegin();
 void Perf_OnGuestFrameEnd();
 // Monotonic guest FrameLoopWait count (always incremented; independent of --perf).
 uint64_t Perf_GuestFrameIndex();
-// When frame rate is uncapped: sleep so guest updates stay near `cap` Hz (0 = off).
+// Uncapped only: cap re-present rate while sim stays at 60 Hz (0 = ~1000 Hz floor).
 void Perf_SetHostFpsCap(int cap);
 int Perf_HostFpsCap();
 void Perf_OnViSpinSample(bool spinning);   // called from VIGetRetraceCount override

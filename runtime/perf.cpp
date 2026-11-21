@@ -9,8 +9,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
-#include <cstring>
-
 extern "C" uint32_t g_cfgFrameRate;
 // Recompiled SDK helper: publishes VI wait interval + derived delta (SDA globals).
 // Must match PPC_GEN_FUNC (__restrict) — MSVC/clang-cl ABI mangles restrict into the symbol.
@@ -22,27 +20,68 @@ static thread_local bool s_uncappedFrameWait = false;
 bool Perf_UncappedFrameWaitActive() { return s_uncappedFrameWait; }
 
 static std::atomic<int> s_hostFpsCap{ 0 };
-static uint64_t s_lastUncappedPace = 0;
+static uint64_t s_nextSimDeadline = 0;
+static uint64_t s_lastRepeatPresent = 0;
+static std::atomic<uint64_t> s_repeatN{ 0 };
 
 void Perf_SetHostFpsCap(int cap) { s_hostFpsCap.store(std::clamp(cap, 0, 1000), std::memory_order_relaxed); }
 int Perf_HostFpsCap() { return s_hostFpsCap.load(std::memory_order_relaxed); }
 
+// Uncapped: fixed-timestep sim at 60 Hz (same as wait=1 / --60fps), while the renderer
+// may re-present the last XFB until the next sim slot. host_fps_cap limits present rate
+// only (0 = no software present cap beyond a 1 ms floor to avoid a Present livelock).
+//
+// Why not wall-clock dt alone: lbl_808F2D98 (SDA float) is seconds = N/60 for systems that
+// integrate with dt, but many guest paths still advance once per FrameLoopWait (counters,
+// collide-activate, scripted steps). Running the guest loop at hundreds of Hz therefore
+// accelerates those systems even if the float is correct — see FRAME_RATE.md.
 static void PaceUncappedHost()
 {
-    const int cap = s_hostFpsCap.load(std::memory_order_relaxed);
-    if (cap <= 0 || g_cfgFrameRate != 0) return;
+    if (g_cfgFrameRate != 0) return;
     const uint64_t freq = Platform_PerfFrequency();
     if (!freq) return;
-    const uint64_t minDelta = freq / (uint64_t)cap;
-    const uint64_t now = Platform_PerfCounter();
-    if (s_lastUncappedPace && now - s_lastUncappedPace < minDelta)
+
+    constexpr uint32_t kSimHz = 60;
+    const uint64_t simPeriod = freq / kSimHz;
+    const int presentCap = s_hostFpsCap.load(std::memory_order_relaxed);
+    // Soft floor when unlimited: ~1000 Hz max re-presents (not a 60 Hz cap).
+    const uint64_t presentPeriod = presentCap > 0 ? (freq / (uint64_t)presentCap)
+                                                   : (freq / 1000ull);
+
+    uint64_t now = Platform_PerfCounter();
+    if (!s_nextSimDeadline)
     {
-        const uint64_t wait = minDelta - (now - s_lastUncappedPace);
-        const uint32_t ms = (uint32_t)(wait * 1000ull / freq);
-        if (ms > 0) Platform_SleepMs(ms);
-        while (Platform_PerfCounter() - s_lastUncappedPace < minDelta) {}
+        s_nextSimDeadline = now + simPeriod;
+        return;
     }
-    s_lastUncappedPace = Platform_PerfCounter();
+
+    while (now < s_nextSimDeadline)
+    {
+        const bool canPresent = !s_lastRepeatPresent
+            || (now - s_lastRepeatPresent) >= presentPeriod;
+        if (canPresent)
+        {
+            Renderer_RepeatLastXfb();
+            s_lastRepeatPresent = Platform_PerfCounter();
+            s_repeatN.fetch_add(1, std::memory_order_relaxed);
+        }
+        else
+        {
+            const uint64_t waitTicks = presentPeriod - (now - s_lastRepeatPresent);
+            const uint32_t ms = (uint32_t)(waitTicks * 1000ull / freq);
+            if (ms > 0) Platform_SleepMs(ms);
+            else
+            {
+                while (Platform_PerfCounter() - s_lastRepeatPresent < presentPeriod) {}
+            }
+        }
+        now = Platform_PerfCounter();
+    }
+
+    s_nextSimDeadline += simPeriod;
+    // Hitch clamp: do not try to "catch up" multiple guest sims here (one wait = one step).
+    if (now > s_nextSimDeadline + simPeriod * 2)
+        s_nextSimDeadline = now + simPeriod;
 }
 
 // True guest-60 (wait=1). Frame rate 60 uses wait=1 with spring CD gate
@@ -74,48 +113,15 @@ extern "C" bool Perf_Guest60Forced() { return Guest60Forced(); }
 // Republish wait every frame so obj+0xC / PAL force-1 stay in sync with WaitFields().
 //
 // Uncapped (--frame-rate 0):
-//   - Mark VI EQ spin + post-spin flush/retrace waits so they return immediately.
-//   - Publish integer wait=1 for guest paths that read field counts, then overwrite
-//     the float dt at SDA 0x808F2D98 with wall-clock elapsed seconds so simulation
-//     keeps real-time speed while guest∶present can exceed 60 Hz.
-//   - Optional host_fps_cap still paces after the wait (see PaceUncappedHost).
-static uint64_t s_lastUncappedDt = 0;
-
-static void PublishUncappedWallDt(PPCContext& ctx, uint8_t* base)
-{
-    const uint64_t freq = Platform_PerfFrequency();
-    const uint64_t now = Platform_PerfCounter();
-    float dtSec = 1.0f / 60.0f;
-    if (freq && s_lastUncappedDt)
-    {
-        dtSec = (float)((double)(now - s_lastUncappedDt) / (double)freq);
-        // Spiral-of-death / hitch clamp; floor avoids zero-dt stalls.
-        if (dtSec < 1.0f / 300.0f) dtSec = 1.0f / 300.0f;
-        if (dtSec > 1.0f / 15.0f) dtSec = 1.0f / 15.0f;
-    }
-    s_lastUncappedDt = now;
-
-    const uint32_t s0 = ctx.r[0], s3 = ctx.r[3], s4 = ctx.r[4], s5 = ctx.r[5], s6 = ctx.r[6];
-    ctx.r[3] = 1u;   // integer field count for E19E4 / obj paths
-    ppc::fn_803E19B0(ctx, base);
-    ctx.r[0] = s0; ctx.r[3] = s3; ctx.r[4] = s4; ctx.r[5] = s5; ctx.r[6] = s6;
-
-    // E19B0 wrote N/60; replace with wall-clock seconds (BE float via Write32).
-    uint32_t bits = 0;
-    static_assert(sizeof(bits) == sizeof(dtSec));
-    std::memcpy(&bits, &dtSec, sizeof(bits));
-    Write32(0x808F2D98u, bits);
-}
-
+//   - Skip VI EQ spin + flush/retrace waits (no 60 Hz presentation lock).
+//   - Publish fixed wait=1 / dt=1/60 via E19B0 (same sim step as --60fps).
+//   - PaceUncappedHost holds the guest to 60 sim Hz and re-presents between steps.
 PPC_OVERRIDE(FrameLoopWait)
 {
     const uint32_t w = WaitFields();
     const uint32_t dt = Perf_DtFields();
     const uint32_t obj = ctx.r[3];
     if (obj) Write32(obj + 8, w == 0 ? 1u : w);
-    if (w == 0)
-        PublishUncappedWallDt(ctx, base);
-    else
     {
         const uint32_t s0 = ctx.r[0], s3 = ctx.r[3], s4 = ctx.r[4], s5 = ctx.r[5], s6 = ctx.r[6];
         ctx.r[3] = dt == 0 ? 1u : dt;
@@ -302,10 +308,12 @@ void Perf_LogStatus(double secs)
     uint64_t viIters = s_viSpinIters.exchange(0);
     uint64_t viPostSkip = s_viPostSkip.exchange(0);
     uint64_t viPostRun = s_viPostRun.exchange(0);
+    uint64_t repeatN = s_repeatN.exchange(0);
 
-    double guestHz = guestN * inv;
-    double presentHz = presentN * inv;
-    double xfbHz = xfbN * inv;
+    double guestHz = guestN * inv;       // simulation steps (FrameLoopWait)
+    double presentHz = presentN * inv;   // all Present() including re-presents
+    double xfbHz = xfbN * inv;           // guest XFB copies (unique frames)
+    double repeatHz = repeatN * inv;
     // guestN begins counted this window; gap samples are N-1 ≈ N for large N
     double guestMs = guestN ? (guestNs * nsToMs) / guestN : 0;
     double gapMs = guestN ? (gapNs * nsToMs) / guestN : 0;
@@ -314,8 +322,9 @@ void Perf_LogStatus(double secs)
     double viMsTot = viNs * nsToMs;
     double viMsPerGuest = guestN ? viMsTot / guestN : 0;
 
-    LOG_INFO("perf: guest {:.1f} Hz ({:.2f} ms in-wait + {:.2f} ms gap), xfb {:.1f} Hz, present {:.1f} Hz ({:.2f} ms), "
-             "VI-wait {:.2f} ms/guest ({} spins), VI-post skip/run {}/{}, GX-sync {:.2f} ms x{}",
-             guestHz, guestMs, gapMs, xfbHz, presentHz, presentMs, viMsPerGuest, viIters,
+    LOG_INFO("perf: sim {:.1f} Hz ({:.2f} ms in-wait + {:.2f} ms gap), xfb {:.1f} Hz, "
+             "present {:.1f} Hz (repeat {:.1f}, {:.2f} ms), "
+             "VI-wait {:.2f} ms/sim ({} spins), VI-post skip/run {}/{}, GX-sync {:.2f} ms x{}",
+             guestHz, guestMs, gapMs, xfbHz, presentHz, repeatHz, presentMs, viMsPerGuest, viIters,
              viPostSkip, viPostRun, gxMs, gxCnt);
 }

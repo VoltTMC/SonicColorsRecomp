@@ -251,13 +251,14 @@ void VideoTab(SettingsHost host)
     const char* fpsNames[] = { "30 (original)", "60", "Uncapped" };
     if (Combo(host, "Frame rate", c.frameRate, fps, fpsNames, 3, true,
               "30 = native wait=2. 60 = true 60 Hz guest (wait=1) with spring cooldown gate. "
-              "0 = uncapped (no VI wait; wall-clock dt). Optional host FPS cap below."))
+              "0 = uncapped present (sim stays 60 Hz). Optional present cap below."))
         Changed(host, true);
     {
         const int caps[] = { 0, 60, 120, 144, 165, 240 };
         const char* capNames[] = { "Off (unlimited)", "60", "120", "144", "165", "240" };
-        if (Combo(host, "Uncapped host FPS limit", c.hostFpsCap, caps, capNames, 6, false,
-                  "Only when Frame rate is Uncapped: caps how fast the guest loop runs so the GPU/CPU are not maxed. Off = as fast as the host allows. 30/60 modes ignore this."))
+        if (Combo(host, "Uncapped present FPS limit", c.hostFpsCap, caps, capNames, 6, false,
+                  "Only when Frame rate is Uncapped: caps how often the last frame is re-presented. "
+                  "Simulation stays at 60 Hz. Off ≈ host-limited presents. 30/60 modes ignore this."))
         {
             Perf_SetHostFpsCap(c.hostFpsCap);
             Changed(host, false);
