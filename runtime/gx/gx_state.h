@@ -92,3 +92,20 @@ void Render_EFBCopy();
 void Render_LoadTLUT();
 void Render_PreloadTMEM();
 void Render_InvalidateTextureCache();
+
+// A2c scratch replay isolation (default off / inactive).
+void GX_SetPeSuppress(bool on);
+bool GX_PeSuppressActive();
+// Replay archived FIFO bytes on the GPU thread (mutates g_gx; caller saves/restores).
+void GX_ReplayCommands(const uint8_t* data, size_t n);
+// Redirect draws to scratch EFB; hash helpers for comparison.
+bool Render_ScratchBegin(uint32_t* outW, uint32_t* outH);
+uint32_t Render_ScratchEndHash();
+uint32_t Render_HashLiveEfb();
+void Render_SetReplayIsolation(bool on);
+bool Render_ReplayIsolationActive();
+void Render_ForceXfDirty();
+// TMEM access for A2c snapshots / restore.
+uint8_t* Render_TmemPtr();
+size_t Render_TmemSize();
+uint32_t Render_HashScratchBlack();  // fingerprint of a cleared scratch (no draws)

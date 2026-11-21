@@ -229,7 +229,8 @@ Opt-in immutable snapshots at completed sim-frame boundaries for future host int
 | A1c | Scene-wide GX pos-mtx + body refresh capture | Bounded opt-in dumps; coverage/correspondence report | **Done** |
 | A2 | Debug-only host warp/composite from two captures | Visual check; **not** counted as `unique_xfb` | Later |
 | A2b | Opt-in bounded FIFO archive (no replay) | Exact pre-`ProcessFifo` bytes + resource inventory; dumps/compare | **Done (archive only)** |
-| A2c | IRQ-safe experimental replay / second pass | Re-issue archived draws without guest side effects | Next |
+| A2c | Resource closure + isolated scratch-EFB replay | Replay-ready gate; PE-suppressed scratch replay; no live XFB | **Done (experiment)** |
+| A2d | Pixel-parity / residual-state closure | Scratch fingerprint MATCH vs live for selected pass | Next |
 | A3 | Interpolated second XFB without guest update | `unique_xfb` >60 behind debug flag | Later |
 | A4 | Quality gate; promote to uncapped | Honest unique>60 in production | Later |
 
@@ -363,6 +364,70 @@ Overflow never silently truncates a submission: whole chunk is skipped and `A2bF
 9. Smallest safe experiment: replay **one** archived UI/static DL into a scratch EFB with IRQs off — not production.
 
 **Verdict:** A2b archive is **useful groundwork** for a future render pass (ordered cmd bytes + DL/XF copies + guest correlation). It is **not** sufficient alone for safe FIFO reuse. Next: **A2c** resource-complete replay spike behind a separate flag.
+
+### Approach A2c — resource closure + scratch-EFB replay (2026-11-21)
+
+Experimental milestone: close dependencies for a **selected title/boot pass**, then replay into an isolated scratch EFB. **No second game XFB, no interpolation, no unique-FPS claim.**
+
+| Item | Detail |
+|------|--------|
+| Code | [`runtime/debug/a2c_scratch_replay.cpp`](../runtime/debug/a2c_scratch_replay.cpp) (+ A2b resource extensions) |
+| Capture | Same `SCR_A2B_FIFO_CAPTURE=1` (closure hooks active with A2b) |
+| Replay | `SCR_A2C_SCRATCH_REPLAY=1` (default off); requires replay-ready gate |
+| Selected pass | Title/boot idle frames ≈5.5 KiB cmds, ~70 draws, 1 DL (64 B) + 1 texture (~150 KiB) |
+
+#### Why this pass
+
+- Clear submission boundary: coalesced frame cmds up to first **toXFB** BP `0x52`.
+- Manageable size; no player/enemy motion dependency.
+- Reproducible on boot without TR1 input.
+- Still not assumed fully self-contained for pixel parity (see DIFF).
+
+#### Resource closure (vs A2b)
+
+| Resource | A2c behaviour |
+|----------|---------------|
+| Vertex/index arrays | Draw-time index walk → sized `A2bRes_VertexArray` copies |
+| Textures | `GetTexture` snapshots source RAM (`A2bRes_Texture`) |
+| TLUT / TMEM | CI paths snapshot TMEM window + optional TLUT RAM |
+| Display lists / indexed XF | Required + copied (deduped, refcounted) |
+| Unique capacity | 256 resources / 4 MiB res bytes / 256 KiB per copy |
+| Placeholders | Removed bogus unresolved CP×16 / empty TMEM markers |
+
+#### Replay-readiness gate
+
+Per archived frame: `A2cPassReport` with bitflags for cmd/subs/gxStart/vertex/texture/DL/overflow/selection. **`replayReady` only if every required dependency is fully copied** and the pass is selected. Incomplete archives are never replayed.
+
+#### Isolation
+
+- Separate scratch color/depth RTVs; `SetEFBTarget` redirects while `Render_SetReplayIsolation`.
+- `GX_SetPeSuppress` blocks PE finish/token IRQs.
+- `DoEFBCopy` toXFB returns immediately under isolation (no Present / no `Perf_OnXfbCopy`).
+- Guest RAM regions for copied resources saved/restored; full `g_gx` + TMEM + tev konst restored.
+- Texture cache cleared for replay so loads use restored RAM.
+
+#### Validation (`out/phase19_a2c_*.log`)
+
+| Check | Result |
+|-------|--------|
+| Capture off | No `A2c` / `A2b` lines |
+| Ready title frames | `ready=yes`, `reqUnres=0`, texture copied |
+| Scratch replay | `det=1` (two identical scratch hashes), `drew=1` (≠ cleared black) |
+| Live vs scratch fingerprint | **DIFF** (full-EFB hash) — not pixel-parity yet |
+| Sim / unique_xfb | ≈60 with replay; underruns ≈0 after settle |
+| Live XFB path | Unchanged; replay never presents |
+
+**Pixel MATCH blocker:** scratch starts cleared; live EFB may retain prior content / host blend-sampler residual; gxStart is post-previous-XFB but not a perfect world-state clone. Treat DIFF as expected until A2d.
+
+#### Architecture next (A2d / A3)
+
+1. Selected title pass is **resource-closed and isolatable**, not proven pixel-identical.
+2. Full TR1 scenes still exceed practical unique-resource budgets / readiness.
+3. Hardest leftovers: EFB-as-texture chains, mid-frame copies, residual host cache state.
+4. GX isolation is workable for an experiment; not yet a general second pass.
+5. Recommend **A2d**: EFB start snapshot + host-state dirtying + region fingerprint until MATCH; only then consider matrix-patched replay toward A3.
+
+**Verdict:** A2c **succeeds as an isolation/closure experiment** (deterministic non-empty scratch from archive-only deps). It does **not** prove scene-wide replay or pixel-identical reconstruction.
 
 ### Audio
 

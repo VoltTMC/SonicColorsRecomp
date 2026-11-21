@@ -1,5 +1,17 @@
 # Progress log
 
+## 2026-11-21 — Approach A2c: resource closure + scratch-EFB replay
+
+**Goal:** Close vertex/texture deps for a selected archived pass; optionally replay into an isolated scratch EFB with PE IRQs suppressed. No second game XFB / no interpolation.
+
+**Selected pass:** Title/boot idle (~5504 cmd bytes, ~70 draws, 1×64 B DL + 1×~150 KiB texture). Chosen for size, reproducibility, and lack of moving scene actors — not assumed fully self-contained for pixel parity.
+
+**Shipped:** Draw-time vertex-array range capture; texture/TLUT/TMEM snapshots; resource dedupe/refcounts (256 / 4 MiB); per-pass `A2cPassReport` readiness gate; `SCR_A2C_SCRATCH_REPLAY=1` scratch RT + PE suppress + guest RAM/`g_gx` restore; overlay line. Default off.
+
+**Validation (`out/phase19_a2c_*.log`):** ready title frames with `reqUnres=0`; replay `det=1 drew=1`; full-EFB fingerprint **DIFF** vs live; capture/replay off silent; sim/unique_xfb ≈60. Gate rejects incomplete deps. **No unique-FPS claim.**
+
+**Honest status:** Resource closure + isolated deterministic scratch output **yes**. Pixel MATCH vs live **not yet** (A2d). Scene-wide replay **not** claimed.
+
 ## 2026-11-21 — Approach A2b: bounded GX FIFO archive
 
 **Goal:** Opt-in archive of GX FIFO bytes + draw-context/resources **before** `ProcessFifo` erases them. Capture/validate only — **no replay / redraw / second XFB**.

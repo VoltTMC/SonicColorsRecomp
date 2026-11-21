@@ -1,6 +1,7 @@
 // GX command processor: CP/PE registers, write-gather pipe and opcode decoding.
 #include "gx_state.h"
 #include "../debug/a2b_fifo_archive.h"
+#include "../debug/a2c_scratch_replay.h"
 #include "../hw/hw.h"
 #include "../kernel/memory.h"
 #include "../log.h"
@@ -239,15 +240,21 @@ static void LoadIndexedXF(int array, uint32_t word)
     uint32_t stride = g_gx.cp[CP_ARRAY_STRIDE + array];
     const uint8_t* src = PhysPtr(base + index * stride);
     Render_Flush();
-    if (A2b_FifoCaptureEnabled())
+    if (A2b_FifoCaptureEnabled() && !Render_ReplayIsolationActive())
         A2b_OnIndexedXf(base + index * stride, size * 4);
     for (uint32_t i = 0; i < size; i++)
         g_gx.xfmem[(addr + i) & 0xFFF] = BE32(src + 4 * i);
     Render_OnXF(addr, size, true);
 }
 
+static bool s_peSuppress = false;
+
+void GX_SetPeSuppress(bool on) { s_peSuppress = on; }
+bool GX_PeSuppressActive() { return s_peSuppress; }
+
 void GX_PE_Finish()
 {
+    if (s_peSuppress) return;
     std::lock_guard lk(s_peMutex);
     s_peFinishInt = true;
     PE_UpdateInterrupts();
@@ -255,6 +262,7 @@ void GX_PE_Finish()
 
 void GX_PE_Token(uint16_t token, bool interrupt)
 {
+    if (s_peSuppress) return;
     std::lock_guard lk(s_peMutex);
     s_peToken = token;
     if (interrupt)
@@ -309,7 +317,7 @@ static void CallDisplayList(uint32_t addr, uint32_t size)
 {
     s_curDL = addr;
     s_curDLSize = size;
-    if (A2b_FifoCaptureEnabled())
+    if (A2b_FifoCaptureEnabled() && !Render_ReplayIsolationActive())
         A2b_OnDisplayList(addr, size);
     const uint8_t* p = PhysPtr(addr);
     ++s_dlDepth;
@@ -409,7 +417,14 @@ static size_t RunCommands(const uint8_t* p, size_t n, bool inDisplayList)
                 }
                 if (left < need) return pos;
                 if (count)
+                {
+                    if (A2c_ClosureCaptureEnabled() && !Render_ReplayIsolationActive())
+                    {
+                        A2c_OnDraw(vat, count, c + 3, (uint32_t)(need - 3));
+                        A2b_NoteDraw();
+                    }
                     Render_Draw(prim, vat, count, c + 3, layout);
+                }
                 pos += need;
                 continue;
             }
@@ -502,11 +517,17 @@ static void GpuThread()
         const size_t before = s_fifo.size();
         s_fifo.insert(s_fifo.end(), s_ring + off, s_ring + off + first);
         if (first < n) s_fifo.insert(s_fifo.end(), s_ring, s_ring + (n - first));
-        if (A2b_FifoCaptureEnabled() && n > 0)
+        if (A2b_FifoCaptureEnabled() && n > 0 && !Render_ReplayIsolationActive())
             A2b_OnFifoSubmission(s_fifo.data() + before, n);
         s_ringR.store(w, std::memory_order_release);
         ProcessFifo();
     }
+}
+
+void GX_ReplayCommands(const uint8_t* data, size_t n)
+{
+    if (!data || n == 0) return;
+    RunCommands(data, n, false);
 }
 
 static inline void Publish()
@@ -589,7 +610,7 @@ static inline void Gather(const uint8_t* b, int n)
     else
     {
         s_fifo.insert(s_fifo.end(), b, b + n);
-        if (A2b_FifoCaptureEnabled())
+        if (A2b_FifoCaptureEnabled() && !Render_ReplayIsolationActive())
             A2b_OnFifoSubmission(b, (size_t)n);
     }
     s_gatherCount += n;

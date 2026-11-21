@@ -11,6 +11,7 @@
 #include "../debug/a1b_pose_capture.h"
 #include "../debug/a1c_gx_capture.h"
 #include "../debug/a2b_fifo_archive.h"
+#include "../debug/a2c_scratch_replay.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
 #include "../tas/tas.h"
@@ -308,6 +309,13 @@ void Overlay_Render(float w, float h)
                 A2b_OverlayLine(a2b, sizeof(a2b));
                 if (a2b[0])
                     ImGui::TextUnformatted(a2b);
+            }
+            if (A2b_FifoCaptureEnabled() || A2c_ScratchReplayEnabled())
+            {
+                char a2c[160];
+                A2c_OverlayLine(a2c, sizeof(a2c));
+                if (a2c[0])
+                    ImGui::TextUnformatted(a2c);
             }
         }
         ImGui::End();

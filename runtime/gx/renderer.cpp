@@ -25,6 +25,7 @@
 #include "../ui/overlay.h"
 #include "../debug/a1b_pose_capture.h"
 #include "../debug/a1c_gx_capture.h"
+#include "../debug/a2c_scratch_replay.h"
 
 #include <chrono>
 #include <cstdlib>
@@ -205,6 +206,12 @@ static ID3D11Texture2D* s_efbColorCopy = nullptr;     // resolve target for samp
 static ID3D11ShaderResourceView* s_efbColorCopySRV = nullptr;
 static ID3D11Texture2D* s_efbDepthCopy = nullptr;
 static ID3D11ShaderResourceView* s_efbDepthCopySRV = nullptr;
+// A2c scratch EFB (isolated replay target; never presented as game XFB)
+static ID3D11Texture2D* s_scratchColor = nullptr;
+static ID3D11RenderTargetView* s_scratchRTV = nullptr;
+static ID3D11Texture2D* s_scratchDepth = nullptr;
+static ID3D11DepthStencilView* s_scratchDSV = nullptr;
+static bool s_replayIsolation = false;
 static ID3D11InputLayout* s_layout = nullptr;
 static ID3D11Buffer* s_vb = nullptr;
 static ID3D11Buffer* s_ib = nullptr;
@@ -1158,6 +1165,18 @@ static ID3D11ShaderResourceView* GetTexture(int map, uint32_t* outW, uint32_t* o
     }
     const uint8_t* src = PhysPtr(addr);
     bool isCI = fmt == TF_C4 || fmt == TF_C8 || fmt == TF_C14X2;
+    if (A2c_ClosureCaptureEnabled() && !s_replayIsolation && total > 0)
+    {
+        A2c_OnTexture(addr, total, fmt, w, h, (tlutReg & 0x3FF) << 9,
+                      isCI ? (fmt == TF_C4 ? 32u : fmt == TF_C8 ? 512u : 0x8000u) : 0u);
+        if (isCI)
+        {
+            uint32_t ramAddr = (g_gx.bp[0x64] & 0xFFFFFF) << 5;
+            uint32_t palSize = fmt == TF_C4 ? 32u : fmt == TF_C8 ? 512u : 0x8000u;
+            if (ramAddr)
+                A2c_OnTlutRam(ramAddr, palSize);
+        }
+    }
     uint64_t key0 = (uint64_t)addr | ((uint64_t)fmt << 32) | ((uint64_t)w << 36) | ((uint64_t)h << 47) | ((uint64_t)(levels > 1) << 58) | ((uint64_t)isCI << 59);
     if (!isCI && !Capturing())
     {
@@ -1426,9 +1445,115 @@ static void EnsureBuffers(uint32_t vbytes, uint32_t ibytes)
     }
 }
 
+static void Flush();
+
 static void SetEFBTarget()
 {
-    g_ctx->OMSetRenderTargets(1, &s_efbRTV, s_efbDSV);
+    if (s_replayIsolation && s_scratchRTV)
+        g_ctx->OMSetRenderTargets(1, &s_scratchRTV, s_scratchDSV);
+    else
+        g_ctx->OMSetRenderTargets(1, &s_efbRTV, s_efbDSV);
+}
+
+void Render_SetReplayIsolation(bool on) { s_replayIsolation = on; }
+bool Render_ReplayIsolationActive() { return s_replayIsolation; }
+void Render_ForceXfDirty() { s_xfDirty = true; }
+
+uint8_t* Render_TmemPtr() { return s_tmem; }
+size_t Render_TmemSize() { return sizeof(s_tmem); }
+
+static uint32_t HashTextureContents(ID3D11Texture2D* tex)
+{
+    if (!tex || !g_ctx) return 0;
+    D3D11_TEXTURE2D_DESC d;
+    tex->GetDesc(&d);
+    D3D11_TEXTURE2D_DESC sd = d;
+    sd.Usage = D3D11_USAGE_STAGING;
+    sd.BindFlags = 0;
+    sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    sd.MiscFlags = 0;
+    ID3D11Texture2D* st = nullptr;
+    if (FAILED(g_device->CreateTexture2D(&sd, nullptr, &st))) return 0;
+    g_ctx->CopyResource(st, tex);
+    D3D11_MAPPED_SUBRESOURCE m{};
+    uint32_t h = 2166136261u;
+    if (SUCCEEDED(g_ctx->Map(st, 0, D3D11_MAP_READ, 0, &m)))
+    {
+        // Sample every 4th pixel for a stable, cheaper fingerprint.
+        for (uint32_t y = 0; y < d.Height; y += 4)
+        {
+            const uint8_t* row = (const uint8_t*)m.pData + (size_t)y * m.RowPitch;
+            for (uint32_t x = 0; x < d.Width; x += 4)
+            {
+                const uint8_t* p = row + x * 4;
+                h ^= p[0]; h *= 16777619u;
+                h ^= p[1]; h *= 16777619u;
+                h ^= p[2]; h *= 16777619u;
+                h ^= p[3]; h *= 16777619u;
+            }
+        }
+        g_ctx->Unmap(st, 0);
+    }
+    st->Release();
+    return h ? h : 1u;
+}
+
+bool Render_ScratchBegin(uint32_t* outW, uint32_t* outH)
+{
+    if (!s_ready || !g_device) return false;
+    const uint32_t w = EFB_W * s_scale, h = EFB_H * s_scale;
+    if (!s_scratchColor)
+    {
+        D3D11_TEXTURE2D_DESC td{};
+        s_efbColor->GetDesc(&td);
+        if (FAILED(g_device->CreateTexture2D(&td, nullptr, &s_scratchColor))) return false;
+        g_device->CreateRenderTargetView(s_scratchColor, nullptr, &s_scratchRTV);
+        s_efbDepth->GetDesc(&td);
+        if (FAILED(g_device->CreateTexture2D(&td, nullptr, &s_scratchDepth))) return false;
+        D3D11_DEPTH_STENCIL_VIEW_DESC dsv{};
+        s_efbDSV->GetDesc(&dsv);
+        g_device->CreateDepthStencilView(s_scratchDepth, &dsv, &s_scratchDSV);
+    }
+    // Drop cached textures so replay reloads from guest RAM we just restored.
+    for (auto& kv : s_texCache)
+        ReleaseTex(kv.second);
+    s_texCache.clear();
+    for (auto& kv : s_efbCopies)
+        ReleaseTex(kv.second);
+    s_efbCopies.clear();
+
+    float clear[4] = { 0, 0, 0, 1 };
+    g_ctx->ClearRenderTargetView(s_scratchRTV, clear);
+    g_ctx->ClearDepthStencilView(s_scratchDSV, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+    s_replayIsolation = true;
+    SetEFBTarget();
+    if (outW) *outW = w;
+    if (outH) *outH = h;
+    return true;
+}
+
+uint32_t Render_ScratchEndHash()
+{
+    Flush();
+    uint32_t h = HashTextureContents(s_scratchColor);
+    s_replayIsolation = false;
+    SetEFBTarget();
+    return h;
+}
+
+uint32_t Render_HashLiveEfb()
+{
+    Flush();
+    return HashTextureContents(s_efbColor);
+}
+
+uint32_t Render_HashScratchBlack()
+{
+    // Requires scratch textures; does not toggle isolation.
+    if (!s_scratchColor) return 0;
+    float clear[4] = { 0, 0, 0, 1 };
+    g_ctx->ClearRenderTargetView(s_scratchRTV, clear);
+    return HashTextureContents(s_scratchColor);
 }
 
 // ------------------------------------------------------------------ flush
@@ -1955,6 +2080,10 @@ static void DoEFBCopy()
         CaptureLog(std::format("efbcopy ctl={:06x} src=({},{} {}x{}) dest={:08x} xfb={} clear={} pf={}", ctl, sx, sy, sw, sh, destAddr, toXFB, clear, PixelFormat()));
     if (toXFB)
     {
+        // A2c: never present/count an XFB from experimental scratch replay.
+        if (s_replayIsolation)
+            return;
+
         // Black-screen RCA aid (stomp→spring HUD-only): rate-limited when an XFB
         // is presented with zero 3D draws since the previous XFB. Does not alter
         // rendering — diagnostics only. Enable with SCR_GX_XFB_DIAG=1.

@@ -1,13 +1,9 @@
 // Approach A2b — bounded GX FIFO archive before ProcessFifo consumes bytes.
-//
-// Lifecycle (see docs/FRAME_RATE.md A2b):
-//   GPFifo_Write* → Gather → (ring) → GpuThread copies → ProcessFifo erases s_fifo
-//   Display lists: RecordingToRAM writes guest RAM; CallDisplayList executes later.
-// Archive point: A2b_OnFifoSubmission on each ring/gather batch before ProcessFifo;
-//                DL / indexed-XF refs snapshotted at decode time.
+// A2c resource closure hooks (vertex/texture) feed the same archive.
 #include "a2b_fifo_archive.h"
 #include "a1b_pose_capture.h"
 #include "a1c_gx_capture.h"
+#include "a2c_scratch_replay.h"
 #include "../gx/gx_state.h"
 #include "../kernel/memory.h"
 #include "../log.h"
@@ -61,11 +57,12 @@ uint32_t HashBytes(const uint8_t* p, size_t n)
 
 uint32_t CanonGuestEa(uint32_t ea)
 {
-    // CallDisplayList passes phys (& 0x1FFFFFE0); CP arrays may already be 0x8/0x9.
     if (!ea) return 0;
-    if ((ea & 0xFE000000u) == 0)
-        return 0x80000000u | (ea & 0x1FFFFFFFu);
-    return ea;
+    // Texture/EFB dest addrs are often raw phys (MEM1 <0x01800000, MEM2 ≥0x10000000).
+    const uint32_t hi = ea >> 28;
+    if (hi == 0x8 || hi == 0x9 || hi == 0xC || hi == 0xD)
+        return ea;
+    return 0x80000000u | (ea & 0x1FFFFFFFu);
 }
 
 bool GuestPtrOk(uint32_t ea)
@@ -89,6 +86,12 @@ struct FrameBuild
     uint32_t truncated = 0;
     uint32_t skippedSubs = 0;
     uint32_t skippedBytes = 0;
+    uint32_t drawCount = 0;
+    uint32_t requiredResources = 0;
+    uint32_t requiredUnresolved = 0;
+    bool gxStartValid = false;
+    GXState gxStart{};
+    std::vector<uint8_t> tmemStart;
     A2bSubmission subs[kA2bMaxSubsPerFrame]{};
     A2bResource resources[kA2bMaxResources]{};
     A2bGxStateSnap gx{};
@@ -110,10 +113,11 @@ void ResetBuild(FrameBuild& f)
     f = FrameBuild{};
     f.cmd.clear();
     f.resData.clear();
+    f.tmemStart.clear();
     f.cmd.reserve(256 * 1024);
 }
 
-void SnapGx(A2bGxStateSnap& g)
+void SnapGxLite(A2bGxStateSnap& g)
 {
     for (int i = 0; i < 7; i++)
         g.xfProj[i] = XFFloat(0x1000u + XF_PROJECTION + (uint32_t)i);
@@ -136,7 +140,6 @@ void SnapGx(A2bGxStateSnap& g)
         tmp[i * 4 + 3] = (uint8_t)u;
     }
     g.posMtx0Hash = HashBytes(tmp, sizeof(tmp));
-    // PNMTX0..9 = 120 words
     uint8_t wide[120 * 4];
     for (int i = 0; i < 120; i++)
     {
@@ -186,10 +189,29 @@ void FillSummary(const FrameBuild& f, A2bFrameSummary& out)
     out.truncatedResources = f.truncated;
     out.skippedSubmissions = f.skippedSubs;
     out.skippedBytes = f.skippedBytes;
+    out.drawCount = f.drawCount;
+    out.requiredResources = f.requiredResources;
+    out.requiredUnresolved = f.requiredUnresolved;
     out.flags = f.flags;
     out.commandHash = f.cmd.empty() ? 0 : HashBytes(f.cmd.data(), f.cmd.size());
+    out.gxStartValid = f.gxStartValid;
     out.gx = f.gx;
     out.ctx = f.ctx;
+}
+
+void RecountRequired(FrameBuild& f)
+{
+    f.requiredResources = 0;
+    f.requiredUnresolved = 0;
+    for (uint32_t i = 0; i < f.resCount; i++)
+    {
+        if (!(f.resources[i].flags & A2bRes_Required)) continue;
+        f.requiredResources++;
+        if (f.resources[i].flags & A2bRes_Unresolved)
+            f.requiredUnresolved++;
+        if (f.resources[i].flags & A2bRes_Truncated)
+            f.requiredUnresolved++;
+    }
 }
 
 int FindResource(FrameBuild& f, uint32_t type, uint32_t ea, uint32_t size, uint32_t aux)
@@ -201,13 +223,26 @@ int FindResource(FrameBuild& f, uint32_t type, uint32_t ea, uint32_t size, uint3
     return -1;
 }
 
+void EnsureGxStartLocked()
+{
+    if (s_build.gxStartValid) return;
+    s_build.gxStart = g_gx;
+    s_build.gxStartValid = true;
+}
+
 void AddResourceLocked(uint32_t type, uint32_t ea, uint32_t size, bool tryCopy,
-                       uint32_t lifetime, uint32_t aux)
+                       uint32_t lifetime, uint32_t aux, bool required)
 {
     const uint32_t eaCanon = CanonGuestEa(ea);
-    // Allow size==0 inventory-only entries (CP arrays with unknown extent).
     int existing = FindResource(s_build, type, eaCanon, size, aux);
-    if (existing >= 0) return;
+    if (existing >= 0)
+    {
+        A2bResource& er = s_build.resources[existing];
+        er.refCount++;
+        if (required)
+            er.flags |= A2bRes_Required;
+        return;
+    }
 
     if (s_build.resCount >= kA2bMaxResources)
     {
@@ -222,12 +257,15 @@ void AddResourceLocked(uint32_t type, uint32_t ea, uint32_t size, bool tryCopy,
     r.size = size;
     r.lifetime = lifetime;
     r.aux = aux;
+    r.refCount = 1;
     r.submitSeq = s_build.submitCount > 0 ? s_build.submitCount - 1 : 0;
     r.dataOffset = (uint32_t)s_build.resData.size();
+    if (required)
+        r.flags |= A2bRes_Required;
 
     if (size == 0 || !GuestPtrOk(eaCanon) || !tryCopy)
     {
-        r.flags = A2bRes_Unresolved;
+        r.flags |= A2bRes_Unresolved;
         s_build.unresolved++;
         return;
     }
@@ -242,12 +280,11 @@ void AddResourceLocked(uint32_t type, uint32_t ea, uint32_t size, bool tryCopy,
     if (s_build.resBytes + copyN > kA2bMaxResBytes)
     {
         s_build.flags |= A2bFrame_OverflowResBytes | A2bFrame_Incomplete;
-        r.flags = A2bRes_Unresolved;
+        r.flags |= A2bRes_Unresolved;
         s_build.unresolved++;
         return;
     }
 
-    // PhysPtr expects physical; CanonGuestEa yields cached VA — strip to phys for MEM1/2.
     const uint32_t phys = eaCanon & 0x1FFFFFFF;
     const uint8_t* src = PhysPtr(phys);
     s_build.resData.insert(s_build.resData.end(), src, src + copyN);
@@ -258,27 +295,12 @@ void AddResourceLocked(uint32_t type, uint32_t ea, uint32_t size, bool tryCopy,
 }
 
 void AddResource(uint32_t type, uint32_t ea, uint32_t size, bool tryCopy,
-                 uint32_t lifetime, uint32_t aux)
+                 uint32_t lifetime, uint32_t aux, bool required)
 {
     if (!EnvOn()) return;
     std::lock_guard lk(s_mu);
-    AddResourceLocked(type, ea, size, tryCopy, lifetime, aux);
-}
-
-// Inventory CP vertex/index array bases at XFB — address known, extent not.
-void InventoryCpArraysLocked()
-{
-    for (int i = 0; i < 16; i++)
-    {
-        const uint32_t base = g_gx.cp[CP_ARRAY_BASE + i];
-        const uint32_t stride = g_gx.cp[CP_ARRAY_STRIDE + i];
-        if (!base) continue;
-        AddResourceLocked(A2bRes_CpArrayBase, base, 0, false,
-                          A2bResLife_FrameLocal, (uint32_t)i | (stride << 8));
-    }
-    // Texture / EFB: record that they are required but not snapshotted.
-    AddResourceLocked(A2bRes_TextureTmem, 0, 0, false, A2bResLife_Unknown, 0);
-    AddResourceLocked(A2bRes_EfbConfig, 0, 0, false, A2bResLife_FrameLocal, g_gx.bp[0x64]);
+    EnsureGxStartLocked();
+    AddResourceLocked(type, ea, size, tryCopy, lifetime, aux, required);
 }
 
 void MaybeDumpLocked(const FrameBuild& f)
@@ -290,44 +312,100 @@ void MaybeDumpLocked(const FrameBuild& f)
     lastMs = now;
 
     LOG_INFO("A2b dump: xfb={} sim={} subs={} bytes={} cmdHash={:08x} "
-             "res={} resBytes={} unres={} trunc={} skipSubs={} skipBytes={} "
-             "flags={:02x} pair={} xfMem={:08x} a1b={} a1cLoads={} ply={}",
+             "res={} resBytes={} unres={} reqUnres={} draws={} trunc={} "
+             "skipSubs={} flags={:02x} gxStart={} a1b={} ply={}",
              f.xfbIndex, f.simFrameId, f.submitCount, f.totalBytes,
              f.cmd.empty() ? 0u : HashBytes(f.cmd.data(), f.cmd.size()),
-             f.resCount, f.resBytes, f.unresolved, f.truncated,
-             f.skippedSubs, f.skippedBytes, f.flags,
-             s_havePrev ? "yes" : "no", f.gx.xfMemHash,
-             f.ctx.a1bValid ? "yes" : "no", f.ctx.a1cLoads,
+             f.resCount, f.resBytes, f.unresolved, f.requiredUnresolved, f.drawCount,
+             f.truncated, f.skippedSubs, f.flags,
+             f.gxStartValid ? "yes" : "no",
+             f.ctx.a1bValid ? "yes" : "no",
              f.ctx.playerValid ? "yes" : "no");
-
-    if (s_havePrev)
-    {
-        const uint32_t prevH = s_prev.cmd.empty() ? 0u : HashBytes(s_prev.cmd.data(), s_prev.cmd.size());
-        const uint32_t curH = f.cmd.empty() ? 0u : HashBytes(f.cmd.data(), f.cmd.size());
-        LOG_INFO("A2b delta: prevBytes={} curBytes={} cmdHash {:08x}->{:08x} "
-                 "subs {}->{} res {}->{} xfMem {:08x}->{:08x}",
-                 s_prev.totalBytes, f.totalBytes, prevH, curH,
-                 s_prev.submitCount, f.submitCount, s_prev.resCount, f.resCount,
-                 s_prev.gx.xfMemHash, f.gx.xfMemHash);
-    }
-
-    // Emit a few submission lines for inspection.
-    const uint32_t show = f.submitCount < 4 ? f.submitCount : 4;
-    for (uint32_t i = 0; i < show; i++)
-    {
-        const A2bSubmission& s = f.subs[i];
-        LOG_INFO("A2b sub[{}]: seq={} bytes={} hash={:08x} sim={}",
-                 i, s.submitSeq, s.byteCount, s.contentHash, s.simFrameId);
-    }
-    for (uint32_t i = 0; i < f.resCount && i < 3; i++)
-    {
-        const A2bResource& r = f.resources[i];
-        LOG_INFO("A2b res[{}]: type={} ea={:08x} size={} copied={} hash={:08x} flags={:02x}",
-                 i, r.type, r.guestEa, r.size, r.copiedSize, r.contentHash, r.flags);
-    }
 }
 
 }  // namespace
+
+uint32_t A2b_FindFirstBp52(const uint8_t* cmd, uint32_t n)
+{
+    // Replay CP VCD/VAT into g_gx.cp temporarily so draw sizes can be skipped.
+    uint32_t savedCp[0x100];
+    memcpy(savedCp, g_gx.cp, sizeof(savedCp));
+
+    uint32_t i = 0;
+    while (i < n)
+    {
+        const uint8_t op = cmd[i];
+        if (op == 0x00 || op == 0x44 || op == 0x48)
+        {
+            i += 1;
+            continue;
+        }
+        if (op == 0x08)
+        {
+            if (i + 6 > n) break;
+            uint8_t reg = cmd[i + 1];
+            uint32_t val = ((uint32_t)cmd[i + 2] << 24) | ((uint32_t)cmd[i + 3] << 16) |
+                           ((uint32_t)cmd[i + 4] << 8) | cmd[i + 5];
+            g_gx.cp[reg] = val;
+            i += 6;
+            continue;
+        }
+        if (op == 0x10)
+        {
+            if (i + 5 > n) break;
+            uint32_t w = ((uint32_t)cmd[i + 1] << 24) | ((uint32_t)cmd[i + 2] << 16) |
+                         ((uint32_t)cmd[i + 3] << 8) | cmd[i + 4];
+            uint32_t count = ((w >> 16) & 0xF) + 1;
+            uint32_t need = 5 + 4 * count;
+            if (i + need > n) break;
+            i += need;
+            continue;
+        }
+        if (op == 0x20 || op == 0x28 || op == 0x30 || op == 0x38)
+        {
+            if (i + 5 > n) break;
+            i += 5;
+            continue;
+        }
+        if (op == 0x40)
+        {
+            if (i + 9 > n) break;
+            i += 9;
+            continue;
+        }
+        if (op == 0x61)
+        {
+            if (i + 5 > n) break;
+            // Only treat BP 0x52 as pass end when toXFB bit (val bit 14) is set.
+            if (cmd[i + 1] == 0x52)
+            {
+                uint32_t val = ((uint32_t)cmd[i + 2] << 16) | ((uint32_t)cmd[i + 3] << 8) | cmd[i + 4];
+                if ((val >> 14) & 1)
+                {
+                    memcpy(g_gx.cp, savedCp, sizeof(savedCp));
+                    return i;
+                }
+            }
+            i += 5;
+            continue;
+        }
+        if (op & 0x80)
+        {
+            if (i + 3 > n) break;
+            int vat = op & 7;
+            uint32_t count = ((uint32_t)cmd[i + 1] << 8) | cmd[i + 2];
+            VertexLayout l{};
+            GX_ComputeLayout(vat, l);
+            uint32_t need = 3 + count * l.size;
+            if (i + need > n) break;
+            i += need;
+            continue;
+        }
+        i += 1;
+    }
+    memcpy(g_gx.cp, savedCp, sizeof(savedCp));
+    return n;
+}
 
 bool A2b_FifoCaptureEnabled() { return EnvOn(); }
 
@@ -336,18 +414,16 @@ void A2b_OnFifoSubmission(const uint8_t* data, size_t n)
     if (!EnvOn() || !data || n == 0) return;
 
     std::lock_guard lk(s_mu);
+    EnsureGxStartLocked();
+
     if (s_build.totalBytes + n > kA2bMaxBytesPerFrame)
     {
         s_build.flags |= A2bFrame_OverflowBytes | A2bFrame_Incomplete;
-        // Do not silently store a partial submission as complete.
         s_build.skippedSubs++;
         s_build.skippedBytes += (uint32_t)n;
         return;
     }
 
-    // Gather publishes ~32 B; GpuThread often drains each chunk separately.
-    // Coalesce consecutive drains into one submission (order-preserving) so
-    // busy frames stay under kA2bMaxSubsPerFrame without dropping bytes.
     const uint64_t sim = s_simTag.load(std::memory_order_relaxed);
     if (s_build.submitCount > 0)
     {
@@ -379,7 +455,6 @@ void A2b_OnFifoSubmission(const uint8_t* data, size_t n)
     s.byteCount = (uint32_t)n;
     s.byteOffset = (uint32_t)s_build.cmd.size();
     s.contentHash = HashBytes(data, n);
-    s.sourceHint = 0;
     s_build.cmd.insert(s_build.cmd.end(), data, data + n);
     s_build.totalBytes += (uint32_t)n;
     s_build.submitCount++;
@@ -389,14 +464,81 @@ void A2b_OnFifoSubmission(const uint8_t* data, size_t n)
 
 void A2b_OnDisplayList(uint32_t guestEa, uint32_t size)
 {
-    AddResource(A2bRes_DisplayList, guestEa, size, true,
-                A2bResLife_FrameLocal, 0);
+    AddResource(A2bRes_DisplayList, guestEa, size, true, A2bResLife_FrameLocal, 0, true);
 }
 
 void A2b_OnIndexedXf(uint32_t guestEa, uint32_t byteSize)
 {
-    AddResource(A2bRes_IndexedXf, guestEa, byteSize, true,
-                A2bResLife_FrameLocal, 0);
+    AddResource(A2bRes_IndexedXf, guestEa, byteSize, true, A2bResLife_FrameLocal, 0, true);
+}
+
+void A2b_OnVertexArray(uint32_t guestEa, uint32_t size, uint32_t stride, uint32_t arrayIndex)
+{
+    AddResource(A2bRes_VertexArray, guestEa, size, true, A2bResLife_FrameLocal,
+                (arrayIndex & 0xFF) | ((stride & 0xFFFF) << 8), true);
+}
+
+void A2b_OnTexture(uint32_t guestEa, uint32_t size, uint32_t fmt, uint32_t w, uint32_t h)
+{
+    const uint32_t aux = (fmt & 0xFF) | ((w & 0xFFF) << 8) | ((h & 0xFFF) << 20);
+    AddResource(A2bRes_Texture, guestEa, size, true, A2bResLife_FrameLocal, aux, true);
+}
+
+void A2b_OnTlutRam(uint32_t guestEa, uint32_t size)
+{
+    AddResource(A2bRes_TlutRam, guestEa, size, true, A2bResLife_FrameLocal, 0, true);
+}
+
+void A2b_OnTmemWindow(uint32_t tmemOff, uint32_t size, const uint8_t* data)
+{
+    if (!EnvOn() || !data || size == 0) return;
+    std::lock_guard lk(s_mu);
+    EnsureGxStartLocked();
+    int existing = FindResource(s_build, A2bRes_TmemWindow, tmemOff, size, 0);
+    if (existing >= 0)
+    {
+        s_build.resources[existing].refCount++;
+        s_build.resources[existing].flags |= A2bRes_Required;
+        return;
+    }
+    if (s_build.resCount >= kA2bMaxResources)
+    {
+        s_build.flags |= A2bFrame_OverflowResources | A2bFrame_Incomplete;
+        return;
+    }
+    uint32_t copyN = size;
+    if (copyN > kA2bMaxResCopy)
+        copyN = kA2bMaxResCopy;
+    if (s_build.resBytes + copyN > kA2bMaxResBytes)
+    {
+        s_build.flags |= A2bFrame_OverflowResBytes | A2bFrame_Incomplete;
+        return;
+    }
+    A2bResource& r = s_build.resources[s_build.resCount++];
+    r = A2bResource{};
+    r.type = A2bRes_TmemWindow;
+    r.guestEa = tmemOff;
+    r.size = size;
+    r.copiedSize = copyN;
+    r.lifetime = A2bResLife_FrameLocal;
+    r.flags = A2bRes_Copied | A2bRes_Required;
+    if (copyN < size)
+    {
+        r.flags |= A2bRes_Truncated;
+        s_build.truncated++;
+    }
+    r.dataOffset = (uint32_t)s_build.resData.size();
+    r.contentHash = HashBytes(data, copyN);
+    r.refCount = 1;
+    s_build.resData.insert(s_build.resData.end(), data, data + copyN);
+    s_build.resBytes += copyN;
+}
+
+void A2b_NoteDraw()
+{
+    if (!EnvOn()) return;
+    std::lock_guard lk(s_mu);
+    s_build.drawCount++;
 }
 
 void A2b_OnSimFrameEnd()
@@ -414,9 +556,9 @@ void A2b_OnXfbCopy()
         s_build.xfbIndex = Perf_XfbFrameIndex();
         if (s_build.simFrameId == 0)
             s_build.simFrameId = s_simTag.load(std::memory_order_relaxed);
-        SnapGx(s_build.gx);
+        SnapGxLite(s_build.gx);
         SnapContext(s_build.ctx);
-        InventoryCpArraysLocked();
+        RecountRequired(s_build);
 
         if (s_haveCurr)
         {
@@ -429,9 +571,13 @@ void A2b_OnXfbCopy()
 
         MaybeDumpLocked(s_curr);
         ResetBuild(s_build);
+        // Next frame starts from post-XFB GX state (more accurate than first-drain).
+        s_build.gxStart = g_gx;
+        s_build.gxStartValid = true;
     }
 
-    // Optional file export (outside lock).
+    A2c_OnArchivedFrame();
+
     if (DumpOn())
     {
         const char* dir = std::getenv("SCR_A2B_FIFO_DUMP_DIR");
@@ -472,6 +618,26 @@ bool A2b_GetPreviousSummary(A2bFrameSummary& out)
     return true;
 }
 
+bool A2b_CloneCurrentPacket(A2bArchivePacket& out)
+{
+    std::lock_guard lk(s_mu);
+    if (!s_haveCurr) return false;
+    out = A2bArchivePacket{};
+    FillSummary(s_curr, out.summary);
+    out.gxStart = s_curr.gxStart;
+    out.gxStartValid = s_curr.gxStartValid;
+    out.cmd = s_curr.cmd;
+    out.resData = s_curr.resData;
+    out.tmemStart = s_curr.tmemStart;
+    out.submitCount = s_curr.submitCount;
+    out.resCount = s_curr.resCount;
+    for (uint32_t i = 0; i < s_curr.submitCount; i++)
+        out.subs[i] = s_curr.subs[i];
+    for (uint32_t i = 0; i < s_curr.resCount; i++)
+        out.resources[i] = s_curr.resources[i];
+    return true;
+}
+
 void A2b_OverlayLine(char* buf, size_t bufSize)
 {
     if (!buf || bufSize == 0) return;
@@ -484,30 +650,26 @@ void A2b_OverlayLine(char* buf, size_t bufSize)
         return;
     }
     std::snprintf(buf, bufSize,
-                  "A2b xfb %llu subs %u bytes %u res %u flags %02x%s",
-                  (unsigned long long)s.xfbIndex, s.submissionCount, s.totalBytes,
-                  s.resourceCount, s.flags, (s.flags & A2bFrame_Incomplete) ? " INC" : "");
+                  "A2b xfb %llu subs %u bytes %u draws %u res %u reqU %u flags %02x%s",
+                  (unsigned long long)s.xfbIndex, s.submissionCount, s.totalBytes, s.drawCount,
+                  s.resourceCount, s.requiredUnresolved, s.flags,
+                  (s.flags & A2bFrame_Incomplete) ? " INC" : "");
 }
 
 bool A2b_ExportLastFrame(const char* dirPath)
 {
     if (!EnvOn() || !dirPath || !dirPath[0]) return false;
 
-    FrameBuild copy;
-    {
-        std::lock_guard lk(s_mu);
-        if (!s_haveCurr) return false;
-        copy = s_curr;  // deep-ish: vectors copy
-    }
+    A2bArchivePacket copy;
+    if (!A2b_CloneCurrentPacket(copy)) return false;
 
-    // Best-effort mkdir via Platform / C.
     std::string base = dirPath;
     while (!base.empty() && (base.back() == '/' || base.back() == '\\'))
         base.pop_back();
 
     char path[512];
     std::snprintf(path, sizeof(path), "%s/a2b_xfb_%llu.bin", base.c_str(),
-                  (unsigned long long)copy.xfbIndex);
+                  (unsigned long long)copy.summary.xfbIndex);
     FILE* bin = std::fopen(path, "wb");
     if (!bin) return false;
     if (!copy.cmd.empty())
@@ -515,26 +677,21 @@ bool A2b_ExportLastFrame(const char* dirPath)
     std::fclose(bin);
 
     std::snprintf(path, sizeof(path), "%s/a2b_xfb_%llu.txt", base.c_str(),
-                  (unsigned long long)copy.xfbIndex);
+                  (unsigned long long)copy.summary.xfbIndex);
     FILE* txt = std::fopen(path, "w");
     if (!txt) return false;
-    A2bFrameSummary sum{};
-    FillSummary(copy, sum);
+    const A2bFrameSummary& sum = copy.summary;
     std::fprintf(txt,
                  "simFrameId=%llu\nxfbIndex=%llu\nsubmissions=%u\ntotalBytes=%u\n"
                  "commandHash=%08x\nresources=%u\nresourceBytes=%u\nunresolved=%u\n"
-                 "truncated=%u\nskippedSubs=%u\nskippedBytes=%u\nflags=%08x\n"
-                 "xfMemHash=%08x\nposMtx0Hash=%08x\ncpVcdLo=%08x\ncpVatA0=%08x\n"
-                 "bpScissor0=%08x\nbpEfb=%08x\n"
-                 "a1bValid=%u\na1cLoads=%u\nplayerValid=%u\nplayerBodyEa=%08x\n",
+                 "truncated=%u\nskippedSubs=%u\nskippedBytes=%u\ndraws=%u\n"
+                 "required=%u\nrequiredUnresolved=%u\nflags=%08x\ngxStartValid=%u\n",
                  (unsigned long long)sum.simFrameId, (unsigned long long)sum.xfbIndex,
                  sum.submissionCount, sum.totalBytes, sum.commandHash, sum.resourceCount,
                  sum.resourceBytes, sum.unresolvedResources, sum.truncatedResources,
-                 sum.skippedSubmissions, sum.skippedBytes, sum.flags,
-                 sum.gx.xfMemHash, sum.gx.posMtx0Hash, sum.gx.cpVcdLo, sum.gx.cpVatA0,
-                 sum.gx.bpScissor0, sum.gx.bpEfbAddr,
-                 sum.ctx.a1bValid ? 1u : 0u, sum.ctx.a1cLoads,
-                 sum.ctx.playerValid ? 1u : 0u, sum.ctx.playerBodyEa);
+                 sum.skippedSubmissions, sum.skippedBytes, sum.drawCount,
+                 sum.requiredResources, sum.requiredUnresolved, sum.flags,
+                 sum.gxStartValid ? 1u : 0u);
     for (uint32_t i = 0; i < copy.submitCount; i++)
     {
         const A2bSubmission& s = copy.subs[i];
@@ -547,16 +704,16 @@ bool A2b_ExportLastFrame(const char* dirPath)
         const A2bResource& r = copy.resources[i];
         std::fprintf(txt,
                      "res %u type=%u ea=%08x size=%u copied=%u hash=%08x flags=%02x "
-                     "life=%u aux=%08x submit=%u\n",
+                     "life=%u aux=%08x refs=%u\n",
                      i, r.type, r.guestEa, r.size, r.copiedSize, r.contentHash, r.flags,
-                     r.lifetime, r.aux, r.submitSeq);
+                     r.lifetime, r.aux, r.refCount);
     }
     std::fclose(txt);
 
     if (!copy.resData.empty())
     {
         std::snprintf(path, sizeof(path), "%s/a2b_xfb_%llu_res.bin", base.c_str(),
-                      (unsigned long long)copy.xfbIndex);
+                      (unsigned long long)copy.summary.xfbIndex);
         FILE* rb = std::fopen(path, "wb");
         if (rb)
         {
@@ -564,7 +721,7 @@ bool A2b_ExportLastFrame(const char* dirPath)
             std::fclose(rb);
         }
     }
-    LOG_INFO("A2b export: wrote dumps under {} for xfb {}", base, copy.xfbIndex);
+    LOG_INFO("A2b export: wrote dumps under {} for xfb {}", base, copy.summary.xfbIndex);
     return true;
 }
 
