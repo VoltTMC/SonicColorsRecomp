@@ -13,6 +13,7 @@
 #include "../debug/a2b_fifo_archive.h"
 #include "../debug/a2c_scratch_replay.h"
 #include "../debug/a2g_natural_trace.h"
+#include "../debug/a3a_draw_attr.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
 #include "../tas/tas.h"
@@ -310,6 +311,13 @@ void Overlay_Render(float w, float h)
                 A2b_OverlayLine(a2b, sizeof(a2b));
                 if (a2b[0])
                     ImGui::TextUnformatted(a2b);
+            }
+            if (A3a_DrawAttrEnabled() || A3a_MatrixOverrideEnabled())
+            {
+                char a3a[160];
+                A3a_OverlayLine(a3a, sizeof(a3a));
+                if (a3a[0])
+                    ImGui::TextUnformatted(a3a);
             }
             if (A2b_FifoCaptureEnabled() || A2c_ScratchReplayEnabled())
             {

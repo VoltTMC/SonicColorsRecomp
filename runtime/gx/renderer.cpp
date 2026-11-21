@@ -28,6 +28,7 @@
 #include "../debug/a1c_gx_capture.h"
 #include "../debug/a2b_fifo_archive.h"
 #include "../debug/a2c_scratch_replay.h"
+#include "../debug/a3a_draw_attr.h"
 
 #include <chrono>
 #include <cstdlib>
@@ -2404,6 +2405,9 @@ void Render_Draw(int prim, int vat, uint32_t count, const uint8_t* data, const V
         break;
     }
     s_indices.resize(out - s_indices.data());
+    // A3a: attribute after decode so PNMTXIDX reflects actual vertex selection.
+    if (A3a_DrawAttrEnabled() && count)
+        A3a_OnDraw(prim, vat, count, s_verts.data() + base, (uint32_t)sizeof(HostVertex), layout);
     if (s_verts.size() > 60000)
         Flush();
 }
@@ -2427,6 +2431,9 @@ void Render_OnXF(uint32_t addr, uint32_t count, bool indexed)
     }
     if (A1c_GxCaptureEnabled())
         A1c_OnXfLoad(addr, count, indexed);
+    // A3a: re-apply scratch override after FIFO LoadXF during isolation only.
+    if (A3a_MatrixOverrideEnabled() && s_replayIsolation)
+        A3a_OnXfLoadIsolation(addr, count);
 }
 
 void Render_OnCP(uint32_t reg)

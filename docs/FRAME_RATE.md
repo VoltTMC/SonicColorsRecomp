@@ -236,6 +236,7 @@ Opt-in immutable snapshots at completed sim-frame boundaries for future host int
 | A2g | Cross-frame EFB texture retain/replay | Sequential scratch retain MATCH | **Done (experiment)** |
 | A2g-Natural | Live cross-frame EFB sample discovery | Trace-only; 0 natural next/multi (title/menu) | **Done (report)** |
 | A2g-StageCoverage | Isolated NAND + TR1 natural search | TR1 entered; 0 natural next/multi in gameplay | **Done (report)** |
+| A3a | Draw-level PNMTXIDX attribution + scratch mtx override | Attribution + TestA/B; interp feasibility | **Done (experiment)** |
 | A3 | Interpolated second XFB without guest update | `unique_xfb` >60 behind debug flag | Later |
 | A4 | Quality gate; promote to uncapped | Honest unique>60 in production | Later |
 
@@ -721,6 +722,64 @@ SCR_A2G_NATURAL_TRACE=1 SCR_A2G_SELFTEST=0 ./out/SonicColorsRecomp \
 ```
 
 **Next:** Other stages / effects-heavy scenes if TR1’s mip-chain-dominated EFB pattern is not representative — still no scene-wide / no interp / no unique-FPS. Do **not** treat synthetic retain as natural.
+
+### Approach A3a — draw-level transform attribution + scratch substitution (2026-11-21)
+
+Opt-in diagnostics only. **No interpolation, no second XFB, no unique-FPS claim.**
+
+| Switch | Role |
+|--------|------|
+| `SCR_A3A_DRAW_ATTR=1` | Per-draw PNMTXIDX set + XF 3×4 samples + cross-frame identity |
+| `SCR_A3A_MATRIX_OVERRIDE=1` | Scratch-isolation XF row rewrite (live XF untouched) |
+| `SCR_A3A_OVERRIDE_MODE` | `noop` (identical write) or `tx` (add `SCR_A3A_OVERRIDE_DX/Y/Z`) |
+| `SCR_A3A_OVERRIDE_ROW` | PNMTXIDX row (0..63); omit for auto from skinned candidate |
+
+#### GX matrix selection (verified in this runtime)
+
+- VCD bit0 (`posMtxIdx`): each vertex carries a **PNMTXIDX** (0..63).
+- Else default = `XF_MATINDEX_A & 63` (not “last LoadXF before draw”).
+- PNMTXIDX is a **row index** into XF mem: matrix floats at `xfmem[row*4 .. row*4+11]` (3 rows × 4).
+- Hardware slots GX_PNMTX0..9 ↔ rows 0,3,6,…,27. Skinned draws use multiple rows per primitive.
+- VS: `pos = mul(xrow(pidx..pidx+2), float4(pos,1))` (`shadergen.cpp`).
+- A1c’s 10-slot load log is **insufficient** alone for skinned gameplay; A3a records the **actual referenced row set** per draw.
+
+#### Draw record / correspondence
+
+Identity key = VCD + array base/stride + prim/vat/vtxCount + geomSig + **row pattern** (not matrix hash / slot alone).
+
+| Kind | Meaning |
+|------|---------|
+| SameObject | Stable identity; matrix contents changed |
+| SameStructure | Stable identity; matrices unchanged |
+| Ambiguous | Multiple prev hits for one key |
+| Appeared / Disappeared | Unmatched |
+
+TR1 evidence (`out/phase26_a3a_tr1_attr2.log`): skinned candidate `id=66308a11` (prim=2, vtx=42, `posMtxDir=1`, `mtxN=4`, array `10b997e0`) persists with `corr=SameObject`; bone rows **9/12/15/18** show frame-to-frame `candΔ`. Busy frames exceed the 256-draw store cap (`drop` tallied).
+
+#### Sonic / camera mapping
+
+- A1b `player=ok` in TR1 (`body=90f9c6c0`) but `body+0x168` stayed ~(0,1,0) and `body+0x0C` identity — matches prior A1b dirty-flag finding; **not** a reliable world translation alone.
+- Camera/view: A1b `viewMtx` / first XF PNMTX0 load; `viewT` moves during TR1.
+- Best GX link today: **multi-row PNMTXIDX skinned draws** with stable identity + moving bone Ts (e.g. rows 12/15), not a single PNMTX slot index.
+
+#### Scratch substitution
+
+| Test | Result |
+|------|--------|
+| A — noop row0 | `applies>0`, `xfHooks>0`, base hash == ovr hash, A2f still **MATCH** (`phase26_a3a_testA.log`) |
+| B — tx +40 on row0 | Exercised; A2e-multitex base≠ovr (**DIFF** expected); primary live-vs-scratch MATCH unchanged (`phase26_a3a_testB.log`) |
+
+Override applies only under `Render_ReplayIsolationActive`; primary A2f compare suspends it.
+
+#### Interpolation feasibility (no implementation)
+
+| Topic | Assessment |
+|-------|------------|
+| Element-wise matrix lerp | **Unsafe** for bones (shear / non-rigid); prefer TRS decompose |
+| Player | Multi-bone PNMTXIDX set — need consistent bone set across frames |
+| Camera | A1b view + XF proj/viewport sufficient for a camera-only prototype |
+| Visibility | Draws appear/disappear; ambiguous keys must stay unknown |
+| **Smallest A3b** | Camera-only view-matrix scrub on a static/UI or paused TR1 archive — **or** single skinned draw with TRS-interp of one confirmed bone row after world-pos refresh is reliable |
 
 ### Audio
 

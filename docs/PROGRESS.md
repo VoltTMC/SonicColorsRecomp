@@ -1,5 +1,17 @@
 # Progress log
 
+## 2026-11-21 — A3a: draw-level transform attribution + scratch matrix override
+
+**Goal:** Know which PNMTXIDX rows each GX draw uses, correspond draws across frames, and safely substitute a matrix in scratch replay only.
+
+**GX semantics:** Per-vertex PNMTXIDX (VCD) or `XF_MATINDEX_A`; row index → `xfmem[row*4..]`. Not “last LoadXF”. Skinned draws use multiple rows.
+
+**Shipped:** `a3a_draw_attr.*` — `SCR_A3A_DRAW_ATTR`, `SCR_A3A_MATRIX_OVERRIDE` (+ mode/row/dx); hooks in `Render_Draw` / `Render_OnXF` / A2c probe; overlay line.
+
+**Evidence:** TestA noop MATCH+exercised (`phase26_a3a_testA.log`); TestB tx DIFF on A2e (`phase26_a3a_testB.log`). TR1: stable skinned `id=66308a11` rows 9/12/15/18 with `candΔ` (`phase26_a3a_tr1_attr2.log`). A1b player hooks fire but `+0x168` stayed ~(0,1,0) / body mtx identity.
+
+**Interp feasibility:** Prefer TRS on bones + A1b view for camera; no element-wise lerp. **Next A3b:** camera-only view scrub **or** one confirmed bone TRS after reliable world pose — still no second XFB / no unique-FPS.
+
 ## 2026-11-21 — A2g-StageCoverage: TR1 access + natural EFB search
 
 **Goal:** Reproducible Tropical Resort Act 1 entry on an isolated NAND, then natural (unforced) cross-frame EFB sampling search during real gameplay.

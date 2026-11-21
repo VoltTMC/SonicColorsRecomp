@@ -1,6 +1,7 @@
 // Approach A2c — resource closure + isolated scratch-EFB replay experiment.
 #include "a2c_scratch_replay.h"
 #include "a2b_fifo_archive.h"
+#include "a3a_draw_attr.h"
 #include "../gx/gx_state.h"
 #include "../gx/texture_decode.h"
 #include "../kernel/memory.h"
@@ -452,6 +453,11 @@ void RunScratchReplay(A2bArchivePacket& pkt, const A2cPassReport& pass, A2cRepla
                 return 0;
         }
 
+        // A3a: seed override into gxStart XF before FIFO loads; XF hook re-applies after.
+        // Suspended during primary live-vs-scratch MATCH; probe enables it explicitly.
+        if (A3a_MatrixOverrideEnabled() && !A3a_OverrideSuspended())
+            A3a_ApplyMatrixOverride();
+
         GX_ReplayCommands(pkt.cmd.data(), pass.passBytes);
 
         if (doCompare)
@@ -521,6 +527,8 @@ void RunScratchReplay(A2bArchivePacket& pkt, const A2cPassReport& pass, A2cRepla
         return Render_ScratchEndHash();
     };
 
+    // Keep override off for primary live-vs-scratch acceptance.
+    A3a_SuspendOverride(true);
     const uint32_t h1 = replayOnce(true);
     // Determinism probe: skip second full replay once family has MATCH'd (costly).
     bool skipDet = false;
@@ -537,6 +545,27 @@ void RunScratchReplay(A2bArchivePacket& pkt, const A2cPassReport& pass, A2cRepla
         rr.scratchEfbHash = h1;
     const bool deterministic = (h1 != 0 && h1 == h2);
     rr.completed = deterministic && rr.seededFromIncoming && rr.isolationOk;
+
+    // A3a probe before cleanup (needs incoming EFB slot + isolation).
+    if (A3a_MatrixOverrideEnabled() && rr.completed && h1 != 0)
+    {
+        const uint32_t mode = A3a_OverrideMode();
+        // Baseline: still suspended.
+        const uint32_t hBase = replayOnce(false);
+        A3a_SuspendOverride(false);
+        A3a_ResetOverrideStats();
+        const uint32_t hOvr = replayOnce(false);
+        A3a_SuspendOverride(true);
+        A3a_NoteReplayHashes(hBase, hOvr, mode == 1);
+        if (mode == 1 && hBase == hOvr && A3a_GetOverrideStats().exercised && rr.imageMatch)
+            LOG_INFO("A3a TestA: noop substitution MATCH+exercised row={}", A3a_OverrideRow());
+        if (mode == 2 && hBase != 0 && hOvr != 0 && hBase != hOvr &&
+            A3a_GetOverrideStats().exercised)
+            LOG_INFO("A3a TestB: controlled tx substitution DIFF as expected row={}",
+                     A3a_OverrideRow());
+    }
+    else
+        A3a_SuspendOverride(false);
 
     cleanup();
 
