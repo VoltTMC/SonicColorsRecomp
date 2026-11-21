@@ -8,6 +8,7 @@
 #include "cpu/ppc_context.h"
 #include "gx/video.h"
 #include "audio/music_mod.h"
+#include "debug/a1_xf_capture.h"
 
 #include <atomic>
 #include <algorithm>
@@ -323,6 +324,7 @@ void Perf_OnPresentEnd()
 void Perf_OnXfbCopy()
 {
     s_xfbTotal.fetch_add(1, std::memory_order_relaxed);
+    A1_OnXfbCopy();  // no-op unless SCR_A1_XF_CAPTURE=1
     if (!s_on) return;
     s_xfbN.fetch_add(1, std::memory_order_relaxed);
 }

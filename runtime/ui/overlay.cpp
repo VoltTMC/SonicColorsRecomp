@@ -7,6 +7,7 @@
 #include "../gx/video.h"
 #include "../log.h"
 #include "../perf.h"
+#include "../debug/a1_xf_capture.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
 #include "../tas/tas.h"
@@ -277,6 +278,13 @@ void Overlay_Render(float w, float h)
                     ImGui::Text("GPU blit ~%.2f ms", gpuMs);
             }
             ImGui::Text("%llu MB  ·  aud underrun %d", (unsigned long long)s_rssMb, g_audioUnderruns);
+            if (A1_XfCaptureEnabled())
+            {
+                char a1[128];
+                A1_OverlayLine(a1, sizeof(a1));
+                if (a1[0])
+                    ImGui::TextUnformatted(a1);
+            }
         }
         ImGui::End();
     }

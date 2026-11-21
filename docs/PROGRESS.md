@@ -1,5 +1,15 @@
 # Progress log
 
+## 2026-11-21 — Approach A1: renderer feasibility investigation
+
+**Pipeline:** Guest `fn_800123A0` → `fn_800115BC` → `fn_80014AA8`/`fn_80014BD0` (update+draw coupled) → GXFIFO → `gx_fifo` consume/erase → BP `0x52` XFB → Present. `Renderer_RepeatLastXfb` is blit-only.
+
+**A/B/C/D:** Guest redraw unsafe (`fn_8053FCA4` / update slot 3). FIFO replay unavailable (bytes erased) and identical without matrix patch. Host interpolation is the viable long-term path but needs actor matrices (not in `game_addrs` yet). Approach B still rejected.
+
+**Prototype:** No safe unique-frame spike this phase. Groundwork only: `SCR_A1_XF_CAPTURE=1` snapshots XF projection/viewport at each XFB (`runtime/debug/a1_xf_capture.cpp`); does not raise `unique_xfb`. Docs in `docs/FRAME_RATE.md` (A1 section).
+
+Boot-path uncapped @ 120 Hz (`out/phase15_a1_{off,on}.log`): with/without capture, `simulation_hz`/`unique_xfb`/`unique_frames_presented` ≈ 60, `present_calls` ≈ 120, underruns ≈ 0. Capture does not inflate unique frames. `regression_smoke` OK.
+
 ## 2026-11-21 — Genuine unique frames >60: blocked; Approach A roadmap
 
 **Verdict:** Uncapped today is presentation-uncapped only (`unique_xfb` ≈ 60). Guest update→draw→FIFO→XFB is one chain per `FrameLoopWait`; FIFO is consumed (not safely replayable); raising sim Hz (Approach B) breaks per-iteration systems. **Approach B rejected.** Long-term path is Approach A (decoupled host render between 60 Hz sim steps) — multi-phase; not claimed complete.

@@ -84,37 +84,98 @@ each FrameLoopWait (uncapped):
 
 **Honest claim today:** uncapped / high-refresh = up to `display_refresh_hz` presentations of ~60 Hz unique content, with correct sim/audio timing. **Not** genuine unique game frames above 60 Hz.
 
-### Approach A vs B (genuine unique frames)
+## Approach A1 — Renderer feasibility (2026-11-21)
 
-#### Approach A — Decoupled simulation and rendering (recommended long-term)
+Investigation only: can we emit **>60 unique XFBs/s** while sim/audio stay at 60 Hz?  
+**Verdict:** not with a safe short prototype. Recommended long-term path is **host-side pose capture → interpolated second render**, after FIFO-archive + matrix instrumentation. Guest redraw and blind FIFO replay are blocked.
 
-Keep sim at 60 Hz; emit additional XFBs between steps from a host-owned path that does **not** advance gameplay.
+### Pipeline map (source references)
 
-| Factor | Assessment |
-|--------|------------|
-| Unique frames? | Yes, if a second render path emits new XFBs without guest update |
-| Complexity | High — no clean guest render-only API; FIFO not retained; matrices inside consumed XF/BP traffic |
-| Gameplay risk | Low for sim if sim stays 60 Hz; medium for visual correctness |
-| GX | Must not re-run guest draw that mutates anim/particles/one-shots |
-| Audio | Keep IRQ/pace pumps; avoid Present(1) storms on the guest thread |
+```
+fn_800123A0                          # main frame driver (decomp text_800113C0.c)
+  → fn_800115BC                      # one game step: dt + phase globals
+       → fn_803E19B0                 # wait → lbl_808F2D98 dt
+       → fn_80014AA8                 # update dispatch (fn_80043F1C, r4=0)
+            → fn_80014BD0            # NOT draw-only: may call update slot 3
+                 → fn_8053E8C0       # vtable +0x18, r4=3
+                 → fn_8053F07C → fn_8053FCA4   # render walk, draw vtables
+  → fn_80012670                      # GX/VI housekeeping
+  → FrameLoopWait (fn_800126EC)      # runtime/perf.cpp override
+       → PaceUncappedHost            # re-Present only (Renderer_RepeatLastXfb)
 
-Naive variants rejected: blind guest draw replay (side effects); FIFO replay as-is (identical image unless matrices patched).
+Guest GXFIFO MMIO
+  → GPFifo_Write* (runtime/hw/mmio.cpp)
+  → Gather → s_ring (runtime/gx/gx_fifo.cpp)
+  → GpuThread → ProcessFifo → RunCommands
+       → LoadXF / LoadBP / Render_Draw
+  → BP 0x52 → DoEFBCopy (runtime/gx/renderer.cpp)
+       → s_xfbTex + Video_Present     # unique_xfb++ / unique_frames_presented
+```
 
-#### Approach B — Higher-frequency guest sim+render (rejected for >60)
+| Stage | Files / symbols | Sync / ownership |
+|-------|-----------------|------------------|
+| Sim step | `fn_800115BC`, `lbl_808F2D98`, `lbl_808F3360` phase | Once per `FrameLoopWait` |
+| Update+draw | `fn_80014AA8`, `fn_80014BD0`, `fn_8053FCA4` | Coupled; draw path can still hit update slot 3 |
+| FIFO ingest | `gx_fifo.cpp` `Gather`, `s_ring` 32 MiB | CPU publishes; GPU consumes |
+| FIFO lifetime | `ProcessFifo` **erases** consumed bytes | **No host replay buffer** |
+| GX registers | `g_gx` in `gx_state.h` | Persist across frames; cleared only in `GX_Init` |
+| Geometry batches | `s_verts` / `s_indices` in `renderer.cpp` | Cleared in `Flush()` — not retained |
+| EFB/XFB | `s_efbColor`, `s_xfbTex` | XFB blit = last completed image |
+| Re-present | `Renderer_RepeatLastXfb` | Present only; **zero new draws** |
+| Display lists | Opcode `0x40` `CallDisplayList` | Guest RAM only; nested DL ignored |
+| PE interrupts | `GX_PE_Finish` / token on BP `0x45`/`0x47`/`0x48` | Replay would risk double IRQs |
 
-Raising `FrameLoopWait` / VI-equivalent rate looks small but is unsafe: many systems advance **per iteration**, not `* dt`. Even wait=1 (60 Hz) has known/potential bugs (see compatibility audit). 120 Hz doubles that pressure vs 60.
+### A/B/C/D comparison
 
-**Rejected** for uncapped unique-frame goals.
+| Approach | Feasible? | Unique frames? | Evidence |
+|----------|-----------|----------------|----------|
+| **A. Re-render retained guest state** | **No (unsafe)** | Would, if redraw were pure | `fn_80014BD0` still calls `fn_8053E8C0` (update slot 3). `fn_8053FCA4` walks registries and `bctrl`s draw vtables — second call can double FIFO traffic / advance draw-tied anim/FX. No render-only entry in the chain. |
+| **B. Capture & replay GX FIFO** | **Not today** | Identical replay ≠ new image; patched matrices could | `ProcessFifo` erases `s_fifo`; ring advances `s_ringR`. No archive API. Replay of identical commands reproduces the same pixels. PE finish/token IRQs must be suppressed on replay. Vertex data often lives in guest RAM (still valid) but draw list is gone. |
+| **C. Host frame interpolation** | **Long-term yes, hard** | Yes (new images) | No motion vectors/depth export for a full warper. `g_gx` XF projection/viewport (`XF_PROJECTION`/`XF_VIEWPORT`) are readable at XFB time (`LoadXF` → `g_gx`). Player/camera world matrices are **not** in `game_addrs.txt`; need actor lookup (`lbl_808F3378` / type `0x88C0` leads). Particles/UI/transparency break simple warp. |
+| **D. Alternatives** | Partial | — | (1) Host debug XF capture — **shipped as A1 groundwork**. (2) Future FIFO ring archive + matrix patch — prerequisite for B→A hybrid. (3) Temporal XFB blend — unique pixels but not game-correct; rejected as “FPS”. (4) Approach B sim Hz — **rejected**. |
+
+#### Terminology (not equivalent)
+
+| Phrase | Meaning here |
+|--------|----------------|
+| Re-present existing framebuffer | `Renderer_RepeatLastXfb` — inflates `present_calls` only |
+| Same sim state drawn again | Guest `fn_8053FCA4` twice, or FIFO replay without matrix change — unsafe / identical |
+| Interpolate between sim states | Host blends poses from two captures, then renders — Approach A target |
+| Higher-frequency guest drawing | Extra `fn_80014BD0` / full steps — rejected without side-effect audit |
+
+### Recommendation
+
+**Safest practical architecture:** keep **60 Hz guest sim + audio**; build **Approach A** as:
+
+1. **Capture** (A1+): XF projection/viewport every XFB; then player/camera world matrices from guest actors.  
+2. **Archive** (prerequisite): optional ring of FIFO bytes between XFB copies (debug flag), with PE IRQ suppression on replay.  
+3. **Second XFB** (A3): either (preferred) host/patched replay with **interpolated** camera/player XF writes, or a narrow host path that only moves known matrices — **never** blind guest redraw.  
+4. Promote only after TR1 timing / audio / HUD checks (A4).
+
+**Genuine 120 unique FPS** is **not** achievable with the existing “consume FIFO → one XFB → re-Present” path. It needs **substantial renderer instrumentation** (capture + archive + safe second pass), not a present-loop tweak. It does **not** require raising simulation frequency.
+
+### A1 groundwork shipped (not a unique-frame prototype)
+
+| Item | Detail |
+|------|--------|
+| Code | [`runtime/debug/a1_xf_capture.cpp`](../runtime/debug/a1_xf_capture.cpp) |
+| Enable | `SCR_A1_XF_CAPTURE=1` |
+| Behaviour | On each `Perf_OnXfbCopy`, snapshot `XF_PROJECTION` (7 floats) + `XF_VIEWPORT` (6). FPS overlay shows snap count / proj change. |
+| Does **not** | Change sim Hz, emit extra XFBs, replay FIFO, or alter Present when disabled |
+
+**Blocked for a unique-frame prototype this phase:** no safe way to emit a *visually distinct* second XFB without either (unsafe) guest redraw, (identical) FIFO replay, or (not yet built) pose interpolation into a new render pass.
 
 ### Approach A roadmap
 
-| Phase | Goal | Exit criteria |
-|-------|------|----------------|
-| A0 (current) | Honest metrics + docs | No claim of unique>60 |
-| A1 | Capture stable camera + player world matrices each sim step | Debug overlay shows poses; zero gameplay change |
-| A2 | Debug-only host warp/composite from two captured poses | Visual check; **not** counted as `unique_xfb` |
-| A3 | Safe second XFB without guest update | `unique_xfb` can exceed 60 behind a debug flag |
-| A4 | Quality gate (physics/audio/TR1 timing); promote to uncapped | Honest unique>60 in production uncapped |
+| Phase | Goal | Exit criteria | Status |
+|-------|------|---------------|--------|
+| A0 | Honest metrics + docs | No claim of unique>60 | Done |
+| A1 | XF / camera capture investigation + XF snap groundwork | Overlay shows XF snaps; zero gameplay change; docs of A–D | **This delivery** |
+| A1b | Resolve player/camera world matrices in guest RAM | Stable addresses or type-walk; debug overlay poses | Next |
+| A2 | Debug-only host warp/composite from two captures | Visual check; **not** counted as `unique_xfb` | Later |
+| A2b | Optional FIFO archive (flag) + IRQ-safe replay spike | Can re-issue last frame’s draws into EFB under flag | Later |
+| A3 | Interpolated second XFB without guest update | `unique_xfb` >60 behind debug flag | Later |
+| A4 | Quality gate; promote to uncapped | Honest unique>60 in production | Later |
 
 ### Audio
 
