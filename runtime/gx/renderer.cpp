@@ -1697,6 +1697,18 @@ uint32_t Render_ScratchEndDepthHash()
     return HashTextureContents(s_scratchDepth, true);
 }
 
+uint32_t Render_HashScratchColor()
+{
+    Flush();
+    return HashTextureContents(s_scratchColor, true);
+}
+
+uint32_t Render_HashScratchDepth()
+{
+    Flush();
+    return HashTextureContents(s_scratchDepth, true);
+}
+
 uint32_t Render_ScratchEndHash()
 {
     Flush();

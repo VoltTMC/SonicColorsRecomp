@@ -119,6 +119,8 @@ bool Render_ScratchBeginFromIncoming(int incomingSlot, uint32_t* outW, uint32_t*
 bool Render_ScratchBeginCleared(uint32_t* outW, uint32_t* outH);
 uint32_t Render_ScratchEndHash();          // color fingerprint; ends isolation
 uint32_t Render_ScratchEndDepthHash();    // depth fingerprint; call before EndHash
+uint32_t Render_HashScratchColor();       // color fingerprint; keeps isolation
+uint32_t Render_HashScratchDepth();       // depth fingerprint; keeps isolation
 uint32_t Render_HashLiveEfb();
 uint32_t Render_HashLiveDepth();
 uint32_t Render_HashScratchBlack();

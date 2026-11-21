@@ -231,6 +231,7 @@ Opt-in immutable snapshots at completed sim-frame boundaries for future host int
 | A2b | Opt-in bounded FIFO archive (no replay) | Exact pre-`ProcessFifo` bytes + resource inventory; dumps/compare | **Done (archive only)** |
 | A2c | Resource closure + isolated scratch-EFB replay | Replay-ready gate; PE-suppressed scratch replay; no live XFB | **Done (experiment)** |
 | A2d | EFB initial-state + host-state closure | Live-vs-scratch pixel MATCH for selected pass | **Done (experiment)** |
+| A2e | Second independent static/UI pass MATCH | Two structurally different families both MATCH | **Done (experiment)** |
 | A3 | Interpolated second XFB without guest update | `unique_xfb` >60 behind debug flag | Later |
 | A4 | Quality gate; promote to uncapped | Honest unique>60 in production | Later |
 
@@ -502,15 +503,59 @@ Do not compare a cleared scratch against a carry-in live EFB, or a post-clear li
 
 #### Next milestone (after A2d)
 
-1. Incoming EFB complete for this pass? **Yes.**
-2. Host state represented? **Yes** for D3D11 GX path used here.
-3. Scratch == live? **Yes** (exact colour+depth).
-4. Remaining differences? **None** on the selected title/boot idle pass.
-5. Generalise to more static/UI passes? Likely with same seed+boundary pattern; re-validate per pass.
-6. EFB feedback + moving actors? Need EFB-copy texture archive, actor/matrix patching (A1b/A1c), larger resource budgets.
-7. **Smallest next test:** A2e — second static/UI pass (e.g. pause/menu) with same MATCH gate; still no scene-wide / no interpolation.
+Answered by **A2e** below (second independent family MATCH).
 
 **Verdict:** A2d **achieves pixel-identical scratch replay** for the selected title/boot pass under equivalent initial conditions. Not a licence for scene-wide replay or unique-FPS claims.
+
+### Approach A2e — second independent static/UI pass (2026-11-21)
+
+Prove the A2c/A2d archive→seed→scratch path is not a one-pass special case. Same infrastructure; structural family classification only (no hard-coded EAs).
+
+| Item | Detail |
+|------|--------|
+| Code | `a2c_scratch_replay.*` family classify + per-family results; shared A2b/A2d path |
+| Enable | `SCR_A2B_FIFO_CAPTURE=1` + `SCR_A2C_SCRATCH_REPLAY=1` (default off) |
+| Boundary | Identical to A2d: `[0, first toXFB 0x52)`; incoming after post-XFB clear; live at `OnXfbCopy` |
+
+#### Why the second pass is independent
+
+| | A2d-idle | A2e-multitex |
+|--|----------|--------------|
+| Role | Title/boot idle HUD | Richer static/UI layer (multi-texture) |
+| Cmd bytes | ~5.4–5.8 KiB | ~12.1–12.5 KiB |
+| Draws | ~70–71 | ~80–82 |
+| Required deps | 1–3 (typically 1 DL + 1 tex) | 8–10 (**all textures**) |
+| Classification | bytes 4–7 KiB, draws 60–75, deps 1–3 | bytes 10–16 KiB, draws 75–100, deps ≥6 |
+
+Not the same pass at another frame: different size, draw count, and dependency mix.
+
+#### Comparison table (`out/phase21_a2e_boot.log`)
+
+| Family | passBytes | draws | deps | efbIn | seed | det | colorMis | depthMis | dCmp | Result |
+|--------|----------:|------:|-----:|:----:|:---:|:---:|---------:|---------:|:----:|:------:|
+| A2d-idle | 5387–5595 | 70–71 | 1–2 | yes | 1/1 | 1 | 0 | 0 | 1 | **MATCH** |
+| A2e-multitex | 12100–12480 | 80–82 | 8–10 | yes | 1/1 | 1 | 0 | 0 | 1 | **MATCH** |
+
+`liveC==scrC`, `liveD==scrD`, `reqUnres=0` on replayed ready frames. A2d still MATCH after A2e runs (ordering/isolation).
+
+#### Generality answers
+
+1. **Generic now:** FIFO archive, DL/tex/vert/TMEM deps, incoming EFB colour+depth, scratch seed, host state from `g_gx`, PE suppress, restore, everyPixel MATCH gate, family classify.
+2. **Pass-specific:** Only structural family thresholds for scheduling/logging — not addresses or rendering hacks.
+3. **Multi-pass sequence:** Yes — per-family reports/replays; A2d then A2e without state leak.
+4. **EFB initial-state:** Consistent (`seed=1/1` both families).
+5. **Host-state determinism:** Holds across idle HUD and multi-tex UI workloads.
+6. **Third static/UI pass:** Needs another distinct profile (e.g. pause) still without actors/EFB-feedback; classification can grow.
+7. **Gameplay complications:** Moving actors, skeletal/matrix interp, EFB-as-texture chains, resource-budget overflow, PE timing.
+8. **Next milestone:** Prefer a **controlled EFB-feedback** experiment (non-toXFB copy → sample) over broad UI spray — still no scene-wide / no interpolation.
+
+#### Isolation notes
+
+- Capture/replay **off**: silent; sim/unique_xfb ≈60 (`out/phase21_a2e_off.log`).
+- Capture/replay **on**: full EFB CPU compare on the GPU thread temporarily lowers uncapped sim Hz (~33–36 while actively replaying); after both families MATCH, replay backs off (10s). Not a guest-timing change — diagnostic cost only.
+- `regression_smoke` OK. Windows: source compiles via existing mingw preset (no native GPU A2e run in this phase).
+
+**Verdict:** Two genuinely different static/UI passes independently MATCH on the same archive/replay architecture. **Not** arbitrary GX replay; **not** unique-FPS.
 
 ### Audio
 

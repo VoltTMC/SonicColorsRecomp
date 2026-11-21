@@ -1,5 +1,17 @@
 # Progress log
 
+## 2026-11-21 — Approach A2e: second independent static/UI pass MATCH
+
+**Goal:** Show A2c/A2d archive→incoming-EFB seed→scratch MATCH is reproducible on a second, structurally different static/UI pass — not a one-pass special case. No scene-wide / interpolation / second XFB / unique-FPS claim.
+
+**Second pass (A2e-multitex):** ~12.1–12.5 KiB cmds, ~80–82 draws, **8–10 texture deps** (no DL). Contrasts A2d-idle (~5.5 KiB / ~70 draws / 1–3 deps, typically 1 DL + 1 tex). Classified by size/draw/dep fingerprint only.
+
+**Shipped:** `A2cPassFamily` + per-family ready/replay slots; seed colour/depth verify (`seed=1/1`); dual-family overlay; post-dual-MATCH replay backoff. Same boundary/isolation as A2d.
+
+**Validation (`out/phase21_a2e_*.log`):** A2d-idle **MATCH** and A2e-multitex **MATCH** (`det=1`, `colorMis=0`, `depthMis=0`, `dCmp=1`, `liveC==scrC`, `liveD==scrD`); A2d still MATCH after A2e; capture off silent @ ~60 Hz; `regression_smoke` OK. Diagnostic on-path slows uncapped sim while comparing — expected, default off.
+
+**Next:** Controlled EFB-feedback experiment, or a third static/UI profile — still no actors / no scene-wide. Docs: `docs/FRAME_RATE.md` A2e.
+
 ## 2026-11-21 — Approach A2d: EFB initial-state + host-state closure
 
 **Goal:** Eliminate A2c live-vs-scratch DIFF for the selected title/boot pass by capturing pass-entry EFB (colour+depth), seeding scratch from it, matching the comparison boundary to pass-exit (pre-post-XFB-clear), and realising host draw state from archived `g_gx` + resources.
