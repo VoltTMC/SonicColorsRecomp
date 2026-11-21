@@ -27,6 +27,50 @@ class MusicAssetTests(unittest.TestCase):
         self.assertEqual(main, "sound/Synth/bgm_stg110_rso_wav.aax")
         self.assertTrue(fx.endswith("_fx_wav.aax"))
 
+    def test_analyze_wav_without_ffprobe(self):
+        # Windows managed deps ship ffmpeg.exe but no ffprobe.exe. Metadata must
+        # come from ffmpeg's own decode output, with exactly one subprocess call.
+        from unittest import mock
+
+        from music_asset_pkg import wav_to_aax
+
+        stderr = "\n".join(
+            [
+                "Input #0, wav, from 'replacement.wav':",
+                "  Duration: 00:00:02.50, bitrate: 3072 kb/s",
+                "  Stream #0:0: Audio: pcm_f32le, 48000 Hz, stereo, flt, 3072 kb/s",
+                "[Parsed_volumedetect_0 @ 0] mean_volume: -20.0 dB",
+                "[Parsed_volumedetect_0 @ 0] max_volume: -3.0 dB",
+                "[silencedetect @ 0] silence_start: 0",
+                "[silencedetect @ 0] silence_end: 0.5 | silence_duration: 0.5",
+            ]
+        )
+
+        class Completed:
+            returncode = 0
+            stdout = ""
+
+        completed = Completed()
+        completed.stderr = stderr
+
+        with tempfile.TemporaryDirectory() as td:
+            wav = Path(td) / "replacement.wav"
+            wav.write_bytes(b"not a RIFF file")  # force the ffmpeg fallback path
+            with mock.patch.object(wav_to_aax, "which_ffmpeg", return_value=r"C:\deps\bin\ffmpeg.exe"), \
+                 mock.patch.object(wav_to_aax.subprocess, "run", return_value=completed) as run:
+                info = wav_to_aax.analyze_wav(wav)
+
+        self.assertTrue(info["ok"])
+        self.assertEqual(info["codec"], "pcm_f32le")
+        self.assertEqual(info["sample_rate"], 48000)
+        self.assertEqual(info["channels"], 2)
+        self.assertEqual(info["bits"], 32)
+        self.assertEqual(info["duration_sec"], 2.5)
+        self.assertEqual(info["peak_dbfs"], -3.0)
+        self.assertEqual(info["leading_silence_sec"], 0.5)
+        self.assertEqual(run.call_count, 1)
+        self.assertNotIn("ffprobe", str(run.call_args))
+
     def test_wav_to_aax_and_validate(self):
         from music_asset_pkg.wav_to_aax import validate_aax, wav_to_aax
 

@@ -87,19 +87,9 @@ def analyze_wav(path: Path, *, silence_db: float = -40.0) -> dict:
     if not ff:
         info["error"] = "unsupported WAV (need ffmpeg for float/other codecs)"
         return info
-    # Probe + volumedetect
-    probe = subprocess.run(
-        [
-            ff.replace("ffmpeg", "ffprobe") if "ffmpeg" in ff else "ffprobe",
-            "-v", "error",
-            "-show_entries", "stream=sample_rate,channels,bits_per_sample,codec_name,duration",
-            "-of", "json",
-            str(path),
-        ],
-        capture_output=True,
-        text=True,
-    )
-    # silence / volume
+    # ffmpeg-only probe + volume/silence analysis. Managed Windows installs ship
+    # ffmpeg.exe but no ffprobe.exe, so stream metadata is parsed from ffmpeg's
+    # own decode output instead.
     det = subprocess.run(
         [
             ff, "-hide_banner", "-i", str(path),
@@ -110,20 +100,34 @@ def analyze_wav(path: Path, *, silence_db: float = -40.0) -> dict:
         text=True,
     )
     err = det.stderr or ""
-    import json as _json
     import re
 
-    if probe.returncode == 0:
-        try:
-            pj = _json.loads(probe.stdout)
-            st = (pj.get("streams") or [{}])[0]
-            info["sample_rate"] = int(float(st.get("sample_rate") or 0))
-            info["channels"] = int(st.get("channels") or 0)
-            info["bits"] = int(st.get("bits_per_sample") or 0)
-            info["codec"] = st.get("codec_name")
-            info["duration_sec"] = float(st.get("duration") or 0)
-        except Exception:
-            pass
+    stream = re.search(r"^\s*Stream #\d+:\d+.*?Audio:\s*(.+)$", err, re.MULTILINE)
+    if stream:
+        desc = stream.group(1)
+        info["codec"] = desc.split(",", 1)[0].split("(", 1)[0].strip()
+        m = re.search(r"(\d+)\s*Hz", desc)
+        if m:
+            info["sample_rate"] = int(m.group(1))
+        m = re.search(r"\b(mono|stereo|(?:\d+(?:\.\d+)?)\s*channels)\b", desc, re.IGNORECASE)
+        if m:
+            ch = m.group(1).lower()
+            if ch == "mono":
+                info["channels"] = 1
+            elif ch == "stereo":
+                info["channels"] = 2
+            else:
+                info["channels"] = int(float(ch.split()[0]))
+        m = re.search(r"\bpcm_s(\d+)(?:le|be)\b", desc, re.IGNORECASE)
+        if m:
+            info["bits"] = int(m.group(1))
+        elif re.search(r"\bflt[pb]?\b", desc, re.IGNORECASE):
+            info["bits"] = 32
+        elif re.search(r"\bu8\b", desc, re.IGNORECASE):
+            info["bits"] = 8
+    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", err)
+    if m:
+        info["duration_sec"] = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
     m = re.search(r"max_volume:\s*([-\d.]+)", err)
     if m:
         info["peak_dbfs"] = float(m.group(1))
