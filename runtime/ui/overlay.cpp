@@ -4,6 +4,7 @@
 #include "ui_shot.h"
 #include "../config.h"
 #include "../env.h"
+#include "../gx/video.h"
 #include "../log.h"
 #include "../perf.h"
 #include "../platform/platform.h"
@@ -210,41 +211,42 @@ void Overlay_Render(float w, float h)
 
     if (showFps)
     {
-        static float s_fpsSmooth = 0.0f;
-        static float s_ftMs[120]{};
-        static int s_ftN = 0, s_ftI = 0;
-        static uint64_t s_lastGuest = 0, s_lastGuestMs = 0;
-        static float s_guestHz = 0.0f;
+        static uint64_t s_lastMs = 0;
+        static uint64_t s_lastSim = 0, s_lastXfb = 0, s_lastPresent = 0, s_lastVi = 0;
+        static float s_simHz = 0.0f, s_xfbHz = 0.0f, s_presentHz = 0.0f, s_viHz = 0.0f;
         static uint64_t s_lastRssMs = 0, s_rssMb = 0;
-        const float dt = ImGui::GetIO().DeltaTime;
-        const float inst = (dt > 0.0001f) ? (1.0f / dt) : 0.0f;
-        s_fpsSmooth = (s_fpsSmooth <= 0.0f) ? inst : (s_fpsSmooth * 0.9f + inst * 0.1f);
-        const float ftMs = dt * 1000.0f;
-        s_ftMs[s_ftI] = ftMs;
-        s_ftI = (s_ftI + 1) % 120;
-        if (s_ftN < 120) s_ftN++;
-        float worst = 0.0f;
-        for (int i = 0; i < s_ftN; i++) worst = std::max(worst, s_ftMs[i]);
-        // Approximate 1% low: reciprocal of the slowest recent frame in the window.
-        const float onePct = (worst > 0.0001f) ? (1000.0f / worst) : 0.0f;
+        extern uint32_t g_viFieldCount;
+        extern int g_audioUnderruns;
         const uint64_t now = Platform_TickMs();
-        if (now - s_lastGuestMs >= 500)
+        if (now - s_lastMs >= 500)
         {
-            const uint64_t g = Perf_GuestFrameIndex();
-            if (s_lastGuestMs && g >= s_lastGuest)
+            const uint64_t sim = Perf_GuestFrameIndex();
+            const uint64_t xfb = Perf_XfbFrameIndex();
+            const uint64_t present = Perf_PresentFrameIndex();
+            const uint64_t vi = g_viFieldCount;
+            if (s_lastMs)
             {
-                const double secs = (now - s_lastGuestMs) / 1000.0;
-                if (secs > 0.0) s_guestHz = (float)((g - s_lastGuest) / secs);
+                const double secs = (now - s_lastMs) / 1000.0;
+                if (secs > 0.0)
+                {
+                    s_simHz = (float)((sim - s_lastSim) / secs);
+                    s_xfbHz = (float)((xfb - s_lastXfb) / secs);
+                    s_presentHz = (float)((present - s_lastPresent) / secs);
+                    s_viHz = (float)((vi - s_lastVi) / secs);
+                }
             }
-            s_lastGuest = g;
-            s_lastGuestMs = now;
+            s_lastSim = sim;
+            s_lastXfb = xfb;
+            s_lastPresent = present;
+            s_lastVi = vi;
+            s_lastMs = now;
         }
         if (now - s_lastRssMs >= 1000)
         {
             s_rssMb = Platform_ProcessRssMb();
             s_lastRssMs = now;
         }
-        extern int g_audioUnderruns;
+        const float dispHz = Video_DisplayRefreshHz();
         const ImGuiViewport* vp = ImGui::GetMainViewport();
         ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + 12.0f * scale, vp->WorkPos.y + 12.0f * scale), ImGuiCond_Always);
         ImGui::SetNextWindowBgAlpha(0.55f);
@@ -253,15 +255,25 @@ void Overlay_Render(float w, float h)
                                  ImGuiWindowFlags_NoInputs;
         if (ImGui::Begin("##scr_fps", nullptr, flags))
         {
-            ImGui::Text("%.0f FPS  ·  %.1f ms  ·  1%% ~%.0f", s_fpsSmooth, ftMs, onePct);
-            ImGui::Text("present %.1f ms  ·  draws/xfb %u", Perf_PresentMsSmooth(), Perf_LastXfbDraws());
+            // present_fps = swapchain Present calls (may include uncapped re-presents).
+            // xfb_fps = unique guest framebuffer copies. display_refresh = host mode.
+            ImGui::Text("sim %.0f  ·  xfb %.0f  ·  present %.0f", s_simHz, s_xfbHz, s_presentHz);
+            if (dispHz > 0.0f)
+                ImGui::Text("display %.0f Hz  ·  VSync %s%s", dispHz,
+                            Video_VsyncEnabled() ? "on" : "off",
+                            Video_AllowTearing() ? " (tear)" : "");
+            else
+                ImGui::Text("display ?  ·  VSync %s%s",
+                            Video_VsyncEnabled() ? "on" : "off",
+                            Video_AllowTearing() ? " (tear)" : "");
+            ImGui::Text("guest VI %.0f Hz  ·  present %.1f ms  ·  draws/xfb %u",
+                        s_viHz, Perf_PresentMsSmooth(), Perf_LastXfbDraws());
             {
                 const float gpuMs = Perf_GpuMsSmooth();
                 if (gpuMs > 0.0f)
                     ImGui::Text("GPU blit ~%.2f ms", gpuMs);
             }
-            ImGui::Text("guest ~%.0f Hz  ·  %llu MB  ·  aud underrun %d", s_guestHz,
-                        (unsigned long long)s_rssMb, g_audioUnderruns);
+            ImGui::Text("%llu MB  ·  aud underrun %d", (unsigned long long)s_rssMb, g_audioUnderruns);
         }
         ImGui::End();
     }

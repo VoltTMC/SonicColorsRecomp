@@ -13,12 +13,14 @@
 #include <cmath>
 #include <d3dcompiler.h>
 #include <dxgi1_2.h>
+#include <dxgi1_5.h>
 
 VideoConfig g_videoConfig;
 ID3D11Device* g_device = nullptr;
 ID3D11DeviceContext* g_ctx = nullptr;
 
 static IDXGISwapChain1* s_swapchain = nullptr;
+static bool s_allowTearing = false;
 static ID3D11RenderTargetView* s_backbufferRTV = nullptr;
 static ID3D11VertexShader* s_blitVS = nullptr;
 static ID3D11PixelShader* s_blitPS = nullptr;
@@ -148,6 +150,15 @@ bool Video_Init()
     adapter->GetDesc(&ad);
     LOG_INFO("D3D11 adapter: {} (feature level {:x})", Platform_Utf8(ad.Description), (uint32_t)g_device->GetFeatureLevel());
 
+    IDXGIFactory5* factory5 = nullptr;
+    if (SUCCEEDED(factory->QueryInterface(__uuidof(IDXGIFactory5), (void**)&factory5)))
+    {
+        BOOL allow = FALSE;
+        if (SUCCEEDED(factory5->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allow, sizeof(allow))))
+            s_allowTearing = allow != FALSE;
+        factory5->Release();
+    }
+
     DXGI_SWAP_CHAIN_DESC1 sd{};
     sd.Width = 0;
     sd.Height = 0;
@@ -156,7 +167,16 @@ bool Video_Init()
     sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     sd.BufferCount = 2;
     sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    if (s_allowTearing)
+        sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
     hr = factory->CreateSwapChainForHwnd(g_device, hwnd, &sd, nullptr, nullptr, &s_swapchain);
+    if (FAILED(hr) && s_allowTearing)
+    {
+        // Fallback without tearing if the compositor rejects the flag.
+        sd.Flags = 0;
+        s_allowTearing = false;
+        hr = factory->CreateSwapChainForHwnd(g_device, hwnd, &sd, nullptr, nullptr, &s_swapchain);
+    }
     if (FAILED(hr))
     {
         LOG_ERROR("CreateSwapChainForHwnd failed {:08x}", (uint32_t)hr);
@@ -167,6 +187,11 @@ bool Video_Init()
     adapter->Release();
     dxgiDev->Release();
     CreateBackbufferRTV();
+    {
+        const float hz = Window_DisplayRefreshHz();
+        LOG_INFO("present: vsync={} tearing={} display_refresh={:.0f} Hz (guest VI is independent)",
+                 g_videoConfig.vsync, s_allowTearing, hz);
+    }
 
     ID3DBlob* vs = Compile(kBlitHLSL, "vs", "vs_5_0");
     ID3DBlob* ps = Compile(kBlitHLSL, "ps", "ps_5_0");
@@ -212,7 +237,8 @@ void Video_Present(ID3D11ShaderResourceView* srv, float u0, float v0, float u1, 
     {
         g_ctx->OMSetRenderTargets(0, nullptr, nullptr);
         if (s_backbufferRTV) s_backbufferRTV->Release();
-        s_swapchain->ResizeBuffers(0, 0, 0, DXGI_FORMAT_UNKNOWN, 0);
+        s_swapchain->ResizeBuffers(0, 0, 0, DXGI_FORMAT_UNKNOWN,
+                                   s_allowTearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0);
         CreateBackbufferRTV();
     }
     int cw, ch;
@@ -282,7 +308,11 @@ void Video_Present(ID3D11ShaderResourceView* srv, float u0, float v0, float u1, 
     Overlay_Render(w, h);   // in-game settings, drawn over the game while it keeps running
     NandAutosave_Tick();
     GpuTimingEndAndResolve();
-    HRESULT hr = s_swapchain->Present(g_videoConfig.vsync ? 1 : 0, 0);
+    // sync=1 follows the *host* display refresh (60/120/165/…), not emulated VI.
+    // VSync off: prefer ALLOW_TEARING when supported so presentation is not FIFO-capped.
+    const UINT sync = g_videoConfig.vsync ? 1u : 0u;
+    const UINT flags = (!g_videoConfig.vsync && s_allowTearing) ? DXGI_PRESENT_ALLOW_TEARING : 0u;
+    HRESULT hr = s_swapchain->Present(sync, flags);
     if (FAILED(hr))
     {
         static int failures = 0;
@@ -294,3 +324,6 @@ void Video_Present(ID3D11ShaderResourceView* srv, float u0, float v0, float u1, 
 
 void Video_SetFullscreen(bool on) { Window_SetFullscreen(on); }
 void Video_SetWindowSize(int w, int h) { Window_SetSize(w, h); }
+float Video_DisplayRefreshHz() { return Window_DisplayRefreshHz(); }
+bool Video_VsyncEnabled() { return g_videoConfig.vsync; }
+bool Video_AllowTearing() { return s_allowTearing && !g_videoConfig.vsync; }

@@ -25,3 +25,5 @@ bool Window_Focused();
 bool Window_Cursor(int& x, int& y);
 // The cursor position (from Window_Cursor) in the client area: 0..1 each; false outside.
 bool Window_CursorInClient(int x, int y, float& u, float& v);
+// Host display mode refresh rate for the window's monitor (Hz). 0 if unknown.
+float Window_DisplayRefreshHz();

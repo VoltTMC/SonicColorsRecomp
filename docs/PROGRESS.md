@@ -1,5 +1,9 @@
 # Progress log
 
+## 2026-11-21 — Split sim / xfb / present / display / VI metrics
+
+Status + FPS overlay no longer treat `g_framesPresented` (Present calls, including uncapped re-presents) as “the” FPS. Report `sim`, `xfb`, `present`, `guest_vi`, host `display` Hz, and VSync/tearing. DXGI `ALLOW_TEARING` when VSync is off (if supported). VSync sync interval follows the host refresh, not emulated VI. See `docs/FRAME_RATE.md`.
+
 ## 2026-11-21 — Uncapped audio: pump AI/AX during re-present wait
 
 **Cause:** `PaceUncappedHost` busy-re-presented without `Sched_RunDue` / `ppc_check_irq`. 30/60 modes rely on VI-spin IRQ checks to push AI DMA and run guest AX mid-frame; skipping that starved the mixer → hundreds of `g_audioRepeats`/s and broken audio while present stayed high.

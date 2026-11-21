@@ -252,6 +252,19 @@ bool Window_Cursor(int& x, int& y)
     return true;
 }
 
+float Window_DisplayRefreshHz()
+{
+    if (!s_hwnd) return 0.0f;
+    HMONITOR mon = MonitorFromWindow(s_hwnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFOEXW mi{};
+    mi.cbSize = sizeof(mi);
+    if (!GetMonitorInfoW(mon, &mi)) return 0.0f;
+    DEVMODEW dm{};
+    dm.dmSize = sizeof(dm);
+    if (!EnumDisplaySettingsW(mi.szDevice, ENUM_CURRENT_SETTINGS, &dm)) return 0.0f;
+    return dm.dmDisplayFrequency > 0 ? (float)dm.dmDisplayFrequency : 0.0f;
+}
+
 bool Window_CursorInClient(int x, int y, float& u, float& v)
 {
     POINT pt{ x, y };

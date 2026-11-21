@@ -17,9 +17,11 @@ void Renderer_RepeatLastXfb();
 
 void Perf_OnGuestFrameBegin();
 void Perf_OnGuestFrameEnd();
-// Monotonic guest FrameLoopWait count (always incremented; independent of --perf).
-uint64_t Perf_GuestFrameIndex();
-// Uncapped only: cap re-present rate while sim stays at 60 Hz (0 = ~1000 Hz floor).
+// Monotonic counters (always incremented; independent of --perf).
+uint64_t Perf_GuestFrameIndex();   // simulation steps (FrameLoopWait)
+uint64_t Perf_XfbFrameIndex();     // unique guest XFB copies
+uint64_t Perf_PresentFrameIndex(); // host Present() calls (includes re-presents)
+// Uncapped only: cap re-present rate while sim stays at 60 Hz (0 = ~1000 Hz floor / VSync).
 void Perf_SetHostFpsCap(int cap);
 int Perf_HostFpsCap();
 void Perf_OnViSpinSample(bool spinning);   // called from VIGetRetraceCount override

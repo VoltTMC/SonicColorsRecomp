@@ -199,6 +199,16 @@ bool Window_Cursor(int& x, int& y)
     return true;
 }
 
+float Window_DisplayRefreshHz()
+{
+    if (!s_window) return 0.0f;
+    SDL_DisplayID disp = SDL_GetDisplayForWindow(s_window);
+    const SDL_DisplayMode* mode = SDL_GetCurrentDisplayMode(disp);
+    if (!mode || mode->refresh_rate <= 0.0f)
+        mode = SDL_GetDesktopDisplayMode(disp);
+    return (mode && mode->refresh_rate > 0.0f) ? (float)mode->refresh_rate : 0.0f;
+}
+
 bool Window_CursorInClient(int x, int y, float& u, float& v)
 {
     if (!s_mouseInside || x < 0 || y < 0 || x >= s_windowW || y >= s_windowH) return false;

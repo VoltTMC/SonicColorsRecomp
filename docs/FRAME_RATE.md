@@ -47,12 +47,27 @@ each FrameLoopWait (uncapped):
 |----------|--------------------|
 | Simulation (`FrameLoopWait` / guest update) | Locked to **60 Hz** wall clock |
 | Unique XFB copies | ~60 Hz (one per sim step) |
-| Presented FPS | Can exceed 60 via re-presents |
+| Present calls | Can exceed 60 via re-presents (see metrics) |
 | Audio (AI DMA / AX) | Pumped during the pace wait via `Sched_RunDue` + `ppc_check_irq` (same as VI spins) |
-| `host_fps_cap` | Caps **re-present** rate (0 ≈ up to ~1000 Hz floor, not a 60 Hz cap) |
-| VSync | Unchanged; independent of frame-rate mode |
+| `host_fps_cap` | Caps **re-present** rate when VSync is off (0 ≈ ~1000 Hz floor) |
+| VSync | Independent of frame-rate mode; follows **host** refresh |
 
-`--perf` reports `sim` Hz vs `present` Hz (`repeat` = re-presents). Healthy uncapped: **sim ≈ 60**, **present > 60**, status-line **audio repeats ≈ 0** (not hundreds).
+## Metrics (do not conflate)
+
+Status line and FPS overlay report separate rates:
+
+| Metric | Meaning |
+|--------|---------|
+| `sim` | Guest `FrameLoopWait` / simulation steps per second |
+| `xfb` | Unique guest XFB copies submitted for blit |
+| `present` | Host `IDXGISwapChain::Present` calls (includes uncapped re-presents of the last XFB) |
+| `guest_vi` | Emulated Wii VI field rate (~60 Hz NTSC); **not** the PC monitor |
+| `display` | Host monitor mode refresh (`Window_DisplayRefreshHz`) |
+| `vsync` | `Present(1)` vs `Present(0[, ALLOW_TEARING])` |
+
+A high `present` on a 60 Hz panel does **not** mean the LCD refreshes faster — only that frames were submitted. With **VSync on**, Present blocks to the host refresh (60/120/165/…); with **VSync off**, submission can exceed the panel rate (tearing possible). Guest VI stays ~60 either way.
+
+`--perf` also logs these. Healthy uncapped: **sim ≈ 60**, **xfb ≈ 60**, **present** may be ≫ 60 when VSync is off, **audio repeats ≈ 0**.
 
 ### Audio vs rendering
 

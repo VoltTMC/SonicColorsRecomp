@@ -6,6 +6,7 @@
 #include "kernel/scheduler.h"
 #include "kernel/threads.h"
 #include "cpu/ppc_context.h"
+#include "gx/video.h"
 #include "audio/music_mod.h"
 
 #include <atomic>
@@ -49,9 +50,17 @@ static void PaceUncappedHost(PPCContext& ctx, uint8_t* base)
     constexpr uint32_t kSimHz = 60;
     const uint64_t simPeriod = freq / kSimHz;
     const int presentCap = s_hostFpsCap.load(std::memory_order_relaxed);
-    // Soft floor when unlimited: ~1000 Hz max re-presents (not a 60 Hz cap).
-    const uint64_t presentPeriod = presentCap > 0 ? (freq / (uint64_t)presentCap)
-                                                   : (freq / 1000ull);
+    // Present pacing: VSync → match host display refresh (not guest VI); explicit
+    // host_fps_cap; else ~1000 Hz software floor (not a hidden 60 Hz cap).
+    uint64_t presentPeriod = freq / 1000ull;
+    if (g_videoConfig.vsync)
+    {
+        const float hz = Video_DisplayRefreshHz();
+        if (hz >= 30.0f)
+            presentPeriod = freq / (uint64_t)(hz + 0.5f);
+    }
+    else if (presentCap > 0)
+        presentPeriod = freq / (uint64_t)presentCap;
 
     uint64_t now = Platform_PerfCounter();
     if (!s_nextSimDeadline)
@@ -151,6 +160,7 @@ PPC_OVERRIDE(FrameLoopWait)
 static bool s_on = false;
 
 static std::atomic<uint64_t> s_guestFrameIndex{ 0 };
+static std::atomic<uint64_t> s_xfbTotal{ 0 }, s_presentTotal{ 0 };  // always-on
 static std::atomic<uint64_t> s_guestN{ 0 }, s_presentN{ 0 }, s_xfbN{ 0 };
 static std::atomic<uint64_t> s_guestNs{ 0 }, s_presentNs{ 0 }, s_gxSyncNs{ 0 }, s_viWaitNs{ 0 };
 static std::atomic<uint64_t> s_gapNs{ 0 };   // wall time between FrameLoopWait exit → next enter
@@ -196,6 +206,16 @@ void Perf_OnGuestFrameEnd()
 uint64_t Perf_GuestFrameIndex()
 {
     return s_guestFrameIndex.load(std::memory_order_relaxed);
+}
+
+uint64_t Perf_XfbFrameIndex()
+{
+    return s_xfbTotal.load(std::memory_order_relaxed);
+}
+
+uint64_t Perf_PresentFrameIndex()
+{
+    return s_presentTotal.load(std::memory_order_relaxed);
 }
 
 void Perf_OnViSpinSample(bool spinning)
@@ -254,6 +274,7 @@ void Perf_OnPresentEnd()
     uint64_t prev = s_presentSmoothNs.load(std::memory_order_relaxed);
     const uint64_t next = prev ? (prev * 7 + dt) / 8 : dt;
     s_presentSmoothNs.store(next, std::memory_order_relaxed);
+    s_presentTotal.fetch_add(1, std::memory_order_relaxed);
     if (!s_on) return;
     s_presentNs.fetch_add(dt, std::memory_order_relaxed);
     s_presentN.fetch_add(1, std::memory_order_relaxed);
@@ -261,6 +282,7 @@ void Perf_OnPresentEnd()
 
 void Perf_OnXfbCopy()
 {
+    s_xfbTotal.fetch_add(1, std::memory_order_relaxed);
     if (!s_on) return;
     s_xfbN.fetch_add(1, std::memory_order_relaxed);
 }
@@ -334,8 +356,9 @@ void Perf_LogStatus(double secs)
     double viMsPerGuest = guestN ? viMsTot / guestN : 0;
 
     LOG_INFO("perf: sim {:.1f} Hz ({:.2f} ms in-wait + {:.2f} ms gap), xfb {:.1f} Hz, "
-             "present {:.1f} Hz (repeat {:.1f}, {:.2f} ms), "
+             "present {:.1f} Hz (repeat {:.1f}, {:.2f} ms), display {:.0f} Hz, vsync={}, "
              "VI-wait {:.2f} ms/sim ({} spins), VI-post skip/run {}/{}, GX-sync {:.2f} ms x{}",
-             guestHz, guestMs, gapMs, xfbHz, presentHz, repeatHz, presentMs, viMsPerGuest, viIters,
-             viPostSkip, viPostRun, gxMs, gxCnt);
+             guestHz, guestMs, gapMs, xfbHz, presentHz, repeatHz, presentMs,
+             Video_DisplayRefreshHz(), g_videoConfig.vsync ? "on" : "off",
+             viMsPerGuest, viIters, viPostSkip, viPostRun, gxMs, gxCnt);
 }

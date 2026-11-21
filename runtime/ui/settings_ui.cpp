@@ -229,7 +229,9 @@ void VideoTab(SettingsHost host)
           "Enter fullscreen. Host fullscreen hotkey (default F11) or Alt+Enter also toggle it.");
     Check(host, "Exclusive fullscreen", c.exclusiveFullscreen, false,
           "Linux: change the monitor mode (lower latency on some setups). Off = borderless desktop fullscreen. Windows stays borderless.");
-    Check(host, "VSync", c.vsync, false, "Wait for the monitor's refresh. The game paces itself, so this is only needed against tearing.");
+    Check(host, "VSync", c.vsync, false,
+          "Synchronise Present with the host display refresh (60/120/165/…), not emulated VI. "
+          "Off allows faster presentation (tearing possible). Restart may be needed after changing.");
     Check(host, "Widescreen (16:9)", c.widescreen, true, "16:9 like the Wii's widescreen setting. Off: 4:3.");
     Check(host, "Integer scaling", c.integerScale, false,
           "Present at the largest whole-number multiple of 640×360 (16:9) or 640×480 (4:3) that fits; letterbox the rest. Off = fill the window while keeping aspect.");

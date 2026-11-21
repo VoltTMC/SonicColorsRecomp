@@ -8,6 +8,7 @@
 #include "../cpu/cpu.h"
 #include "../platform/platform.h"
 #include "../perf.h"
+#include "../gx/video.h"
 #include "../region.h"
 
 #include <algorithm>
@@ -75,11 +76,25 @@ static void WatchdogThread()
             extern int g_audioUnderruns, g_audioDrops, g_audioRepeats;
             extern uint64_t g_audioFrames;
             static uint64_t lastAudio = 0;
+            static uint64_t lastSim = 0, lastXfb = 0, lastPresent = 0;
             const char* tgt = g_cfgFrameRate == 0 ? "uncapped"
                               : (g_cfgFrameRate >= 60 || Perf_Guest60Forced() ? "60/guest" : "30");
-            LOG_INFO("status: {:.1f} fps (target {}), VI {:.2f} Hz, audio peak {} underruns {} drops {} repeats {} rate {:.0f} Hz",
-                     (g_framesPresented - lastFrames) / secs, tgt,
-                     (g_viFieldCount - lastFields) / secs, g_audioPeak, g_audioUnderruns, g_audioDrops, g_audioRepeats,
+            const uint64_t sim = Perf_GuestFrameIndex();
+            const uint64_t xfb = Perf_XfbFrameIndex();
+            const uint64_t present = Perf_PresentFrameIndex();
+            const float dispHz = Video_DisplayRefreshHz();
+            LOG_INFO("status: target {} | sim {:.1f} | xfb {:.1f} | present {:.1f} | "
+                     "guest_vi {:.2f} | display {:.0f} Hz | vsync {}{} | "
+                     "audio peak {} underruns {} drops {} repeats {} rate {:.0f} Hz",
+                     tgt,
+                     (sim - lastSim) / secs,
+                     (xfb - lastXfb) / secs,
+                     (present - lastPresent) / secs,
+                     (g_viFieldCount - lastFields) / secs,
+                     dispHz,
+                     g_videoConfig.vsync ? "on" : "off",
+                     Video_AllowTearing() ? "+tear" : "",
+                     g_audioPeak, g_audioUnderruns, g_audioDrops, g_audioRepeats,
                      (g_audioFrames - lastAudio) / secs);
             extern void Perf_LogStatus(double);
             Perf_LogStatus(secs);
@@ -87,6 +102,9 @@ static void WatchdogThread()
             lastAudio = g_audioFrames;
             g_audioUnderruns = g_audioDrops = 0;
             lastFields = g_viFieldCount;
+            lastSim = sim;
+            lastXfb = xfb;
+            lastPresent = present;
             g_audioPeak = 0;
         }
         if (g_framesPresented == lastFrames)
