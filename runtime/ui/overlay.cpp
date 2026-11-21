@@ -19,6 +19,7 @@
 #include "../debug/a3d_scene_coverage.h"
 #include "../debug/a3e_budgets.h"
 #include "../debug/a3e_player_palette.h"
+#include "../debug/a3f_player_provenance.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
 #include "../tas/tas.h"
@@ -358,6 +359,13 @@ void Overlay_Render(float w, float h)
                 A3e_PlayerPalette_OverlayLine(pal, sizeof(pal));
                 if (pal[0])
                     ImGui::TextUnformatted(pal);
+            }
+            if (A3f_PlayerTraceEnabled() || A3f_PaletteCaptureEnabled())
+            {
+                char a3f[160];
+                A3f_OverlayLine(a3f, sizeof(a3f));
+                if (a3f[0])
+                    ImGui::TextUnformatted(a3f);
             }
             if (A2b_FifoCaptureEnabled() || A2c_ScratchReplayEnabled())
             {

@@ -8,6 +8,7 @@
 //
 // GX: LoadXF / LoadIndexedXF → Render_OnXF. Pos mtx slots = XF addr/12 for addr<120.
 #include "a1c_gx_capture.h"
+#include "a3f_player_provenance.h"
 #include "../game_addrs.h"
 #include "../gx/gx_state.h"
 #include "../kernel/memory.h"
@@ -416,16 +417,19 @@ void A1c_OverlayLine(char* buf, size_t bufSize)
 PPC_OVERRIDE(BodyGetWorldMtx)
 {
     const uint32_t body = ctx.r[3];
+    const bool a1c = EnvOn();
+    const bool a3f = A3f_NeedsPlayerIdentity();
     uint32_t dirty = 0;
-    if (EnvOn() && GuestPtrOk(body))
+    if ((a1c || a3f) && GuestPtrOk(body))
         dirty = Read32(body + 0x2DD8);
 
     PPC_ORIGINAL(BodyGetWorldMtx);
 
-    if (!EnvOn() || !GuestPtrOk(body)) return;
+    if ((!a1c && !a3f) || !GuestPtrOk(body)) return;
     // After original: matrix at body+0x0C is authoritative (refreshed if dirty).
     float m[12];
     for (int i = 0; i < 12; i++)
         m[i] = ReadF32(body + 0x0C + (uint32_t)(i * 4));
-    A1c_OnBodyWorldMtx(body, m, dirty);
+    if (a1c) A1c_OnBodyWorldMtx(body, m, dirty);
+    if (a3f) A3f_OnBodyWorldMtx(body, m, dirty);
 }

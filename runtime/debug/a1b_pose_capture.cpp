@@ -16,6 +16,7 @@
 // SCR_A1B_POSE_CAPTURE=1 — disabled by default. Read-only; no guest writes.
 #include "a1b_pose_capture.h"
 #include "a1_xf_capture.h"
+#include "a3f_player_provenance.h"
 #include "../game_addrs.h"
 #include "../gx/gx_state.h"
 #include "../kernel/memory.h"
@@ -50,8 +51,17 @@ bool EnvOn()
     {
         const char* v = std::getenv("SCR_A1B_POSE_CAPTURE");
         c = (v && v[0] && v[0] != '0') ? 1 : 0;
+        // A3f ownership/palette needs the same shell→body identity sources.
+        if (!c)
+        {
+            const char* t = std::getenv("SCR_A3F_PLAYER_TRACE");
+            const char* p = std::getenv("SCR_A3F_PALETTE_CAPTURE");
+            if ((t && t[0] && t[0] != '0') || (p && p[0] && p[0] != '0'))
+                c = 1;
+        }
         if (c)
-            LOG_INFO("A1b: pose capture enabled (SCR_A1B_POSE_CAPTURE); no extra unique XFB");
+            LOG_INFO("A1b: pose capture enabled (SCR_A1B_POSE_CAPTURE or A3f identity); "
+                     "no extra unique XFB");
     }
     return c != 0;
 }
@@ -377,6 +387,9 @@ void A1b_CachePlayerShell(uint32_t shellEa)
     if (!GuestPtrOk(shellEa)) return;
     s_cachedPlayerShell.store(shellEa, std::memory_order_relaxed);
     s_hookPlayer.fetch_add(1, std::memory_order_relaxed);
+    uint32_t body = 0;
+    if (BodyFromShell(shellEa, body))
+        A3f_NotePlayerBody(body);
 }
 
 uint64_t A1b_SnapCount() { return s_seq.load(std::memory_order_relaxed); }
@@ -433,10 +446,7 @@ PPC_OVERRIDE(PlayerGetWorldMtxPtr)
     {
         const uint32_t shell = ctx.r[3];
         if (GuestPtrOk(shell))
-        {
-            s_cachedPlayerShell.store(shell, std::memory_order_relaxed);
-            s_hookPlayer.fetch_add(1, std::memory_order_relaxed);
-        }
+            A1b_CachePlayerShell(shell);
     }
     PPC_ORIGINAL(PlayerGetWorldMtxPtr);
 }
@@ -448,10 +458,7 @@ PPC_OVERRIDE(PlayerGetPos)
         // fn_80033C34(dst, shell): r3 = float*, r4 = player shell
         const uint32_t shell = ctx.r[4];
         if (GuestPtrOk(shell))
-        {
-            s_cachedPlayerShell.store(shell, std::memory_order_relaxed);
-            s_hookPlayer.fetch_add(1, std::memory_order_relaxed);
-        }
+            A1b_CachePlayerShell(shell);
     }
     PPC_ORIGINAL(PlayerGetPos);
 }
