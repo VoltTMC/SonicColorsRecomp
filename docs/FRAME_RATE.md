@@ -239,6 +239,7 @@ Opt-in immutable snapshots at completed sim-frame boundaries for future host int
 | A3a | Draw-level PNMTXIDX attribution + scratch mtx override | Attribution + TestA/B; interp feasibility | **Done (experiment)** |
 | A3b | Camera-pose interpolation + scratch view delta | Math + FORCE_DX / TR1 pose ring | **Done (experiment)** |
 | A3c | Coherent TR1 env capture + natural camera interp | Env MATCH + natural mid DIFF | **Done (experiment)** |
+| A3c.1 | Endpoint reference semantics + depth classification | Labeled A–D/Mid; depthClass | **Done (experiment)** |
 | A3 | Interpolated second XFB without guest update | `unique_xfb` >60 behind debug flag | Later |
 | A4 | Quality gate; promote to uncapped | Honest unique>60 in production | Later |
 
@@ -776,6 +777,7 @@ Opt-in only. Extends A3b to a **bounded, camera-sensitive TR1 environment subset
 |--------|------|
 | `SCR_A3C_ENV_CAPTURE=1` | Classify env/UI/skinned draws; env row mask; readiness |
 | `SCR_A3C_ENV_INTERP=1` | Natural-pose scratch probes on `A3cEnv` archives (no `FORCE_VIEW_DX`) |
+| `SCR_A3C_PROBE_LIMIT` | Cap expensive probe sets (default **4**) |
 | (+ A2b/A2c/A3a/A3b/A1b) | FIFO archive, scratch replay, draw attr, camera ring |
 
 #### Selected environment group
@@ -785,30 +787,46 @@ Opt-in only. Extends A3b to a **bounded, camera-sensitive TR1 environment subset
 - **Budgets (A3c-justified):** cmd 8 MiB, resources 2048 / 24 MiB, A3a draws 400. Default A2d–A2f paths unchanged when A3c off.
 - **Coherence:** pass is a contiguous archived GX submission with closed deps (`reqUnres=0`), EFB seed, and exact live/scratch MATCH before probes.
 
-#### Transform rules (documented before apply)
+#### Transform rules
 
 | Matrix class | Rule |
 |--------------|------|
 | Guest model-view (env / PNMTX0..9) | \(M' = D · M\) with \(D = V_\alpha · V_{\mathrm{base}}^{-1}\) |
 | Archive base pose | TR1 archives embed **current** view → `baseIsPrev=false` (\(V_{\mathrm{base}}=V_{\mathrm{curr}}\)); α=1 is identity |
 | A3b FORCE_DX / prev-pose archives | `baseIsPrev=true` (\(V_{\mathrm{base}}=V_{\mathrm{prev}}\)) |
-| XF LoadXF during scratch | Re-apply δ once via `A3b_OnXfLoadIsolation` (immutable archived bytes) |
-| Skinned / unknown / UI | Not in env group; probes clear sparse env mask and apply default PNMTX0..9 so XF reloads are covered |
+| XF LoadXF during scratch | Re-apply δ **once per load** via `A3b_OnXfLoadIsolation` (archived bytes immutable) |
+| Skinned / unknown / UI | Not in env group; probes use PNMTX0..9 so XF reloads are covered |
 | Projection | Unchanged; proj/cam-id/cut/invalid → fail closed |
 
-#### Validation (`out/phase28_a3c_tr1j.log`, `a2g_tr1_enter.txt`)
+#### A3c.1 — endpoint reference semantics (2026-11-21)
 
-| Test | Result |
-|------|--------|
-| A3c-env archive MATCH | Multiple exact colour+depth MATCH (e.g. xfb=884 pass≈93 KiB deps=651) |
-| A — α=1 archive pose | MATCH+exercised (`rows=18` `xfHooks=8`) |
-| B — α=0 previous pose | DIFF from archive-N baseline (natural motion) |
-| C — α=0.5 natural mid | **DIFF+deterministic** colour+depth; `camLerp=1` `camDist≈3.08`; also DEPTH-DIFF cases when colour saturates |
-| A2e / A2f | Still MATCH under same run |
-| Math unit | `scr_a3b_camera_math_test` OK |
-| Capture off | `regression_smoke` OK; experimental path may drop to ~20 Hz during probes |
+**Root cause of apparent α=0 “asymmetry”:** the archive is frame \(N{+}1\) (embeds \(V_{\mathrm{curr}}\)). Comparing α=0 (previous camera on that archive) to the archive’s own live image **must DIFF** — camera-only experiment on unchanged geometry, **not** a failed previous-frame endpoint vs live \(N\).
 
-**Not claimed:** full TR1 scene (heavy frames still overflow); player body / skeletal interp; second XFB; unique FPS; native Windows GPU.
+Logs label `archive_frame` / `reference_frame` / `camera_frame` / `alpha`.
+
+| Test | Semantics | Expectation |
+|------|-----------|-------------|
+| **A** identity | Same archive, camera suspended | Exact colour+depth MATCH vs live |
+| **B** α=1 | Current pose on archive (\(D=I\)) | Exact MATCH; `applies=1`, XF hooks once each |
+| **C** α=0 | Previous camera on **current** archive | DIFF from archive baseline when `geomUnchanged`; **not** vs live \(N\) |
+| **D** prior identity | Previous A3cEnv archive’s Test A | Exact MATCH when that archive was accepted |
+| **Mid** α=0.5 | Natural midpoint | Colour and/or depth DIFF+deterministic; `depthClass` |
+
+**Depth classes:** `expected_camera_motion`, `depth_only_camera_motion`, `color_moved_depth_stable`, `geom_changed_inconclusive`. Mid depth need not equal either endpoint.
+
+#### Validation (`out/phase28_a3c1_tr1b.log`)
+
+| Result | Evidence |
+|--------|----------|
+| Test A/B MATCH | xfb=926 identity + α=1; `applies=1 xfHooks=8` |
+| Test C camera-only DIFF | `geomUnchanged=1 camDist≈3.08` — explicit non-live-\(N\) |
+| Test D | Prior archive 926 identity retained |
+| Test Mid | `depthClass=expected_camera_motion`, `camLerp=1`, `viewMidFracX≈0.49` |
+| Depth-only mid | `depth_only_camera_motion` classified (not a failure) |
+| Math | base=\(V_{\mathrm{curr}}\) identity / α=0 / double-apply in unit test |
+| Perf | Flags-off ~50–56 Hz; probe sets ~15–22 Hz; `SCR_A3C_PROBE_LIMIT` + skip A3b on A3cEnv |
+
+**Not claimed:** full TR1 scene; player/skeletal interp; second XFB; unique FPS; native Windows GPU.
 
 ### Approach A3a — draw-level transform attribution + scratch substitution (2026-11-21)
 

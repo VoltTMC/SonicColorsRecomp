@@ -1,22 +1,35 @@
 # Progress log
 
+## 2026-11-21 — A3c.1: endpoint reference semantics + depth classification
+
+**Goal:** Explain α=0 vs α=1 asymmetry; prove once-only delta application; classify midpoint depth; keep diagnostics from tanking sim Hz.
+
+**Endpoint asymmetry cause (Confirmed):** Archive is frame \(N{+}1\) with \(V_{\mathrm{base}}=V_{\mathrm{curr}}\). α=1 → \(D=I\) → MATCH. α=0 applies previous camera to **the same** \(N{+}1\) geometry → DIFF vs archive live image is **expected** (camera-only), not a broken previous-frame endpoint. Cross-frame previous endpoint = Test D (prior archive’s identity MATCH).
+
+**Shipped:** Labeled probes (A identity / B α=1 / C α=0 camera-only / D prior identity / Mid); `depthClass`; geomUnchanged via A3a `identityKey`+`geomSig`; coverage log; `SCR_A3C_PROBE_LIMIT`; skip A3b probes on A3cEnv; math tests for base=\(V_{\mathrm{curr}}\).
+
+**Evidence (`phase28_a3c1_tr1b.log`):**
+- Test A/B exact MATCH; `applies=1 xfHooks=8` (begin once + per XF load).
+- Test C: `geomUnchanged=1`, colour+depth DIFF, `camDist≈3.08`, explicitly not vs live \(N\).
+- Test D: prior archive identity retained.
+- Mid: `expected_camera_motion` + `depth_only_camera_motion` classified; `camLerp=1`.
+- Capture path ~50–56 Hz; probe sets ~15–22 Hz; `regression_smoke` + math test OK.
+
+**Limits:** Full-scene / skeletal / second XFB unchanged. Dense A3cEnv replays still costly while probes run.
+
 ## 2026-11-21 — A3c: coherent TR1 environment capture + natural camera interp
 
 **Goal:** Bounded, coherent Tropical Resort Act 1 environment subset rendered in scratch at a **naturally** interpolated camera pose (consecutive guest frames), with exact archive endpoints. No second XFB / no unique-FPS / no skeletal or player-body work.
 
 **Selected group:** `A3cKind_Env` static/single-matrix world draws (DL or larger non-UI); excludes HUD, skinned multi-row actors, player candidates. A2c family `A3cEnv` with raised select budgets when `SCR_A3C_*` on.
 
-**Shipped:** `a3c_env_capture.*`; A2b budgets (8 MiB cmd / 2048 res / 24 MiB); A3a 400 draws; A3b `baseIsPrev`, row mask, frozen camera pair; A2c `A3cEnv` family + sync natural probes (α=1/0/0.5).
+**Shipped:** `a3c_env_capture.*`; A2b budgets (8 MiB cmd / 2048 res / 24 MiB); A3a 400 draws; A3b `baseIsPrev`, row mask, frozen camera pair; A2c `A3cEnv` family + sync natural probes.
 
 **Transform:** Archives embed \(V_{\mathrm{curr}}\) → \(D = V_\alpha · V_{\mathrm{curr}}^{-1}\) (`baseIsPrev=false`). XF loads re-hooked once. Projection unchanged.
 
-**Evidence (`phase28_a3c_tr1j.log`):**
-- A3c-env exact MATCH (e.g. xfb=884, pass≈93 KiB, deps=651, `reqUnres=0`).
-- TestA α=1 MATCH+exercised; TestB α=0 DIFF; TestC α=0.5 **natural midpoint DIFF+deterministic** (`camLerp=1`, `camDist≈3.08`) + DEPTH-DIFF cases.
-- A2e/A2f MATCH in same run; `scr_a3b_camera_math_test` OK; `regression_smoke` OK (flags off).
-- MinGW link: see commit build note (not native Windows GPU).
+**Superseded probe framing:** See A3c.1 for correct α=0 / Test D semantics (`phase28_a3c1_tr1b.log`).
 
-**Limits:** Full TR1 still overflows on densest frames; some passes skip probes (weak corr / small cam motion); mid colour can match baseline when only depth moves. Not full-scene / not production high-refresh.
+**Limits:** Full TR1 still overflows on densest frames. Not full-scene / not production high-refresh.
 
 **Next:** Broader env layers / multi-pass depth stacks still before skeletal interp or second XFB.
 

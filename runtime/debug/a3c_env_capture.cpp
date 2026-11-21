@@ -15,7 +15,9 @@ namespace
 std::atomic<int> s_cap{ -1 };
 std::atomic<int> s_interp{ -1 };
 A3cEnvStats s_stats{};
+A3cCoverageReport s_cov{};
 std::mutex s_mu;
+uint32_t s_probeUsed = 0;
 
 bool CapOn()
 {
@@ -105,12 +107,38 @@ void A3c_OnXfbCopy()
                     envRows++;
                 }
             }
+            // Geom/resource identity vs previous frame (not camera matrices).
+            if (havePrev && d.identityKey != 0)
+            {
+                bool found = false;
+                bool sameGeom = false;
+                for (uint32_t j = 0; j < prev.drawStored; j++)
+                {
+                    const A3aDrawRec& p = prev.draws[j];
+                    if (A3c_ClassifyDraw(p) != A3cKind_Env) continue;
+                    if (p.identityKey != d.identityKey) continue;
+                    found = true;
+                    sameGeom = (p.geomSig == d.geomSig && p.vtxCount == d.vtxCount &&
+                                p.prim == d.prim && p.arrayBase0 == d.arrayBase0);
+                    break;
+                }
+                if (!found)
+                    st.envGeomMissingPrev++;
+                else if (sameGeom)
+                    st.envGeomStable++;
+                else
+                    st.envGeomChanged++;
+            }
         }
         else
             st.otherDraws++;
     }
     st.envRowMask = mask;
     st.envRows = envRows;
+    const uint32_t geomChecked = st.envGeomStable + st.envGeomChanged + st.envGeomMissingPrev;
+    st.envGeomUnchanged =
+        havePrev && geomChecked > 0 && st.envGeomChanged == 0 &&
+        st.envGeomMissingPrev * 4 <= geomChecked;  // allow ≤25% newly appeared
 
     // Correspondence quality among env draws that existed previously.
     const uint32_t envStable = st.envCorrSame + st.envCorrStruct;
@@ -119,6 +147,8 @@ void A3c_OnXfbCopy()
         st.failBits |= A3cFail_NoEnv;
     if (havePrev && envKnown > 0 && envStable * 4 < envKnown * 3)  // <75% stable
         st.failBits |= A3cFail_CorrWeak;
+    if (havePrev && st.envGeomChanged > 0)
+        st.failBits |= A3cFail_GeomChanged;
 
     A3bCameraPair cam{};
     if (A3b_GetPair(cam) && cam.interpolable)
@@ -146,16 +176,30 @@ void A3c_OnXfbCopy()
             st.interpReady = false;
         }
         s_stats = st;
+        s_cov.selectedEnv = st.envDraws;
+        s_cov.capturedDraws = st.totalDraws;
+        s_cov.skippedNonEnv = st.uiDraws + st.skinnedDraws + st.otherDraws;
+        s_cov.corrSame = st.envCorrSame;
+        s_cov.corrStruct = st.envCorrStruct;
+        s_cov.corrWeak = st.envCorrAmb + st.envCorrNew;
+        s_cov.geomStable = st.envGeomStable;
+        s_cov.geomChanged = st.envGeomChanged;
+        s_cov.envRows = st.envRows;
+        s_cov.envRowMask = st.envRowMask;
+        s_cov.passBytes = st.passBytes;
+        s_cov.deps = st.depCount;
+        s_cov.failBits = st.failBits;
     }
 
     static int dumps = 0;
-    if (dumps < 32 && (st.envDraws >= 8 || st.interpReady || (cur.xfbIndex % 400) == 0))
+    if (dumps < 16 && (st.envDraws >= 8 || st.interpReady || (cur.xfbIndex % 400) == 0))
     {
         LOG_INFO("A3c env: xfb={} draws={}/{} env={} ui={} skin={} rows={} mask={:016x} "
-                 "corr s/st/a/n={}/{}/{}/{} cam={} ready={}/{} fail={:03x}",
+                 "corr s/st/a/n={}/{}/{}/{} geom ok/ch/miss={}/{}/{} cam={} ready={}/{} fail={:03x}",
                  cur.xfbIndex, cur.drawStored, cur.drawCount, st.envDraws, st.uiDraws,
                  st.skinnedDraws, st.envRows, (unsigned long long)st.envRowMask, st.envCorrSame,
-                 st.envCorrStruct, st.envCorrAmb, st.envCorrNew, st.naturalCam ? 1 : 0,
+                 st.envCorrStruct, st.envCorrAmb, st.envCorrNew, st.envGeomStable,
+                 st.envGeomChanged, st.envGeomMissingPrev, st.naturalCam ? 1 : 0,
                  st.captureReady ? 1 : 0, st.interpReady ? 1 : 0, st.failBits);
         dumps++;
     }
@@ -185,6 +229,12 @@ A3cEnvStats A3c_GetStats()
     return s_stats;
 }
 
+A3cCoverageReport A3c_GetCoverage()
+{
+    std::lock_guard lk(s_mu);
+    return s_cov;
+}
+
 uint64_t A3c_EnvRowMask()
 {
     std::lock_guard lk(s_mu);
@@ -197,15 +247,32 @@ bool A3c_InterpReady()
     return s_stats.interpReady;
 }
 
+bool A3c_EnvGeomUnchanged()
+{
+    std::lock_guard lk(s_mu);
+    return s_stats.envGeomUnchanged;
+}
+
 void A3c_OverlayLine(char* buf, size_t bufSize)
 {
     if (!buf || !bufSize) return;
     buf[0] = 0;
     if (!CapOn() && !InterpOn()) return;
     A3cEnvStats st = A3c_GetStats();
-    std::snprintf(buf, bufSize, "A3c env=%u rows=%u ready=%d/%d nat=%d fail=%03x", st.envDraws,
-                  st.envRows, st.captureReady ? 1 : 0, st.interpReady ? 1 : 0,
-                  st.naturalCam ? 1 : 0, st.failBits);
+    std::snprintf(buf, bufSize, "A3c env=%u rows=%u ready=%d/%d nat=%d geom=%d fail=%03x",
+                  st.envDraws, st.envRows, st.captureReady ? 1 : 0, st.interpReady ? 1 : 0,
+                  st.naturalCam ? 1 : 0, st.envGeomUnchanged ? 1 : 0, st.failBits);
+}
+
+void A3c_LogCoverage(uint64_t archiveXfb)
+{
+    A3cCoverageReport c = A3c_GetCoverage();
+    LOG_INFO("A3c coverage: archive_frame={} selected={} captured={} skipped={} "
+             "corr same/struct/weak={}/{}/{} geom ok/ch={}/{} rows={} mask={:016x} "
+             "passBytes={} deps={} fail={:03x}",
+             archiveXfb, c.selectedEnv, c.capturedDraws, c.skippedNonEnv, c.corrSame, c.corrStruct,
+             c.corrWeak, c.geomStable, c.geomChanged, c.envRows, (unsigned long long)c.envRowMask,
+             c.passBytes, c.deps, c.failBits);
 }
 
 bool A3c_NaturalInterpEligible()
@@ -216,7 +283,9 @@ bool A3c_NaturalInterpEligible()
     // Env classification (ignore sticky archive overflow from other frames).
     A3cEnvStats st = A3c_GetStats();
     if (st.envDraws < 8 || st.envRows < 1) return false;
-    if (st.failBits & A3cFail_CorrWeak) return false;
+    // CorrWeak often reflects HUD/actor churn around the env subset. Prefer
+    // geomUnchanged (identityKey+geomSig) as the camera-only safety signal.
+    if ((st.failBits & A3cFail_CorrWeak) && !st.envGeomUnchanged) return false;
     A3bCameraPair pair{};
     if (!A3b_GetPair(pair) || !pair.interpolable) return false;
     if (pair.prev.viewHash == pair.curr.viewHash) return false;
@@ -227,5 +296,20 @@ bool A3c_NaturalInterpEligible()
     const float dx = cam0.m[3] - cam1.m[3];
     const float dy = cam0.m[7] - cam1.m[7];
     const float dz = cam0.m[11] - cam1.m[11];
-    return std::sqrt(dx * dx + dy * dy + dz * dz) >= 0.75f;
+    return std::sqrt(dx * dx + dy * dy + dz * dz) >= 0.5f;
 }
+
+bool A3c_TakeProbeSlot()
+{
+    uint32_t limit = 4;
+    if (const char* e = std::getenv("SCR_A3C_PROBE_LIMIT"))
+    {
+        if (e[0]) limit = (uint32_t)std::atoi(e);
+    }
+    if (limit == 0) return false;
+    if (s_probeUsed >= limit) return false;
+    s_probeUsed++;
+    return true;
+}
+
+uint32_t A3c_ProbeSlotsUsed() { return s_probeUsed; }

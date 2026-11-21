@@ -197,6 +197,52 @@ int main()
         CHECK(A3b_MtxNearEqual(mv1, mv1exp, 1e-3f));
     }
 
+    // A3c archive-at-curr: D = Vα * inv(V_curr). α=1 → identity; α=0 → V0*inv(V1).
+    {
+        A3bMtx3x4 v0 = Translate(0, 0, 0);
+        A3bMtx3x4 v1 = Translate(8, 0, 0);
+        A3bMtx3x4 vA{}, dId{}, dPrev{};
+        CHECK(A3b_InterpolateView(v0, v1, 1.f, vA, nullptr));
+        CHECK(A3b_CameraDelta(v1, vA, dId));  // base = curr
+        A3bMtx3x4 id{};
+        A3b_MtxIdentity(id);
+        CHECK(A3b_MtxNearEqual(dId, id, 1e-4f));
+        CHECK(A3b_InterpolateView(v0, v1, 0.f, vA, nullptr));
+        CHECK(A3b_CameraDelta(v1, vA, dPrev));
+        CHECK(!A3b_MtxNearEqual(dPrev, id, 1e-3f));
+        A3bMtx3x4 model = Translate(2, 3, 4);
+        A3bMtx3x4 mvCurr{}, mvPrevExp{}, mvPrev{};
+        A3b_MtxMul(v1, model, mvCurr);
+        A3b_MtxMul(v0, model, mvPrevExp);
+        A3b_ApplyCameraDelta(dPrev, mvCurr, mvPrev);
+        CHECK(A3b_MtxNearEqual(mvPrev, mvPrevExp, 1e-3f));
+        // Identity delta preserves matrix exactly; applying twice stays equal.
+        A3bMtx3x4 once{}, twice{};
+        A3b_ApplyCameraDelta(dId, mvCurr, once);
+        A3b_ApplyCameraDelta(dId, once, twice);
+        CHECK(A3b_MtxNearEqual(once, mvCurr, 1e-5f));
+        CHECK(A3b_MtxNearEqual(twice, mvCurr, 1e-5f));
+        // Non-identity applied twice ≠ once.
+        A3bMtx3x4 a1{}, a2{};
+        A3b_ApplyCameraDelta(dPrev, mvCurr, a1);
+        A3b_ApplyCameraDelta(dPrev, a1, a2);
+        CHECK(!A3b_MtxNearEqual(a2, a1, 1e-3f));
+    }
+
+    // Midpoint with base=curr: Vα between V0 and V1; D = Vα*inv(V1) moves toward V0.
+    {
+        A3bMtx3x4 v0 = Translate(0, 0, 0);
+        A3bMtx3x4 v1 = Translate(10, 0, 0);
+        A3bMtx3x4 vA{}, d{}, model = Translate(0, 0, 0), mv1{}, mvA{}, mvAexp{};
+        CHECK(A3b_InterpolateView(v0, v1, 0.5f, vA, nullptr));
+        CHECK(A3b_CameraDelta(v1, vA, d));
+        A3b_MtxMul(v1, model, mv1);
+        A3b_MtxMul(vA, model, mvAexp);
+        A3b_ApplyCameraDelta(d, mv1, mvA);
+        CHECK(A3b_MtxNearEqual(mvA, mvAexp, 1e-3f));
+        CHECK(std::fabs(vA.m[3] - 5.f) < 1e-3f);
+    }
+
     if (g_fail)
     {
         fprintf(stderr, "%d check(s) failed\n", g_fail);

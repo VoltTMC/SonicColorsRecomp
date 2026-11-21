@@ -595,10 +595,14 @@ void RunScratchReplay(A2bArchivePacket& pkt, const A2cPassReport& pass, A2cRepla
 
     // A3b camera probes: α=0 / α=1 endpoints + configured α midpoint.
     // Skip while the live pair is still discontinuous (boot proj changes).
+    // When A3c natural probes run, skip A3b to avoid duplicate GPU cost (~20 Hz).
     A3bCameraPair a3bPair{};
     const bool a3bPairOk =
         A3b_CameraInterpEnabled() && A3b_GetPair(a3bPair) && a3bPair.interpolable;
-    if (A3b_CameraInterpEnabled() && rr.completed && h1 != 0 && rr.imageMatch && a3bPairOk)
+    // A3c owns endpoint/mid probes on A3cEnv; skip A3b set to avoid ~4× GPU cost.
+    const bool skipA3bForA3c = A3c_EnvInterpEnabled() && pass.family == A2cFamily_A3cEnv;
+    if (!skipA3bForA3c && A3b_CameraInterpEnabled() && rr.completed && h1 != 0 && rr.imageMatch &&
+        a3bPairOk)
     {
         A3b_SuspendCamera(true);
         const uint32_t hBase = replayOnce(false);
@@ -652,106 +656,202 @@ void RunScratchReplay(A2bArchivePacket& pkt, const A2cPassReport& pass, A2cRepla
         }
     }
 
-    // A3c natural env probes (no FORCE_VIEW_DX). Archive embeds V_curr.
-    // Apply camera delta to all GX_PNMTX0..9 (rowMask=0). Sparse env attribution
-    // masks miss XF-reloaded slots (xfHooks=0) and falsely keep mid==baseline.
+    // A3c.1 natural env probes (no FORCE_VIEW_DX). Archive embeds V_curr → baseIsPrev=false.
+    // Endpoint asymmetry root cause: α=0 was compared to the *same* archive's live image
+    // (frame N+1). That DIFF is expected camera-only change — not a failed cross-frame
+    // previous endpoint. Labels: archive_frame / reference_frame / camera_frame / alpha.
     if (A3c_EnvInterpEnabled() && pass.family == A2cFamily_A3cEnv && rr.completed && h1 != 0 &&
         rr.imageMatch)
     {
         if (!A3c_NaturalInterpEligible())
             LOG_INFO("A3c probes skipped (eligible=0 fail={:03x})", A3c_GetStats().failBits);
+        else if (!A3c_TakeProbeSlot())
+            LOG_INFO("A3c probes skipped (probe budget exhausted used={})", A3c_ProbeSlotsUsed());
         else
         {
             A3bCameraPair frozen{};
             A3b_GetPair(frozen);
-            A3b_FreezePair(frozen);  // hold archive-time poses across probe replays
+            A3b_FreezePair(frozen);
+            const uint64_t archiveFrame = pass.xfbIndex;
+            const uint64_t camPrevFrame = frozen.prev.xfbIndex;
+            const uint64_t camCurrFrame = frozen.curr.xfbIndex;
+            const bool geomOk = A3c_EnvGeomUnchanged();
+            A3c_LogCoverage(archiveFrame);
+            LOG_INFO("A3c probe-context: archive_frame={} reference_frame={} "
+                     "cam_prev_frame={} cam_curr_frame={} baseIsPrev=0 (Vbase=V_curr) "
+                     "v0={:08x} v1={:08x} geomUnchanged={} probeSlot={}",
+                     archiveFrame, archiveFrame, camPrevFrame, camCurrFrame, frozen.prev.viewHash,
+                     frozen.curr.viewHash, geomOk ? 1 : 0, A3c_ProbeSlotsUsed());
+
             A3b_SuspendCamera(true);
-            const uint32_t hBase = replayOnce(false);
-            const uint32_t dBase = lastDepthHash;
-            const uint64_t envMask = A3c_EnvRowMask();
-            uint32_t dCurr = 0, dPrev = 0, dMid = 0, dMid2 = 0;
+            A3b_ClearRowMask();
+            // Test A — same-archive identity (no camera modification).
+            const uint32_t hIdent = replayOnce(false);
+            const uint32_t dIdent = lastDepthHash;
+            // Primary replay already exact-MATCH'd live colour+depth; identity re-hash must equal h1.
+            const bool identMatch = (hIdent == h1 && rr.imageMatch && dIdent != 0);
+            LOG_INFO("A3c TestA identity: archive_frame={} reference_frame={} camera_frame=none "
+                     "alpha=n/a color={:08x}/{:08x} depth={:08x} MATCH={}",
+                     archiveFrame, archiveFrame, hIdent, h1, dIdent, identMatch ? 1 : 0);
+            if (identMatch)
+                LOG_INFO("A3c TestA: same-archive identity exact MATCH (colour+depth vs live)");
+
             auto runAlpha = [&](float a, const char* tag) -> uint32_t {
                 A3b_SetProbeAlpha(a);
                 A3b_SuspendCamera(false);
                 A3b_ResetCameraStats();
-                A3b_ClearRowMask();  // PNMTX0..9 — coherent env uses default + indexed slots
+                A3b_ClearRowMask();  // PNMTX0..9 + XF-load re-hook (once per load)
                 const uint32_t h = replayOnce(false);
                 A3b_SuspendCamera(true);
-                A3b_NoteCameraHashes(hBase, h);
+                A3b_NoteCameraHashes(hIdent, h);
                 A3b_SetProbeAlpha(NAN);
                 const A3bCameraStats st = A3b_GetCameraStats();
-                LOG_INFO("A3c {}: α={:.2f} base={:08x}/{:08x} res={:08x}/{:08x} rows={} "
-                         "xfHooks={} exercised={} endMatch={} midDiff={}",
-                         tag, a, hBase, dBase, h, lastDepthHash, st.rowsTouched, st.xfHookCount,
-                         st.exercised ? 1 : 0, st.endpointMatch ? 1 : 0,
-                         st.midpointDistinct ? 1 : 0);
+                LOG_INFO("A3c {}: archive_frame={} reference_frame={} camera_frame={} alpha={:.2f} "
+                         "color={:08x}/{:08x} depth={:08x}/{:08x} applies={} xfHooks={} "
+                         "rows={} delta={:08x} endMatch={}",
+                         tag, archiveFrame, archiveFrame,
+                         (a >= 0.999f)   ? camCurrFrame
+                         : (a <= 0.001f) ? camPrevFrame
+                                         : archiveFrame,
+                         a, h, hIdent, lastDepthHash, dIdent, st.applyCount, st.xfHookCount,
+                         st.rowsTouched, st.deltaHash, st.endpointMatch ? 1 : 0);
                 return h;
             };
-            const uint32_t hCurr = runAlpha(1.f, "TestA");
-            dCurr = lastDepthHash;
-            if (hBase == hCurr && A3b_GetCameraStats().exercised)
-                LOG_INFO("A3c TestA: α=1 archive-pose endpoint MATCH+exercised");
-            const uint32_t hPrev = runAlpha(0.f, "TestB");
-            dPrev = lastDepthHash;
-            if (hBase != hPrev && A3b_GetCameraStats().exercised)
-                LOG_INFO("A3c TestB: α=0 previous-pose DIFF from archive-N baseline");
-            const uint32_t hMid = runAlpha(0.5f, "TestC");
-            dMid = lastDepthHash;
+
+            // Test B — α=1 current endpoint on this archive (identity delta).
+            const uint32_t hCurr = runAlpha(1.f, "TestB");
+            const uint32_t dCurr = lastDepthHash;
+            const A3bCameraStats stB = A3b_GetCameraStats();
+            if (hIdent == hCurr && dIdent == dCurr && stB.exercised && stB.endpointMatch)
+                LOG_INFO("A3c TestB: α=1 current endpoint exact MATCH+exercised "
+                         "(applies={} xfHooks={} — delta applied once at begin, then per XF load)",
+                         stB.applyCount, stB.xfHookCount);
+            else
+                LOG_INFO("A3c TestB: α=1 incomplete MATCH={} exercised={} endMatch={}",
+                         (hIdent == hCurr && dIdent == dCurr) ? 1 : 0, stB.exercised ? 1 : 0,
+                         stB.endpointMatch ? 1 : 0);
+
+            // Test C — α=0 previous camera on *current* archive.
+            // Not a cross-frame live-N match: same N+1 geometry/resources, different camera.
+            const uint32_t hPrevCam = runAlpha(0.f, "TestC");
+            const uint32_t dPrevCam = lastDepthHash;
+            const A3bCameraStats stC = A3b_GetCameraStats();
+            A3bMtx3x4 cam0{}, cam1{}, viewA{};
+            const bool invOk =
+                A3b_MtxInvertRigid(frozen.prev.view, cam0) && A3b_MtxInvertRigid(frozen.curr.view, cam1);
+            float camDist = 0.f;
+            if (invOk)
+            {
+                const float dx = cam0.m[3] - cam1.m[3];
+                const float dy = cam0.m[7] - cam1.m[7];
+                const float dz = cam0.m[11] - cam1.m[11];
+                camDist = std::sqrt(dx * dx + dy * dy + dz * dz);
+            }
+            // Project a representative world point (camera-mid between poses) for geometry check.
+            A3bVec3 midWorld{ 0.5f * (cam0.m[3] + cam1.m[3]), 0.5f * (cam0.m[7] + cam1.m[7]),
+                              0.5f * (cam0.m[11] + cam1.m[11]) };
+            // Offset forward along -Z of prev camera for a visible scene point.
+            A3bVec3 probePt{ midWorld.x, midWorld.y, midWorld.z - 8.f };
+            A3bVec3 inPrev = A3b_MtxTransformPoint(frozen.prev.view, probePt);
+            A3bVec3 inCurr = A3b_MtxTransformPoint(frozen.curr.view, probePt);
+            const float screenDx = inCurr.x - inPrev.x;
+            const float screenDy = inCurr.y - inPrev.y;
+            const bool camOnlyDiff =
+                stC.exercised && (hPrevCam != hIdent || dPrevCam != dIdent) && camDist > 1e-3f;
+            LOG_INFO("A3c TestC: α=0 previous-camera on archive (camera_only_change) "
+                     "geomUnchanged={} colorDiff={} depthDiff={} camDist={:.4f} "
+                     "viewSpaceΔ=({:.3f},{:.3f}) — NOT compared to live frame {}",
+                     geomOk ? 1 : 0, (hPrevCam != hIdent) ? 1 : 0, (dPrevCam != dIdent) ? 1 : 0,
+                     camDist, screenDx, screenDy, camPrevFrame);
+            if (camOnlyDiff && geomOk)
+                LOG_INFO("A3c TestC: expected DIFF from archive baseline (valid camera-only "
+                         "experiment; cross-frame live match requires Test D)");
+            else if (camOnlyDiff && !geomOk)
+                LOG_INFO("A3c TestC: DIFF observed but env geom/resources not fully unchanged "
+                         "(fail={:03x}) — do not treat as pure camera proof",
+                         A3c_GetStats().failBits);
+
+            // Test D — prior A3cEnv archive identity already proven when that frame MATCH'd.
+            static uint64_t s_prevA3cArchive = 0;
+            static uint32_t s_prevA3cColor = 0, s_prevA3cDepth = 0;
+            static bool s_havePrevA3cIdent = false;
+            if (s_havePrevA3cIdent && s_prevA3cColor != 0)
+            {
+                LOG_INFO("A3c TestD: prior archive_frame={} reference_frame={} camera_frame={} "
+                         "alpha=identity color={:08x} depth={:08x} — exact MATCH established when "
+                         "that archive was accepted (cross-frame previous endpoint)",
+                         s_prevA3cArchive, s_prevA3cArchive, s_prevA3cArchive, s_prevA3cColor,
+                         s_prevA3cDepth);
+            }
+            else
+                LOG_INFO("A3c TestD: no prior A3cEnv identity yet (first probe set this run)");
+            if (identMatch)
+            {
+                s_prevA3cArchive = archiveFrame;
+                s_prevA3cColor = hIdent;
+                s_prevA3cDepth = dIdent;
+                s_havePrevA3cIdent = true;
+            }
+
+            // Midpoint — geometric validation; depth ≠ endpoints is expected under motion.
+            const uint32_t hMid = runAlpha(0.5f, "TestMid");
+            const uint32_t dMid = lastDepthHash;
             A3b_SetProbeAlpha(0.5f);
             A3b_SuspendCamera(false);
             A3b_ResetCameraStats();
             A3b_ClearRowMask();
             const uint32_t hMid2 = replayOnce(false);
-            dMid2 = lastDepthHash;
+            const uint32_t dMid2 = lastDepthHash;
             A3b_SuspendCamera(true);
-            A3b_NoteCameraHashes(hBase, hMid2);
+            A3b_NoteCameraHashes(hIdent, hMid2);
             A3b_SetProbeAlpha(NAN);
             const A3bCameraStats midSt = A3b_GetCameraStats();
-            // Camera-to-world translation must be the lerp midpoint (rigid path).
-            A3bMtx3x4 cam0{}, cam1{}, camA{}, viewA{};
             uint32_t ifail = 0;
+            A3bMtx3x4 camA{};
             const bool viewAOk =
                 A3b_InterpolateView(frozen.prev.view, frozen.curr.view, 0.5f, viewA, &ifail) &&
-                A3b_MtxInvertRigid(frozen.prev.view, cam0) &&
-                A3b_MtxInvertRigid(frozen.curr.view, cam1) &&
-                A3b_MtxInvertRigid(viewA, camA);
+                invOk && A3b_MtxInvertRigid(viewA, camA);
             const float lx = 0.5f * (cam0.m[3] + cam1.m[3]);
             const float ly = 0.5f * (cam0.m[7] + cam1.m[7]);
             const float lz = 0.5f * (cam0.m[11] + cam1.m[11]);
-            const float elex = std::fabs(camA.m[3] - lx);
-            const float eley = std::fabs(camA.m[7] - ly);
-            const float elez = std::fabs(camA.m[11] - lz);
-            const float camDist = std::sqrt((cam0.m[3] - cam1.m[3]) * (cam0.m[3] - cam1.m[3]) +
-                                           (cam0.m[7] - cam1.m[7]) * (cam0.m[7] - cam1.m[7]) +
-                                           (cam0.m[11] - cam1.m[11]) * (cam0.m[11] - cam1.m[11]));
-            const bool midBetween =
-                viewAOk && camDist > 1e-3f && elex < 1e-3f && eley < 1e-3f && elez < 1e-3f;
-            const bool mathDistinct = midSt.viewAHash != 0 &&
-                                      midSt.viewAHash != midSt.view0Hash &&
-                                      midSt.viewAHash != midSt.view1Hash &&
-                                      midSt.deltaHash != 0 && !midSt.endpointMatch;
-            const bool colorMidDiff = (hMid != 0 && hMid == hMid2 && hMid != hBase && hMid != hPrev);
+            const bool midBetween = viewAOk && camDist > 1e-3f &&
+                                    std::fabs(camA.m[3] - lx) < 1e-3f &&
+                                    std::fabs(camA.m[7] - ly) < 1e-3f &&
+                                    std::fabs(camA.m[11] - lz) < 1e-3f;
+            A3bVec3 inMid = A3b_MtxTransformPoint(viewA, probePt);
+            const float midFracX =
+                (std::fabs(screenDx) > 1e-4f) ? (inMid.x - inPrev.x) / screenDx : 0.5f;
+            const bool mathDistinct = midSt.viewAHash != 0 && midSt.viewAHash != midSt.view0Hash &&
+                                      midSt.viewAHash != midSt.view1Hash && midSt.deltaHash != 0 &&
+                                      !midSt.endpointMatch;
+            const bool colorMidDiff = (hMid != 0 && hMid == hMid2 && hMid != hIdent && hMid != hPrevCam);
             const bool depthMidDiff =
-                (dMid != 0 && dMid == dMid2 && dMid != dBase && (dPrev == 0 || dMid != dPrev));
-            if (colorMidDiff && midSt.exercised && mathDistinct)
-                LOG_INFO("A3c TestC: α=0.5 natural midpoint DIFF+deterministic "
-                         "envMask={:016x} v0={:08x} v1={:08x} vA={:08x} d={:08x} "
-                         "camLerp={} camDist={:.4f} depth={:08x}/{:08x}",
-                         (unsigned long long)envMask, frozen.prev.viewHash, frozen.curr.viewHash,
-                         midSt.viewAHash, midSt.deltaHash, midBetween ? 1 : 0, camDist, dMid,
-                         dBase);
-            else if (depthMidDiff && hPrev != hBase && midSt.exercised && mathDistinct && midBetween)
-                LOG_INFO("A3c TestC: α=0.5 natural midpoint DEPTH-DIFF+deterministic "
-                         "color={:08x} depth={:08x}/{:08x} vA={:08x} d={:08x} camDist={:.4f}",
-                         hMid, dMid, dBase, midSt.viewAHash, midSt.deltaHash, camDist);
-            else
-                LOG_INFO("A3c TestC: mid={:08x}/{:08x} d={:08x}/{:08x} vs base={:08x}/{:08x} "
-                         "prev={:08x}/{:08x} vA={:08x} delta={:08x} camLerp={} camDist={:.4f}",
-                         hMid, hMid2, dMid, dMid2, hBase, dBase, hPrev, dPrev, midSt.viewAHash,
-                         midSt.deltaHash, midBetween ? 1 : 0, camDist);
-            A3b_ClearFrozenPair();
+                (dMid != 0 && dMid == dMid2 && dMid != dIdent && (dPrevCam == 0 || dMid != dPrevCam));
+            // Depth classification (mid must not equal endpoints under motion).
+            const char* depthClass = "unchanged";
+            if (depthMidDiff && colorMidDiff)
+                depthClass = "expected_camera_motion";
+            else if (depthMidDiff && !colorMidDiff)
+                depthClass = "depth_only_camera_motion";
+            else if (!depthMidDiff && colorMidDiff)
+                depthClass = "color_moved_depth_stable";
+            else if (!geomOk)
+                depthClass = "geom_changed_inconclusive";
+            LOG_INFO("A3c TestMid: α=0.5 archive_frame={} camera_frame=interp "
+                     "color={:08x}/{:08x} depth={:08x}/{:08x} det={} camLerp={} camDist={:.4f} "
+                     "viewMidFracX={:.3f} depthClass={} vA={:08x} d={:08x} applies={} xfHooks={}",
+                     archiveFrame, hMid, hIdent, dMid, dIdent, (hMid == hMid2 && dMid == dMid2) ? 1 : 0,
+                     midBetween ? 1 : 0, camDist, midFracX, depthClass, midSt.viewAHash,
+                     midSt.deltaHash, midSt.applyCount, midSt.xfHookCount);
+            if (colorMidDiff && midSt.exercised && mathDistinct && midBetween)
+                LOG_INFO("A3c TestMid: natural midpoint COLOR+DEPTH DIFF+deterministic OK");
+            else if (depthMidDiff && midSt.exercised && mathDistinct && midBetween)
+                LOG_INFO("A3c TestMid: natural midpoint DEPTH-DIFF+deterministic OK "
+                         "(depthClass={}) — not an endpoint failure",
+                         depthClass);
+            (void)hCurr;
             (void)dCurr;
-            (void)envMask;
+            A3b_ClearFrozenPair();
         }
     }
 
