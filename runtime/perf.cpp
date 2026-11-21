@@ -11,6 +11,7 @@
 #include "debug/a1_xf_capture.h"
 #include "debug/a1b_pose_capture.h"
 #include "debug/a1c_gx_capture.h"
+#include "debug/a2b_fifo_archive.h"
 
 #include <atomic>
 #include <algorithm>
@@ -216,6 +217,7 @@ void Perf_OnGuestFrameEnd()
     s_guestFrameIndex.fetch_add(1, std::memory_order_relaxed);
     A1b_OnSimFrameEnd();  // no-op unless SCR_A1B_POSE_CAPTURE=1
     A1c_OnSimFrameEnd();  // no-op unless SCR_A1C_GX_CAPTURE=1
+    A2b_OnSimFrameEnd();  // no-op unless SCR_A2B_FIFO_CAPTURE=1
     if (!s_on || !t_guest0) return;
     const uint64_t now = Now();
     s_guestNs.fetch_add(now - t_guest0, std::memory_order_relaxed);
@@ -331,6 +333,7 @@ void Perf_OnXfbCopy()
     A1_OnXfbCopy();   // no-op unless SCR_A1_XF_CAPTURE=1
     A1b_OnXfbCopy();  // no-op unless SCR_A1B_POSE_CAPTURE=1
     A1c_OnXfbCopy();  // no-op unless SCR_A1C_GX_CAPTURE=1
+    A2b_OnXfbCopy();  // no-op unless SCR_A2B_FIFO_CAPTURE=1
     if (!s_on) return;
     s_xfbN.fetch_add(1, std::memory_order_relaxed);
 }

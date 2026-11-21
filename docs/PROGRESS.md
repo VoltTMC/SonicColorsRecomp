@@ -1,5 +1,19 @@
 # Progress log
 
+## 2026-11-21 — Approach A2b: bounded GX FIFO archive
+
+**Goal:** Opt-in archive of GX FIFO bytes + draw-context/resources **before** `ProcessFifo` erases them. Capture/validate only — **no replay / redraw / second XFB**.
+
+**Lifecycle:** `GPFifo` → Gather → 32 MiB ring → GpuThread → `s_fifo` → **`A2b_OnFifoSubmission`** → `ProcessFifo` erase. DLs / indexed XF snapshotted at decode; XFB finalizes GX + A1b/A1c context + CP array inventory.
+
+**Shipped:** `runtime/debug/a2b_fifo_archive.*` behind `SCR_A2B_FIFO_CAPTURE=1` / `SCR_A2B_FIFO_DUMP=1` / `SCR_A2B_FIFO_DUMP_DIR`. Bounds 4 MiB / 512 coalesced subs / 96 resources / 1 MiB res copies. Overlay line; curr/prev compare; structured `.bin`+`.txt` dumps. Default off; FIFO processing unchanged.
+
+**TR1 (`out/phase18_a2b_tr1b.log`, `out/a2b_dumps_tr1b/`):** bin size matches `totalBytes`; no silent cmd truncation after coalesce; busy frames hit **resource** cap (`flags` Incomplete) while cmds stay complete; with A1b/A1c: `a1b=yes`, `ply=yes`, `a1cLoads`~1200; sim≈60, unique_xfb≈60, underruns≈0. Capture-off silent. Boot on/off same unique-frame metrics.
+
+**Complete:** ordered command bytes + hashes; DL/indexed-XF copies when under caps; XF/CP/BP end-of-frame snap; guest correlation hooks. **Unresolved:** vertex/index extents, TMEM/textures, EFB pixels, object-stable tags from slots. **Not replay-ready.**
+
+**Next:** A2c — smallest IRQ-suppressed scratch-EFB replay of one archived pass after resource completeness work. Docs: `docs/FRAME_RATE.md` A2b.
+
 ## 2026-11-21 — Approach A1c: scene-wide GX transform capture
 
 **Goal:** Observe GX position-matrix loads + guest `BodyGetWorldMtx` refreshes without extra sim/XFB.

@@ -1,5 +1,6 @@
 // GX command processor: CP/PE registers, write-gather pipe and opcode decoding.
 #include "gx_state.h"
+#include "../debug/a2b_fifo_archive.h"
 #include "../hw/hw.h"
 #include "../kernel/memory.h"
 #include "../log.h"
@@ -238,6 +239,8 @@ static void LoadIndexedXF(int array, uint32_t word)
     uint32_t stride = g_gx.cp[CP_ARRAY_STRIDE + array];
     const uint8_t* src = PhysPtr(base + index * stride);
     Render_Flush();
+    if (A2b_FifoCaptureEnabled())
+        A2b_OnIndexedXf(base + index * stride, size * 4);
     for (uint32_t i = 0; i < size; i++)
         g_gx.xfmem[(addr + i) & 0xFFF] = BE32(src + 4 * i);
     Render_OnXF(addr, size, true);
@@ -306,6 +309,8 @@ static void CallDisplayList(uint32_t addr, uint32_t size)
 {
     s_curDL = addr;
     s_curDLSize = size;
+    if (A2b_FifoCaptureEnabled())
+        A2b_OnDisplayList(addr, size);
     const uint8_t* p = PhysPtr(addr);
     ++s_dlDepth;
     RunCommands(p, size, true);
@@ -494,8 +499,11 @@ static void GpuThread()
         size_t n = w - r;
         size_t off = r % RING_SIZE;
         size_t first = std::min(n, RING_SIZE - off);
+        const size_t before = s_fifo.size();
         s_fifo.insert(s_fifo.end(), s_ring + off, s_ring + off + first);
         if (first < n) s_fifo.insert(s_fifo.end(), s_ring, s_ring + (n - first));
+        if (A2b_FifoCaptureEnabled() && n > 0)
+            A2b_OnFifoSubmission(s_fifo.data() + before, n);
         s_ringR.store(w, std::memory_order_release);
         ProcessFifo();
     }
@@ -579,7 +587,11 @@ static inline void Gather(const uint8_t* b, int n)
         s_localW += n;
     }
     else
+    {
         s_fifo.insert(s_fifo.end(), b, b + n);
+        if (A2b_FifoCaptureEnabled())
+            A2b_OnFifoSubmission(b, (size_t)n);
+    }
     s_gatherCount += n;
     if (s_gatherCount >= 32)
     {

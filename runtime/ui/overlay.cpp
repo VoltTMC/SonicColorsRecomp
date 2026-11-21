@@ -10,6 +10,7 @@
 #include "../debug/a1_xf_capture.h"
 #include "../debug/a1b_pose_capture.h"
 #include "../debug/a1c_gx_capture.h"
+#include "../debug/a2b_fifo_archive.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
 #include "../tas/tas.h"
@@ -300,6 +301,13 @@ void Overlay_Render(float w, float h)
                 A1c_OverlayLine(a1c, sizeof(a1c));
                 if (a1c[0])
                     ImGui::TextUnformatted(a1c);
+            }
+            if (A2b_FifoCaptureEnabled())
+            {
+                char a2b[160];
+                A2b_OverlayLine(a2b, sizeof(a2b));
+                if (a2b[0])
+                    ImGui::TextUnformatted(a2b);
             }
         }
         ImGui::End();

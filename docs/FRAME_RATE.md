@@ -228,7 +228,8 @@ Opt-in immutable snapshots at completed sim-frame boundaries for future host int
 | A1b | Resolve player/camera world matrices in guest RAM | Stable addresses or type-walk; debug overlay poses | **Done** |
 | A1c | Scene-wide GX pos-mtx + body refresh capture | Bounded opt-in dumps; coverage/correspondence report | **Done** |
 | A2 | Debug-only host warp/composite from two captures | Visual check; **not** counted as `unique_xfb` | Later |
-| A2b | Optional FIFO archive (flag) + IRQ-safe replay spike | Can re-issue last frame’s draws into EFB under flag | Later |
+| A2b | Opt-in bounded FIFO archive (no replay) | Exact pre-`ProcessFifo` bytes + resource inventory; dumps/compare | **Done (archive only)** |
+| A2c | IRQ-safe experimental replay / second pass | Re-issue archived draws without guest side effects | Next |
 | A3 | Interpolated second XFB without guest update | `unique_xfb` >60 behind debug flag | Later |
 | A4 | Quality gate; promote to uncapped | Honest unique>60 in production | Later |
 
@@ -291,6 +292,77 @@ Guest GXLoadPosMtxImm / indexed XF
 6. **Minimum before A2:** optional FIFO ring of XF+draw ops between XFBs (debug flag); PE IRQ suppression plan; do **not** rely on PNMTX slot as object id.
 
 **Verdict:** GX matrix capture is a **viable observation layer** for proving live scene motion and for designing archive contents. It is **not** by itself a complete object-stable pose stream for scene-wide interpolation. Proceed to **A2b FIFO archive** next (A2 warp can stay later).
+
+### Approach A2b — bounded GX FIFO archive (2026-11-21)
+
+Capture/validate the GPU command stream **before** `ProcessFifo` consumes it. **No replay, no guest redraw, no second XFB, no unique-FPS claim.**
+
+| Item | Detail |
+|------|--------|
+| Code | [`runtime/debug/a2b_fifo_archive.cpp`](../runtime/debug/a2b_fifo_archive.cpp) |
+| Enable | `SCR_A2B_FIFO_CAPTURE=1` (default off) |
+| Dump | `SCR_A2B_FIFO_DUMP=1` (periodic logs + curr/prev delta); `SCR_A2B_FIFO_DUMP_DIR=<path>` for `.bin`/`.txt`/ `_res.bin` exports |
+| Bounds | ≤4 MiB cmd/frame; ≤512 coalesced subs; ≤256 KiB/sub; ≤96 resources; ≤1 MiB resource copies (≤64 KiB each) |
+
+#### FIFO lifecycle (actual)
+
+```
+Guest GX* → GPFifo_Write* → Gather
+  ├─ RecordingToRAM (PI≠CP): write guest DL buffer; not archived as FIFO
+  └─ else: 32 MiB ring (GPU thread) or direct s_fifo (single-core)
+       → GpuThread copies ring → s_fifo
+       → A2b_OnFifoSubmission(new bytes)   ← archive point (before erase)
+       → ProcessFifo → RunCommands → erase consumed prefix of s_fifo
+CallDisplayList(addr,size) → A2b_OnDisplayList (copy DL bytes)
+LoadIndexedXF → A2b_OnIndexedXf (copy indexed XF payload)
+Perf_OnXfbCopy → finalize frame (GX snap + A1b/A1c context + CP inventory)
+```
+
+| Property | Behaviour |
+|----------|-----------|
+| Wrap | Guest PI FIFO wrap is emulated for SDK progress; host ring is linear modulo `RING_SIZE` |
+| Partial cmds | `ProcessFifo` may leave incomplete trailing bytes in `s_fifo`; next drain appends — archive preserves drain order |
+| Multi-sub/frame | Many ring drains per XFB; A2b **coalesces** consecutive drains into ≤256 KiB submissions (exact bytes, order preserved) |
+| External refs | DLs + indexed XF copied when sized; CP array bases inventoried (extent unknown → unresolved); TMEM/EFB marked unresolved |
+
+Overflow never silently truncates a submission: whole chunk is skipped and `A2bFrame_Incomplete` is set (`skippedSubs` / `skippedBytes`).
+
+#### Archive contents
+
+| Layer | Captured | Gap |
+|-------|----------|-----|
+| Command bytes | Yes (pre-erase), hashed per sub + whole frame | None for frames under 4 MiB |
+| Submission order | Yes (coalesced drain groups) | Not 1:1 with each 32 B gather publish |
+| XF inline loads | Inside cmd bytes; A1c correlation via `SnapContext` | Full XF mem beyond PNMTX0–9 only hashed at XFB |
+| Indexed XF / DL RAM | Copied when under caps | Large DLs truncated (`A2bRes_Truncated`) |
+| Vertex/index arrays | CP base+stride inventory only | Contents **not** copied (size unknown) |
+| Textures / TMEM | Placeholder unresolved | Must snapshot or bind-track for replay |
+| EFB / BP copy | BP sample + unresolved marker | Framebuffer contents not archived |
+| Guest tags | A1b player/cam + A1c load/body counts when those flags on | Matrix slot ≠ object id (unchanged) |
+
+#### Validation (TR1 + boot)
+
+| Check | Result (`out/phase18_a2b_*.log`) |
+|-------|----------------------------------|
+| Capture off silent | No `A2b:` lines |
+| Capture on | Dumps + optional `out/a2b_dumps*` exports; bin size == `totalBytes` |
+| sim / unique_xfb | ≈60 with capture on/off; underruns ≈0 in-stage |
+| Busy frames | Resource cap (96) → `Incomplete` common; **cmd bytes complete** (no skip after coalesce) |
+| Context | `a1b=yes` / `ply=yes` / high `a1cLoads` when A1b/A1c also enabled |
+
+#### Readiness for replay (A2c) — not claimed safe
+
+1. Command stream: **complete** under 4 MiB (typical TR1 ~10–300 KiB).
+2. External resources: **partial** — DLs/indexed XF often copied; vertex arrays/textures/EFB **unresolved**.
+3. Lifetimes: frame-local; RAM may change before a deferred pass.
+4. GX state: end-of-frame snap + bytes in stream; mid-frame BP/CP evolution is in the stream only.
+5. Boundaries: coalesced subs reconstructable; PE finish / XFB still via BP opcodes in stream.
+6. Non-repeatable ops: EFB copies, PE tokens/IRQs, clears, texture invalidates — need isolation.
+7. Side effects: naive replay would re-raise PE IRQs and rewrite EFB/XFB paths.
+8. Isolation needed: shadow EFB, suppress PE IRQs, resolve/copy vertex+texture deps, patch matrices from A1b/A1c.
+9. Smallest safe experiment: replay **one** archived UI/static DL into a scratch EFB with IRQs off — not production.
+
+**Verdict:** A2b archive is **useful groundwork** for a future render pass (ordered cmd bytes + DL/XF copies + guest correlation). It is **not** sufficient alone for safe FIFO reuse. Next: **A2c** resource-complete replay spike behind a separate flag.
 
 ### Audio
 
