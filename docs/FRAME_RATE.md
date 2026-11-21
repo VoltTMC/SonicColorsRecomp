@@ -240,6 +240,7 @@ Opt-in immutable snapshots at completed sim-frame boundaries for future host int
 | A3b | Camera-pose interpolation + scratch view delta | Math + FORCE_DX / TR1 pose ring | **Done (experiment)** |
 | A3c | Coherent TR1 env capture + natural camera interp | Env MATCH + natural mid DIFF | **Done (experiment)** |
 | A3c.1 | Endpoint reference semantics + depth classification | Labeled A–D/Mid; depthClass | **Done (experiment)** |
+| A3d | Full-scene archive coverage audit | Category matrix + obs/cap/complete | **Done (audit)** |
 | A3 | Interpolated second XFB without guest update | `unique_xfb` >60 behind debug flag | Later |
 | A4 | Quality gate; promote to uncapped | Honest unique>60 in production | Later |
 
@@ -784,7 +785,7 @@ Opt-in only. Extends A3b to a **bounded, camera-sensitive TR1 environment subset
 
 - **Kind:** static / single-matrix world geometry (`A3cKind_Env`) — DL or larger non-UI draws; excludes HUD (`vat≥5` tiny quads), skinned multi-row actors, player candidates.
 - **Family:** `A2cFamily_A3cEnv` — raised select bounds (≤800 draws, ≤512 KiB pass) when A3c flags on.
-- **Budgets (A3c-justified):** cmd 8 MiB, resources 2048 / 24 MiB, A3a draws 400. Default A2d–A2f paths unchanged when A3c off.
+- **Budgets (A3c-justified):** cmd 8 MiB, resources 2048 / 24 MiB. A3a store raised to **1536** in A3d (overflow tallied); still far below busy TR1 ~30k draws. Default A2d–A2f paths unchanged when A3c off.
 - **Coherence:** pass is a contiguous archived GX submission with closed deps (`reqUnres=0`), EFB seed, and exact live/scratch MATCH before probes.
 
 #### Transform rules
@@ -827,6 +828,50 @@ Logs label `archive_frame` / `reference_frame` / `camera_frame` / `alpha`.
 | Perf | Flags-off ~50–56 Hz; probe sets ~15–22 Hz; `SCR_A3C_PROBE_LIMIT` + skip A3b on A3cEnv |
 
 **Not claimed:** full TR1 scene; player/skeletal interp; second XFB; unique FPS; native Windows GPU.
+
+### Approach A3d — full-scene GX archive coverage audit (2026-11-21)
+
+Opt-in diagnostics. Establishes **how much** of a real frame A2/A3 can observe, archive, and (where selected) exact-match replay. **No second XFB, no unique-FPS claim, no skeletal interpolation.**
+
+| Switch | Role |
+|--------|------|
+| `SCR_A3D_SCENE_COVERAGE=1` | Per-XFB coverage report + category histogram + overlay |
+| (+ `SCR_A3A_DRAW_ATTR`) | Draw store / overflow categories / PNMTXIDX attribution |
+| (+ `SCR_A2B_FIFO_CAPTURE`) | Archive completeness (`reqUnres`, trunc, flags) |
+| (+ `SCR_A2C_SCRATCH_REPLAY`) | Optional `A3d_NoteReplay` when a family MATCH/ready |
+
+#### Coverage vocabulary
+
+| Term | Meaning |
+|------|---------|
+| Observed | Draws/resources seen this XFB (`A3a drawCount`, A2b inventory) |
+| Captured | Retained in A3a `draws[]` / A2b buffers (may still be incomplete) |
+| Complete | Captured with `reqUnres=0` and no Incomplete/trunc |
+| Replayable | A2c selected a ready pass (family-specific) |
+| Exact-match validated | Live vs scratch colour+depth MATCH for that family |
+| Interpolatable | Stable transform attribution suitable for future interp |
+
+#### Category matrix (evidence)
+
+| Category | Title/menu | Early TR1 (quiet) | Busy TR1 |
+|----------|------------|-------------------|----------|
+| Static environment | rare | ~45 single-mtx, often `SameObject` | Dominant; many uncapped |
+| Moving environment | rare | present on first appear frames | Present; needs corr |
+| Player (skinned cand.) | 0 | **1** (`skinP`, plyCand) | Many candidates; ID unstable |
+| Other skinned | 0 | **~51** multi-row | Overflow + uncapped |
+| Particles / tiny | ~1–7 | ~1–51 | Large uncapped set |
+| Transparency / order | archived in FIFO order when complete | same | Order preserved only while A2b complete |
+| HUD / UI | **~69** vat≥5 quads | **~69** | Present; A2e MATCH on selected multitex |
+| EFB feedback | seed + copies when `efbIn` | same | A2f MATCH on selected; natural cross-frame still 0 (A2g) |
+| Other GX state | CP/XF/BP/TEV via A2b when complete | same | Resource **cap 2048** → incomplete on densest frames |
+
+**Quantitative (A3d live):** title ~70/70 (100%) complete; early TR1 **167/167** complete with skinned mix; busy prior peak **~31k** observed with A3a store drop and A2b `deps=2048` — **not** full-scene complete.
+
+**Exact MATCH logs:** `out/phase29_a3d_exact_title.log`, `out/phase29_a3d_tr1_cover.log` (A2e/A2f). A3c env identity remains `phase28_a3c1_tr1b.log`.
+
+**Perf:** `SCR_A3D_SCENE_COVERAGE` alone ≈ flags-off (~60 Hz). Cost is A2b/A3a capture under load. Dumps bounded; disabled → quiet.
+
+**Not claimed:** full-scene coverage; player bone interp; second XFB; unique FPS; native Windows GPU (**UNVERIFIED**).
 
 ### Approach A3a — draw-level transform attribution + scratch substitution (2026-11-21)
 

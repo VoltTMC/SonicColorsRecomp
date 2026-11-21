@@ -10,8 +10,12 @@
 
 // PNMTXIDX is a row index into XF mem (0,3,6,…). One 3×4 pos matrix = 3 rows
 // = 12 floats starting at xfmem[row*4].
-constexpr int kA3aMaxDrawsPerFrame = 400;  // A3c TR1 env passes ~100–400 draws
+// A3d: quiet/early TR1 ≈ 70–200 draws; busy TR1 can exceed 30k. Store cap bounds
+// attribution detail (~800 KiB/snap at 1536); overflow still counted in drawCount /
+// overflowCat[] (no silent drop of observations).
+constexpr int kA3aMaxDrawsPerFrame = 1536;
 constexpr int kA3aMaxMtxPerDraw = 8;
+constexpr int kA3aOverflowCatCount = 8;
 
 enum A3aCorrKind : uint8_t
 {
@@ -72,6 +76,10 @@ struct A3aFrameSnap
     uint32_t corrAmbiguous = 0;
     uint32_t corrAppeared = 0;
     uint64_t rowMask = 0;
+    // Lightweight category tallies for draws that did not fit in draws[] (A3d).
+    // Indices match A3dDrawCat; classified without cross-frame corr (env→static bucket).
+    uint32_t overflowCat[kA3aOverflowCatCount]{};
+    uint32_t overflowTotal = 0;
     A3aDrawRec draws[kA3aMaxDrawsPerFrame]{};
 };
 

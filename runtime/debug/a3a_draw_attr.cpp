@@ -148,6 +148,18 @@ void ResetBuild()
     s_drawSeq.store(0, std::memory_order_relaxed);
 }
 
+// Must stay aligned with A3dDrawCat indices (a3d_scene_coverage.h).
+uint8_t OverflowCatOf(const A3aDrawRec& d)
+{
+    if (!d.inDL && d.mtxCount <= 1 && d.vtxCount <= 6 && d.vat >= 5) return 1;  // HudUi
+    if (d.flags & 1) return 4;                                                  // SkinnedPlayer
+    if (d.posMtxDirect && d.mtxCount >= 2) return 5;                             // SkinnedOther
+    if (!d.inDL && d.vtxCount > 0 && d.vtxCount <= 12 && d.mtxCount <= 1 && d.vat < 5)
+        return 6;  // ParticleLike
+    if (d.mtxCount == 1) return 2;  // EnvStatic (no prev-frame move detect on overflow)
+    return 7;                       // Other
+}
+
 uint32_t IdentityKey(const A3aDrawRec& d)
 {
     // Stable across frames: geom/VCD/array — NOT matrix hash / slot alone.
@@ -239,11 +251,11 @@ void DumpFrameLocked()
     dumps++;
 
     LOG_INFO("A3a frame: xfb={} sim={} draws={}/{} drop={} rows={} mask={:016x} "
-             "playerCand={} ply={} corr same={} struct={} amb={} new={}",
+             "playerCand={} ply={} corr same={} struct={} amb={} new={} ovfTot={}",
              s_curr.xfbIndex, s_curr.simFrameId, s_curr.drawStored, s_curr.drawCount,
              s_curr.drawsDropped, s_curr.uniqueRows, s_curr.rowMask, s_curr.playerCandidates,
              plyOk ? 1 : 0, s_curr.corrSame, s_curr.corrStruct, s_curr.corrAmbiguous,
-             s_curr.corrAppeared);
+             s_curr.corrAppeared, s_curr.overflowTotal);
 
     int logged = 0;
     for (uint32_t i = 0; i < s_curr.drawStored && logged < 8; i++)
@@ -447,7 +459,12 @@ void A3a_OnDraw(int prim, int vat, uint32_t count, const void* hostVerts, uint32
     if (s_build.drawStored < kA3aMaxDrawsPerFrame)
         s_build.draws[s_build.drawStored++] = rec;
     else
+    {
         s_build.drawsDropped++;
+        s_build.overflowTotal++;
+        const uint8_t cat = OverflowCatOf(rec);
+        if (cat < kA3aOverflowCatCount) s_build.overflowCat[cat]++;
+    }
 }
 
 void A3a_OnSimFrameEnd()

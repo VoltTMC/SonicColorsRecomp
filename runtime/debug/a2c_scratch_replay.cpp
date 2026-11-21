@@ -4,6 +4,7 @@
 #include "a3a_draw_attr.h"
 #include "a3b_camera_interp.h"
 #include "a3c_env_capture.h"
+#include "a3d_scene_coverage.h"
 #include "../gx/gx_state.h"
 #include "../gx/texture_decode.h"
 #include "../kernel/memory.h"
@@ -889,6 +890,7 @@ void RunScratchReplay(A2bArchivePacket& pkt, const A2cPassReport& pass, A2cRepla
              rr.detail, rr.liveEfbHash, rr.scratchEfbHash, rr.liveDepthHash,
              rr.scratchDepthHash, rr.efbInColorHash, rr.efbInDepthHash,
              Render_CompareQueueDepth(), s_compareSkipped);
+    A3d_NoteReplay(rr.family, pass.passBytes, pass.replayReady, rr.imageMatch);
 }
 
 struct A2gSeqReady

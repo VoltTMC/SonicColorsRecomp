@@ -1,5 +1,26 @@
 # Progress log
 
+## 2026-11-21 — A3d: full-scene GX archive coverage audit
+
+**Goal:** Evidence-based accounting of what a real gameplay frame archives/replays — beyond the A3c env subset. No second XFB / no unique-FPS / no skeletal interpolation.
+
+**Shipped:** `a3d_scene_coverage.*` (`SCR_A3D_SCENE_COVERAGE`); category histogram (HUD / env static|moving / skinned player|other / particle-like); A3a store cap **1536** + `overflowCat[]` for uncapped observation; A2c → `A3d_NoteReplay`; overlay line; bounded dumps (gameplay-first).
+
+**Coverage terms:** observed ≠ captured ≠ complete ≠ replayable ≠ exact-match validated ≠ interpolatable.
+
+| Scene | Evidence | Headline |
+|-------|----------|----------|
+| Title/menu HUD | `phase29_a3d_title_cover.log` | ~70 draws, **100%** A3a store, A2b often `complete=1`; category ≈69 HUD + particles |
+| Early TR1 (quiet) | `phase29_a3d_tr1_cover2.log` xfb≈828–879 | **167/167** draws; hud=69 envS=45 skinP=1 skinO=51; rows=10 plyCand=1; A2b complete (356 res) |
+| Busy TR1 | Prior `phase28_a3c1_tr1b.log` (A3a@400) | Peak **drawCount≈31027** with massive store drop; A2b hits **2048** resource cap → not full-scene complete |
+| Exact MATCH | `phase29_a3d_exact_title.log` / `phase29_a3d_tr1_cover.log` | A2e multitex + A2f efbfb colour+depth MATCH (selected families ≠ full scene) |
+
+**Perf (RADV iGPU, diagnostics):** flags-off / A3d-only ≈60 Hz; A2b+A3a adds cost under load (title scale2 ≈30 Hz historically). Disabled → no A3d spam.
+
+**Limits:** Busy frames still exceed A3a detail store and A2b resource budget; skinned object identity is candidate-heuristic (not stable character IDs); NVIDIA CreateDevice currently broken on this host (captures used RADV); stage-load watchdog hangs on slow GPU after early TR1; native Windows GPU **UNVERIFIED**.
+
+**Next (A3e):** Raise/stream A2b resources for busy TR1 **or** stratified sampling of uncapped draws; stable player bone-palette capture for one skinned draw — still before second XFB.
+
 ## 2026-11-21 — A3c.1: endpoint reference semantics + depth classification
 
 **Goal:** Explain α=0 vs α=1 asymmetry; prove once-only delta application; classify midpoint depth; keep diagnostics from tanking sim Hz.

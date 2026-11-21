@@ -16,6 +16,7 @@
 #include "../debug/a3a_draw_attr.h"
 #include "../debug/a3b_camera_interp.h"
 #include "../debug/a3c_env_capture.h"
+#include "../debug/a3d_scene_coverage.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
 #include "../tas/tas.h"
@@ -334,6 +335,13 @@ void Overlay_Render(float w, float h)
                 A3c_OverlayLine(a3c, sizeof(a3c));
                 if (a3c[0])
                     ImGui::TextUnformatted(a3c);
+            }
+            if (A3d_SceneCoverageEnabled())
+            {
+                char a3d[192];
+                A3d_OverlayLine(a3d, sizeof(a3d));
+                if (a3d[0])
+                    ImGui::TextUnformatted(a3d);
             }
             if (A2b_FifoCaptureEnabled() || A2c_ScratchReplayEnabled())
             {

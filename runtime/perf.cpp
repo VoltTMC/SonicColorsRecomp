@@ -15,6 +15,7 @@
 #include "debug/a3a_draw_attr.h"
 #include "debug/a3b_camera_interp.h"
 #include "debug/a3c_env_capture.h"
+#include "debug/a3d_scene_coverage.h"
 
 #include <atomic>
 #include <algorithm>
@@ -342,6 +343,7 @@ void Perf_OnXfbCopy()
     A3a_OnXfbCopy();  // no-op unless SCR_A3A_DRAW_ATTR=1
     A3b_OnXfbCopy();  // no-op unless SCR_A3B_CAMERA_INTERP=1
     A3c_OnXfbCopy();  // no-op unless SCR_A3C_ENV_CAPTURE/INTERP=1
+    A3d_OnXfbCopy();  // no-op unless SCR_A3D_SCENE_COVERAGE=1
     if (!s_on) return;
     s_xfbN.fetch_add(1, std::memory_order_relaxed);
 }
