@@ -1,5 +1,19 @@
 # Progress log
 
+## 2026-11-21 — Approach A2d: EFB initial-state + host-state closure
+
+**Goal:** Eliminate A2c live-vs-scratch DIFF for the selected title/boot pass by capturing pass-entry EFB (colour+depth), seeding scratch from it, matching the comparison boundary to pass-exit (pre-post-XFB-clear), and realising host draw state from archived `g_gx` + resources.
+
+**Boundary:** Commands `[0, first toXFB BP 0x52)` exclusive. Incoming EFB = after post-XFB `ClearEFB` (`A2b_OnPassEntryEfb`). Live reference = EFB at `A2b_OnXfbCopy` before that clear. Scratch = replay of the same prefix into independent RTVs.
+
+**Shipped:** GPU `CopyResource` EFB slots; scratch seed (no post-seed clear); exact colour + depth compare (hash-authoritative depth); host reset via `gxStart` + `Render_ResetHostDrawState` + tex-cache drop; honest `MATCH` / `DEPTH_DIFF` / `COLOR_MATCH` verdicts. Default off.
+
+**Validation (`out/phase20_a2d_*.log`):** `det=1`, `colorMis=0`, `depthMis=0`, `dCmp=1 MATCH` with `liveC==scrC` and `liveD==scrD`; `efbIn=yes`; capture off silent; sim/unique_xfb ≈60; `regression_smoke` OK. **No unique-FPS claim.**
+
+**Completeness:** command + resource + initial-state + host-state (this D3D11 path) + determinism + **pixel equivalence** for this pass. EFB-as-texture chains / scene-wide / interpolation **not** claimed. Next: A2e second static/UI pass MATCH gate.
+
+**Docs:** `docs/FRAME_RATE.md` A2d.
+
 ## 2026-11-21 — Approach A2c: resource closure + scratch-EFB replay
 
 **Goal:** Close vertex/texture deps for a selected archived pass; optionally replay into an isolated scratch EFB with PE IRQs suppressed. No second game XFB / no interpolation.

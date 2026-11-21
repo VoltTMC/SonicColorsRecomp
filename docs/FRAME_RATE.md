@@ -230,7 +230,7 @@ Opt-in immutable snapshots at completed sim-frame boundaries for future host int
 | A2 | Debug-only host warp/composite from two captures | Visual check; **not** counted as `unique_xfb` | Later |
 | A2b | Opt-in bounded FIFO archive (no replay) | Exact pre-`ProcessFifo` bytes + resource inventory; dumps/compare | **Done (archive only)** |
 | A2c | Resource closure + isolated scratch-EFB replay | Replay-ready gate; PE-suppressed scratch replay; no live XFB | **Done (experiment)** |
-| A2d | Pixel-parity / residual-state closure | Scratch fingerprint MATCH vs live for selected pass | Next |
+| A2d | EFB initial-state + host-state closure | Live-vs-scratch pixel MATCH for selected pass | **Done (experiment)** |
 | A3 | Interpolated second XFB without guest update | `unique_xfb` >60 behind debug flag | Later |
 | A4 | Quality gate; promote to uncapped | Honest unique>60 in production | Later |
 
@@ -428,6 +428,89 @@ Per archived frame: `A2cPassReport` with bitflags for cmd/subs/gxStart/vertex/te
 5. Recommend **A2d**: EFB start snapshot + host-state dirtying + region fingerprint until MATCH; only then consider matrix-patched replay toward A3.
 
 **Verdict:** A2c **succeeds as an isolation/closure experiment** (deterministic non-empty scratch from archive-only deps). It does **not** prove scene-wide replay or pixel-identical reconstruction.
+
+### Approach A2d — EFB initial-state + host-state closure (2026-11-21)
+
+Close the A2c DIFF by seeding scratch from the live pass-entry EFB and comparing at a matched boundary. **Still opt-in, still no second XFB / no interpolation / no unique-FPS claim.**
+
+| Item | Detail |
+|------|--------|
+| Code | `renderer.cpp` EFB slots + compare; `a2b_fifo_archive.cpp` `A2b_OnPassEntryEfb`; `a2c_scratch_replay.cpp` |
+| Enable | `SCR_A2B_FIFO_CAPTURE=1` + `SCR_A2C_SCRATCH_REPLAY=1` (default off) |
+| Selected pass | Same title/boot idle (~5504 B, ~70 draws, 1 DL + 1 tex) |
+
+#### Comparison boundary
+
+| Point | Definition |
+|-------|------------|
+| Pass commands | `[0, passEnd)` — first **toXFB** BP `0x52` is the terminator (**excluded**) |
+| Mid-pass EFB copies | Non-toXFB `0x52` remain **inside** the pass (scanner skips only toXFB) |
+| Pass entry (incoming EFB) | After post-XFB `ClearEFB` (or immediately after toXFB when clear bit off) via `A2b_OnPassEntryEfb` |
+| Pass exit (live reference) | EFB after archived draws, sampled inside `A2b_OnXfbCopy` / `A2c_OnArchivedFrame` **before** post-XFB clear |
+| Scratch exit | After `GX_ReplayCommands(passBytes)` into scratch RTVs seeded from incoming |
+
+Do not compare a cleared scratch against a carry-in live EFB, or a post-clear live sample against a pre-clear scratch result.
+
+#### Incoming EFB snapshot
+
+- Lossless GPU `CopyResource` of live colour (`R8G8B8A8_UNORM`) + depth (`R32_TYPELESS` / `D32_FLOAT` DSV) into refcounted slots (independent of live EFB).
+- Records dimensions, colour/depth hashes (`everyPixel` mode), validity.
+- Scratch seeds via `CopyResource` into scratch colour/depth — **no clear after seed**.
+- Bounded slots with steal-on-overflow; payloads stay off the 4 MiB command archive.
+
+#### Host graphics-state coverage (D3D11 backend)
+
+| State | Source on replay |
+|-------|------------------|
+| RTV/DSV | Scratch targets while isolation on; restored to live after |
+| Viewport / scissor / cull | Derived each `Flush` from `g_gx` XF/BP |
+| Blend / depth-stencil / raster | Built from BP; object cache keyed by register values |
+| Shaders / input layout | From VAT/TEV keys + vertex data |
+| XF constants | `s_xfDirty` forced; uploaded from restored `g_gx.xfmem` |
+| Textures / samplers | Replay drops tex + EFB-copy caches; rebuild from restored guest RAM |
+| PE IRQs | Suppressed for the replay window |
+| Sticky host leftovers | Avoided by `gxStart` restore + `Render_ResetHostDrawState` + cache drop |
+
+#### Completeness dimensions
+
+| Dimension | Title/boot pass |
+|-----------|-----------------|
+| Command completeness | Yes (`reqUnres=0`, selected size) |
+| Resource completeness | Yes (DL + texture copied) |
+| Initial-state completeness | Yes (incoming colour+depth seeded) |
+| Host-state completeness | Yes for this backend path (state realised from `g_gx` + archives) |
+| Replay determinism | Yes (`det=1`, two identical scratch colour hashes) |
+| Live-vs-scratch pixel equivalence | **MATCH** (colour + depth exact; `colorMis=0`, `depthMis=0`) |
+
+#### EFB feedback (this pass only)
+
+- Pass **reads** pre-pass EFB pixels (incoming seed required — proven by A2c DIFF without seed).
+- No evidence of EFB-as-texture / prior-copy dependency beyond archived RAM texture: ready with `deps=2`, and MATCH without extra EFB-copy capture.
+- Depth is preserved through the pass (`inD == liveD == scrD` on idle frames); colour is rewritten by draws.
+- General mid-frame EFB feedback for gameplay scenes remains **unsolved** and out of scope.
+
+#### Validation (`out/phase20_a2d_*.log`)
+
+| Check | Result |
+|-------|--------|
+| Capture off | No A2b/A2c/A2d lines; sim/unique_xfb ≈60 |
+| Ready + seed | `efbIn=yes`, `seed=1`, `flags=1ff` |
+| Pixel compare | `dCmp=1 MATCH` — `liveC==scrC`, `liveD==scrD` |
+| Isolation | PE suppress; scratch-only draws; `g_gx`/TMEM/tev/guest RAM restored |
+| Audio | Underruns ≈0 after settle |
+| `regression_smoke` | OK |
+
+#### Next milestone (after A2d)
+
+1. Incoming EFB complete for this pass? **Yes.**
+2. Host state represented? **Yes** for D3D11 GX path used here.
+3. Scratch == live? **Yes** (exact colour+depth).
+4. Remaining differences? **None** on the selected title/boot idle pass.
+5. Generalise to more static/UI passes? Likely with same seed+boundary pattern; re-validate per pass.
+6. EFB feedback + moving actors? Need EFB-copy texture archive, actor/matrix patching (A1b/A1c), larger resource budgets.
+7. **Smallest next test:** A2e — second static/UI pass (e.g. pause/menu) with same MATCH gate; still no scene-wide / no interpolation.
+
+**Verdict:** A2d **achieves pixel-identical scratch replay** for the selected title/boot pass under equivalent initial conditions. Not a licence for scene-wide replay or unique-FPS claims.
 
 ### Audio
 

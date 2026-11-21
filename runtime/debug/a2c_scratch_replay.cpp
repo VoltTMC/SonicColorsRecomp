@@ -159,12 +159,16 @@ void EvaluatePass(const A2bArchivePacket& pkt, A2cPassReport& out)
     out.simFrameId = pkt.summary.simFrameId;
     out.drawCount = pkt.summary.drawCount;
 
+    // Pass boundary: commands [0, passEnd) — first toXFB BP 0x52 is the terminator
+    // (not included). Live reference is sampled at that XFB event (EFB after pass draws).
     uint32_t passEnd = A2b_FindFirstBp52(pkt.cmd.data(), (uint32_t)pkt.cmd.size());
-    // If scanner stopped early (draw before BP52), treat whole buffer as pass when small.
     if (passEnd == 0 || (passEnd < pkt.cmd.size() && pkt.cmd[passEnd] != 0x61))
         passEnd = (uint32_t)pkt.cmd.size();
     out.passBytes = passEnd;
     out.passHash = passEnd ? HashBytes(pkt.cmd.data(), passEnd) : 0;
+    out.efbIncomingValid = pkt.efbIncomingValid;
+    out.efbInColorHash = pkt.efbInColorHash;
+    out.efbInDepthHash = pkt.efbInDepthHash;
 
     uint32_t ready = 0;
     uint32_t fail = 0;
@@ -179,6 +183,7 @@ void EvaluatePass(const A2bArchivePacket& pkt, A2cPassReport& out)
     ok(A2cReady_SubsComplete, pkt.summary.skippedSubmissions == 0 &&
                                   !(pkt.summary.flags & A2bFrame_OverflowSubs));
     ok(A2cReady_GxStartPresent, pkt.gxStartValid);
+    ok(A2cReady_EfbIncoming, pkt.efbIncomingValid && Render_EfbIncomingValid(pkt.efbIncomingSlot));
     ok(A2cReady_NoOverflow, !(pkt.summary.flags & A2bFrame_Incomplete) ||
                                 pkt.summary.requiredUnresolved == 0);
 
@@ -221,18 +226,21 @@ void EvaluatePass(const A2bArchivePacket& pkt, A2cPassReport& out)
     {
         if (!selected)
             std::snprintf(out.reason, sizeof(out.reason),
-                          "not selected (bytes=%u draws=%u gxStart=%u)", out.passBytes,
-                          out.drawCount, pkt.gxStartValid ? 1u : 0u);
+                          "not selected (bytes=%u draws=%u gxStart=%u efbIn=%u)", out.passBytes,
+                          out.drawCount, pkt.gxStartValid ? 1u : 0u,
+                          pkt.efbIncomingValid ? 1u : 0u);
         else if (reqUnres)
             std::snprintf(out.reason, sizeof(out.reason),
-                          "required unresolved=%u failFlags=%02x", reqUnres, fail);
+                          "required unresolved=%u failFlags=%03x", reqUnres, fail);
         else
-            std::snprintf(out.reason, sizeof(out.reason), "failFlags=%02x", fail);
+            std::snprintf(out.reason, sizeof(out.reason), "failFlags=%03x", fail);
     }
     else
     {
-        std::snprintf(out.reason, sizeof(out.reason), "ready passBytes=%u draws=%u deps=%u",
-                      out.passBytes, out.drawCount, deps);
+        std::snprintf(out.reason, sizeof(out.reason),
+                      "ready passBytes=%u draws=%u deps=%u efbIn=%08x/%08x",
+                      out.passBytes, out.drawCount, deps, out.efbInColorHash,
+                      out.efbInDepthHash);
     }
 }
 
@@ -272,11 +280,13 @@ void RestoreGuest(const std::vector<RamSave>& saves)
         memcpy(PhysPtr(sv.phys), sv.bytes.data(), sv.bytes.size());
 }
 
-void RunScratchReplay(const A2bArchivePacket& pkt, const A2cPassReport& pass, A2cReplayResult& rr)
+void RunScratchReplay(A2bArchivePacket& pkt, const A2cPassReport& pass, A2cReplayResult& rr)
 {
     rr = A2cReplayResult{};
     rr.attempted = true;
     rr.passHash = pass.passHash;
+    rr.efbInColorHash = pass.efbInColorHash;
+    rr.efbInDepthHash = pass.efbInDepthHash;
     std::snprintf(rr.detail, sizeof(rr.detail), "starting");
 
     if (!pass.replayReady)
@@ -285,8 +295,9 @@ void RunScratchReplay(const A2bArchivePacket& pkt, const A2cPassReport& pass, A2
         return;
     }
 
-    // Hash live EFB produced by the just-completed guest pass.
+    // Live reference = EFB after pass draws, sampled at toXFB (this call site).
     rr.liveEfbHash = Render_HashLiveEfb();
+    rr.liveDepthHash = Render_HashLiveDepth();
 
     GXState gxSaved = g_gx;
     std::vector<uint8_t> tmemSaved(Render_TmemPtr(), Render_TmemPtr() + Render_TmemSize());
@@ -303,51 +314,106 @@ void RunScratchReplay(const A2bArchivePacket& pkt, const A2cPassReport& pass, A2
         memcpy(Render_TmemPtr(), tmemSaved.data(), tmemSaved.size());
         memcpy(g_tevKonst, tevSaved, sizeof(tevSaved));
         RestoreGuest(ramSaves);
+        if (pkt.efbIncomingValid)
+        {
+            Render_EfbIncomingRelease(pkt.efbIncomingSlot);
+            pkt.efbIncomingValid = false;
+            pkt.efbIncomingSlot = -1;
+        }
         rr.stateRestored = true;
     };
 
     GX_SetPeSuppress(true);
 
     uint32_t sw = 0, sh = 0;
-    // Probe cleared-scratch fingerprint once textures exist.
-    if (!Render_ScratchBegin(&sw, &sh))
-    {
-        cleanup();
-        std::snprintf(rr.detail, sizeof(rr.detail), "scratch begin failed");
-        return;
-    }
-    const uint32_t blackHash = Render_HashScratchBlack();
-    Render_ScratchEndHash();
-
-    auto replayOnce = [&]() -> uint32_t {
+    auto replayOnce = [&](bool doCompare) -> uint32_t {
         g_gx = pkt.gxStart;
-        Render_ForceXfDirty();
-        if (!Render_ScratchBegin(&sw, &sh))
+        Render_ResetHostDrawState();
+        if (!Render_ScratchBeginFromIncoming(pkt.efbIncomingSlot, &sw, &sh))
             return 0;
         rr.scratchW = sw;
         rr.scratchH = sh;
         rr.isolationOk = true;
+        rr.seededFromIncoming = true;
+
         GX_ReplayCommands(pkt.cmd.data(), pass.passBytes);
+
+        if (doCompare)
+        {
+            // Live EFB unchanged (draws went to scratch); same pass-exit boundary.
+            // Sample depth hash before EndHash tears down isolation.
+            const uint32_t scrD = Render_ScratchEndDepthHash();
+            RenderEfbCompare cmp{};
+            if (Render_CompareLiveVsScratch(cmp, true))
+            {
+                rr.imageCompared = true;
+                rr.colorExact = cmp.colorExact;
+                rr.depthExact = cmp.depthExact;
+                rr.depthCompared = cmp.depthCompared;
+                rr.colorMismatch = cmp.colorMismatch;
+                rr.depthMismatch = cmp.depthMismatch;
+                rr.maxChannelDelta = cmp.maxChannelDelta;
+                rr.comparedPixels = cmp.comparedPixels;
+                rr.liveEfbHash = cmp.liveColorHash;
+                rr.scratchEfbHash = cmp.scratchColorHash;
+                rr.liveDepthHash = cmp.liveDepthHash;
+                rr.scratchDepthHash = cmp.scratchDepthHash;
+                (void)scrD;  // cmp hashes are authoritative (same everyPixel mode)
+                // Full MATCH requires color exact and a successful depth compare that matches.
+                // Color-only equality with depth N/A is reported as COLOR_MATCH, not MATCH.
+                rr.imageMatch = cmp.colorExact && cmp.depthCompared && cmp.depthExact;
+            }
+            else
+                rr.scratchDepthHash = scrD;
+        }
+
         return Render_ScratchEndHash();
     };
 
-    rr.scratchEfbHash = replayOnce();
-    const uint32_t scratch2 = replayOnce();
-    const bool deterministic = (rr.scratchEfbHash != 0 && scratch2 == rr.scratchEfbHash);
-    const bool drewSomething = (rr.scratchEfbHash != blackHash);
-    rr.completed = deterministic && drewSomething;
+    const uint32_t h1 = replayOnce(true);
+    // Determinism probe — do not clobber comparison hashes from the first run.
+    const uint32_t liveCSaved = rr.liveEfbHash, scrCSaved = rr.scratchEfbHash;
+    const uint32_t liveDSaved = rr.liveDepthHash, scrDSaved = rr.scratchDepthHash;
+    const bool matchSaved = rr.imageMatch, colorSaved = rr.colorExact, depthSaved = rr.depthExact;
+    const bool dCmpSaved = rr.depthCompared, imgCmpSaved = rr.imageCompared;
+    const uint32_t cMisSaved = rr.colorMismatch, dMisSaved = rr.depthMismatch;
+    const uint32_t maxDSaved = rr.maxChannelDelta, pixSaved = rr.comparedPixels;
+    const uint32_t h2 = replayOnce(false);
+    rr.liveEfbHash = liveCSaved;
+    rr.scratchEfbHash = scrCSaved;
+    rr.liveDepthHash = liveDSaved;
+    rr.scratchDepthHash = scrDSaved;
+    rr.imageMatch = matchSaved;
+    rr.colorExact = colorSaved;
+    rr.depthExact = depthSaved;
+    rr.depthCompared = dCmpSaved;
+    rr.imageCompared = imgCmpSaved;
+    rr.colorMismatch = cMisSaved;
+    rr.depthMismatch = dMisSaved;
+    rr.maxChannelDelta = maxDSaved;
+    rr.comparedPixels = pixSaved;
+    if (!rr.imageCompared)
+        rr.scratchEfbHash = h1;
+    const bool deterministic = (h1 != 0 && h1 == h2);
+    rr.completed = deterministic && rr.seededFromIncoming && rr.isolationOk;
 
     cleanup();
 
-    rr.imageCompared = true;
-    rr.imageMatch = (rr.liveEfbHash != 0 && rr.scratchEfbHash != 0 &&
-                     rr.liveEfbHash == rr.scratchEfbHash);
+    const char* verdict = "DIFF";
+    if (rr.imageMatch)
+        verdict = "MATCH";
+    else if (rr.colorExact && !rr.depthCompared)
+        verdict = "COLOR_MATCH";
+    else if (rr.colorExact && rr.depthCompared && !rr.depthExact)
+        verdict = "DEPTH_DIFF";
     std::snprintf(rr.detail, sizeof(rr.detail),
-                  "xfb=%llu pass=%u live=%08x scratch=%08x black=%08x det=%d drew=%d %s",
-                  (unsigned long long)pass.xfbIndex, pass.passBytes, rr.liveEfbHash,
-                  rr.scratchEfbHash, blackHash, deterministic ? 1 : 0, drewSomething ? 1 : 0,
-                  rr.imageMatch ? "MATCH" : "DIFF");
-    LOG_INFO("A2c replay: {}", rr.detail);
+                  "xfb=%llu pass=%u seed=1 det=%d colorMis=%u depthMis=%u maxΔ=%u dCmp=%d %s",
+                  (unsigned long long)pass.xfbIndex, pass.passBytes, deterministic ? 1 : 0,
+                  rr.colorMismatch, rr.depthMismatch, rr.maxChannelDelta,
+                  rr.depthCompared ? 1 : 0, verdict);
+    LOG_INFO("A2d replay: {} liveC={:08x} scrC={:08x} liveD={:08x} scrD={:08x} inC={:08x} inD={:08x}",
+             rr.detail, rr.liveEfbHash, rr.scratchEfbHash, rr.liveDepthHash,
+             rr.scratchDepthHash, rr.efbInColorHash, rr.efbInDepthHash);
 }
 
 }  // namespace
@@ -399,11 +465,12 @@ void A2c_OnArchivedFrame()
     if (now - lastLogMs >= 2500)
     {
         lastLogMs = now;
-        LOG_INFO("A2c ready: xfb={} ready={} flags={:02x}/{:02x} passBytes={} draws={} "
-                 "deps={} reqUnres={} — {}",
+        LOG_INFO("A2d ready: xfb={} ready={} flags={:03x}/{:03x} passBytes={} draws={} "
+                 "deps={} reqUnres={} efbIn={} — {}",
                  report.xfbIndex, report.replayReady ? "yes" : "no", report.readyFlags,
                  report.failFlags, report.passBytes, report.drawCount, report.depCount,
-                 report.unresolvedRequired, report.reason);
+                 report.unresolvedRequired, report.efbIncomingValid ? "yes" : "no",
+                 report.reason);
     }
 
     if (!ReplayEnv() || !report.replayReady) return;
@@ -419,7 +486,7 @@ void A2c_OnArchivedFrame()
     s_replayBudgetFrames++;
 
     A2cReplayResult rr{};
-    RunScratchReplay(pkt, report, rr);
+    RunScratchReplay(pkt, report, rr);  // releases pkt's EFB slot ref
     std::lock_guard lk(s_mu);
     s_lastReplay = rr;
 }
@@ -454,11 +521,11 @@ void A2c_OverlayLine(char* buf, size_t bufSize)
     A2cReplayResult r{};
     const bool haveR = A2c_GetLastReplay(r);
     if (haveR && r.attempted)
-        std::snprintf(buf, bufSize, "A2c %s live=%08x scr=%08x %s",
-                      p.replayReady ? "READY" : "no", r.liveEfbHash, r.scratchEfbHash,
+        std::snprintf(buf, bufSize, "A2d %s mis=%u/%u %s",
+                      p.replayReady ? "READY" : "no", r.colorMismatch, r.depthMismatch,
                       r.imageMatch ? "MATCH" : (r.completed ? "DIFF" : "fail"));
     else
-        std::snprintf(buf, bufSize, "A2c %s pass=%u draws=%u u=%u",
-                      p.replayReady ? "READY" : "no", p.passBytes, p.drawCount,
-                      p.unresolvedRequired);
+        std::snprintf(buf, bufSize, "A2d %s pass=%u efbIn=%u u=%u",
+                      p.replayReady ? "READY" : "no", p.passBytes,
+                      p.efbIncomingValid ? 1u : 0u, p.unresolvedRequired);
 }

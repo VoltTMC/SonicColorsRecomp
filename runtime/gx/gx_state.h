@@ -93,19 +93,54 @@ void Render_LoadTLUT();
 void Render_PreloadTMEM();
 void Render_InvalidateTextureCache();
 
-// A2c scratch replay isolation (default off / inactive).
+// A2c/A2d scratch replay isolation (default off / inactive).
 void GX_SetPeSuppress(bool on);
 bool GX_PeSuppressActive();
-// Replay archived FIFO bytes on the GPU thread (mutates g_gx; caller saves/restores).
 void GX_ReplayCommands(const uint8_t* data, size_t n);
-// Redirect draws to scratch EFB; hash helpers for comparison.
-bool Render_ScratchBegin(uint32_t* outW, uint32_t* outH);
-uint32_t Render_ScratchEndHash();
-uint32_t Render_HashLiveEfb();
+
 void Render_SetReplayIsolation(bool on);
 bool Render_ReplayIsolationActive();
 void Render_ForceXfDirty();
-// TMEM access for A2c snapshots / restore.
+void Render_ResetHostDrawState();  // flush batches; force XF upload next draw
+
+// Incoming EFB snapshot slots (GPU CopyResource; independent of live EFB).
+// slot < 0 means invalid. Capture at pass entry = after post-XFB ClearEFB
+// (or immediately after toXFB when the clear bit is off).
+int Render_EfbIncomingCapture(uint32_t* outColorHash, uint32_t* outDepthHash,
+                              uint32_t* outW, uint32_t* outH);
+void Render_EfbIncomingAddRef(int slot);
+void Render_EfbIncomingRelease(int slot);
+bool Render_EfbIncomingValid(int slot);
+uint32_t Render_EfbIncomingColorHash(int slot);
+uint32_t Render_EfbIncomingDepthHash(int slot);
+
+// Scratch: seed from incoming (no clear) or clear-to-black (legacy probe).
+bool Render_ScratchBeginFromIncoming(int incomingSlot, uint32_t* outW, uint32_t* outH);
+bool Render_ScratchBeginCleared(uint32_t* outW, uint32_t* outH);
+uint32_t Render_ScratchEndHash();          // color fingerprint; ends isolation
+uint32_t Render_ScratchEndDepthHash();    // depth fingerprint; call before EndHash
+uint32_t Render_HashLiveEfb();
+uint32_t Render_HashLiveDepth();
+uint32_t Render_HashScratchBlack();
+
+struct RenderEfbCompare
+{
+    uint32_t width = 0, height = 0;
+    uint32_t liveColorHash = 0, scratchColorHash = 0;
+    uint32_t liveDepthHash = 0, scratchDepthHash = 0;
+    uint32_t colorMismatch = 0;
+    uint32_t depthMismatch = 0;   // ~0u => depth compare unavailable
+    uint32_t maxChannelDelta = 0;
+    uint64_t sumChannelDelta = 0;
+    uint32_t comparedPixels = 0;
+    bool colorExact = false;
+    bool depthExact = false;
+    bool depthCompared = false;   // true only if depth pixels were actually compared
+};
+// Exact CPU compare of live vs scratch color (and optionally depth). Call while both valid,
+// before ScratchEndHash tears down isolation (or after with textures still allocated).
+// Live sample point: pass-exit EFB (after archived cmds, before post-XFB clear).
+bool Render_CompareLiveVsScratch(RenderEfbCompare& out, bool compareDepth);
+
 uint8_t* Render_TmemPtr();
 size_t Render_TmemSize();
-uint32_t Render_HashScratchBlack();  // fingerprint of a cleared scratch (no draws)

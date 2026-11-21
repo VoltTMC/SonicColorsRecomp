@@ -91,6 +91,12 @@ struct FrameBuild
     uint32_t requiredUnresolved = 0;
     bool gxStartValid = false;
     GXState gxStart{};
+    int efbIncomingSlot = -1;
+    bool efbIncomingValid = false;
+    uint32_t efbInColorHash = 0;
+    uint32_t efbInDepthHash = 0;
+    uint32_t efbInW = 0;
+    uint32_t efbInH = 0;
     std::vector<uint8_t> tmemStart;
     A2bSubmission subs[kA2bMaxSubsPerFrame]{};
     A2bResource resources[kA2bMaxResources]{};
@@ -108,8 +114,19 @@ bool s_haveCurr = false, s_havePrev = false;
 std::atomic<uint64_t> s_frames{ 0 };
 std::atomic<uint64_t> s_simTag{ 0 };
 
+void ReleaseEfbSlot(FrameBuild& f)
+{
+    if (f.efbIncomingSlot >= 0)
+    {
+        Render_EfbIncomingRelease(f.efbIncomingSlot);
+        f.efbIncomingSlot = -1;
+        f.efbIncomingValid = false;
+    }
+}
+
 void ResetBuild(FrameBuild& f)
 {
+    ReleaseEfbSlot(f);
     f = FrameBuild{};
     f.cmd.clear();
     f.resData.clear();
@@ -195,6 +212,12 @@ void FillSummary(const FrameBuild& f, A2bFrameSummary& out)
     out.flags = f.flags;
     out.commandHash = f.cmd.empty() ? 0 : HashBytes(f.cmd.data(), f.cmd.size());
     out.gxStartValid = f.gxStartValid;
+    out.efbIncomingValid = f.efbIncomingValid;
+    out.efbIncomingSlot = f.efbIncomingSlot;
+    out.efbInColorHash = f.efbInColorHash;
+    out.efbInDepthHash = f.efbInDepthHash;
+    out.efbInW = f.efbInW;
+    out.efbInH = f.efbInH;
     out.gx = f.gx;
     out.ctx = f.ctx;
 }
@@ -562,16 +585,21 @@ void A2b_OnXfbCopy()
 
         if (s_haveCurr)
         {
+            ReleaseEfbSlot(s_prev);
             s_prev = std::move(s_curr);
             s_havePrev = true;
         }
         s_curr = std::move(s_build);
+        // int move leaves source unchanged — detach so ResetBuild won't release s_curr's slot.
+        s_build.efbIncomingSlot = -1;
+        s_build.efbIncomingValid = false;
         s_haveCurr = true;
         s_frames.fetch_add(1, std::memory_order_relaxed);
 
         MaybeDumpLocked(s_curr);
         ResetBuild(s_build);
-        // Next frame starts from post-XFB GX state (more accurate than first-drain).
+        // Next frame GX start = post-XFB registers. EFB incoming is captured later
+        // via A2b_OnPassEntryEfb after the optional post-XFB ClearEFB.
         s_build.gxStart = g_gx;
         s_build.gxStartValid = true;
     }
@@ -591,6 +619,25 @@ void A2b_OnXfbCopy()
                 A2b_ExportLastFrame(dir);
             }
         }
+    }
+}
+
+void A2b_OnPassEntryEfb()
+{
+    if (!EnvOn()) return;
+    std::lock_guard lk(s_mu);
+    // Replace any prior slot for the in-progress build.
+    ReleaseEfbSlot(s_build);
+    uint32_t ch = 0, dh = 0, ew = 0, eh = 0;
+    const int slot = Render_EfbIncomingCapture(&ch, &dh, &ew, &eh);
+    if (slot >= 0)
+    {
+        s_build.efbIncomingSlot = slot;
+        s_build.efbIncomingValid = true;
+        s_build.efbInColorHash = ch;
+        s_build.efbInDepthHash = dh;
+        s_build.efbInW = ew;
+        s_build.efbInH = eh;
     }
 }
 
@@ -626,6 +673,12 @@ bool A2b_CloneCurrentPacket(A2bArchivePacket& out)
     FillSummary(s_curr, out.summary);
     out.gxStart = s_curr.gxStart;
     out.gxStartValid = s_curr.gxStartValid;
+    out.efbIncomingSlot = s_curr.efbIncomingSlot;
+    out.efbIncomingValid = s_curr.efbIncomingValid;
+    out.efbInColorHash = s_curr.efbInColorHash;
+    out.efbInDepthHash = s_curr.efbInDepthHash;
+    if (out.efbIncomingValid)
+        Render_EfbIncomingAddRef(out.efbIncomingSlot);
     out.cmd = s_curr.cmd;
     out.resData = s_curr.resData;
     out.tmemStart = s_curr.tmemStart;

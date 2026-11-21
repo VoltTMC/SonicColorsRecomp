@@ -25,6 +25,7 @@
 #include "../ui/overlay.h"
 #include "../debug/a1b_pose_capture.h"
 #include "../debug/a1c_gx_capture.h"
+#include "../debug/a2b_fifo_archive.h"
 #include "../debug/a2c_scratch_replay.h"
 
 #include <chrono>
@@ -206,12 +207,26 @@ static ID3D11Texture2D* s_efbColorCopy = nullptr;     // resolve target for samp
 static ID3D11ShaderResourceView* s_efbColorCopySRV = nullptr;
 static ID3D11Texture2D* s_efbDepthCopy = nullptr;
 static ID3D11ShaderResourceView* s_efbDepthCopySRV = nullptr;
-// A2c scratch EFB (isolated replay target; never presented as game XFB)
+// A2c/A2d scratch EFB (isolated replay target; never presented as game XFB)
 static ID3D11Texture2D* s_scratchColor = nullptr;
 static ID3D11RenderTargetView* s_scratchRTV = nullptr;
 static ID3D11Texture2D* s_scratchDepth = nullptr;
 static ID3D11DepthStencilView* s_scratchDSV = nullptr;
 static bool s_replayIsolation = false;
+
+// Incoming EFB snapshot ring (lossless GPU copies at pass entry).
+static constexpr int kEfbInSlots = 4;
+struct EfbInSlot
+{
+    ID3D11Texture2D* color = nullptr;
+    ID3D11Texture2D* depth = nullptr;
+    uint32_t colorHash = 0;
+    uint32_t depthHash = 0;
+    uint32_t w = 0, h = 0;
+    int refs = 0;
+    bool valid = false;
+};
+static EfbInSlot s_efbIn[kEfbInSlots];
 static ID3D11InputLayout* s_layout = nullptr;
 static ID3D11Buffer* s_vb = nullptr;
 static ID3D11Buffer* s_ib = nullptr;
@@ -1459,12 +1474,31 @@ void Render_SetReplayIsolation(bool on) { s_replayIsolation = on; }
 bool Render_ReplayIsolationActive() { return s_replayIsolation; }
 void Render_ForceXfDirty() { s_xfDirty = true; }
 
+void Render_ResetHostDrawState()
+{
+    Flush();
+    s_verts.clear();
+    s_indices.clear();
+    s_skip.clear();
+    s_xfDirty = true;
+    s_batchComponents = 0;
+}
+
 uint8_t* Render_TmemPtr() { return s_tmem; }
 size_t Render_TmemSize() { return sizeof(s_tmem); }
 
-static uint32_t HashTextureContents(ID3D11Texture2D* tex)
+static void UnbindOMTargets()
+{
+    if (!g_ctx) return;
+    ID3D11RenderTargetView* nullRtv = nullptr;
+    g_ctx->OMSetRenderTargets(0, &nullRtv, nullptr);
+}
+
+static uint32_t HashTextureContents(ID3D11Texture2D* tex, bool everyPixel)
 {
     if (!tex || !g_ctx) return 0;
+    // Depth/color may be bound as DSV/RTV; unbind so CopyResource is well-defined.
+    UnbindOMTargets();
     D3D11_TEXTURE2D_DESC d;
     tex->GetDesc(&d);
     D3D11_TEXTURE2D_DESC sd = d;
@@ -1472,6 +1506,7 @@ static uint32_t HashTextureContents(ID3D11Texture2D* tex)
     sd.BindFlags = 0;
     sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
     sd.MiscFlags = 0;
+    // Depth is R32_TYPELESS — staging copy uses same typeless; map as bytes.
     ID3D11Texture2D* st = nullptr;
     if (FAILED(g_device->CreateTexture2D(&sd, nullptr, &st))) return 0;
     g_ctx->CopyResource(st, tex);
@@ -1479,13 +1514,15 @@ static uint32_t HashTextureContents(ID3D11Texture2D* tex)
     uint32_t h = 2166136261u;
     if (SUCCEEDED(g_ctx->Map(st, 0, D3D11_MAP_READ, 0, &m)))
     {
-        // Sample every 4th pixel for a stable, cheaper fingerprint.
-        for (uint32_t y = 0; y < d.Height; y += 4)
+        // Hash only the active width×bpp region — ignore staging RowPitch padding.
+        const uint32_t step = everyPixel ? 1u : 4u;
+        const uint32_t bpp = 4u;
+        for (uint32_t y = 0; y < d.Height; y += step)
         {
             const uint8_t* row = (const uint8_t*)m.pData + (size_t)y * m.RowPitch;
-            for (uint32_t x = 0; x < d.Width; x += 4)
+            for (uint32_t x = 0; x < d.Width; x += step)
             {
-                const uint8_t* p = row + x * 4;
+                const uint8_t* p = row + (size_t)x * bpp;
                 h ^= p[0]; h *= 16777619u;
                 h ^= p[1]; h *= 16777619u;
                 h ^= p[2]; h *= 16777619u;
@@ -1498,44 +1535,172 @@ static uint32_t HashTextureContents(ID3D11Texture2D* tex)
     return h ? h : 1u;
 }
 
-bool Render_ScratchBegin(uint32_t* outW, uint32_t* outH)
+static bool EnsureScratchTargets()
 {
-    if (!s_ready || !g_device) return false;
-    const uint32_t w = EFB_W * s_scale, h = EFB_H * s_scale;
-    if (!s_scratchColor)
+    if (!s_ready || !g_device || !s_efbColor || !s_efbDepth) return false;
+    if (s_scratchColor) return true;
+    D3D11_TEXTURE2D_DESC td{};
+    s_efbColor->GetDesc(&td);
+    if (FAILED(g_device->CreateTexture2D(&td, nullptr, &s_scratchColor))) return false;
+    g_device->CreateRenderTargetView(s_scratchColor, nullptr, &s_scratchRTV);
+    s_efbDepth->GetDesc(&td);
+    if (FAILED(g_device->CreateTexture2D(&td, nullptr, &s_scratchDepth))) return false;
+    D3D11_DEPTH_STENCIL_VIEW_DESC dsv{};
+    s_efbDSV->GetDesc(&dsv);
+    if (FAILED(g_device->CreateDepthStencilView(s_scratchDepth, &dsv, &s_scratchDSV)) || !s_scratchDSV)
     {
-        D3D11_TEXTURE2D_DESC td{};
-        s_efbColor->GetDesc(&td);
-        if (FAILED(g_device->CreateTexture2D(&td, nullptr, &s_scratchColor))) return false;
-        g_device->CreateRenderTargetView(s_scratchColor, nullptr, &s_scratchRTV);
-        s_efbDepth->GetDesc(&td);
-        if (FAILED(g_device->CreateTexture2D(&td, nullptr, &s_scratchDepth))) return false;
-        D3D11_DEPTH_STENCIL_VIEW_DESC dsv{};
-        s_efbDSV->GetDesc(&dsv);
-        g_device->CreateDepthStencilView(s_scratchDepth, &dsv, &s_scratchDSV);
+        LOG_ERROR("A2d: scratch DSV create failed — depth writes disabled");
+        s_scratchDepth->Release();
+        s_scratchDepth = nullptr;
+        if (s_scratchRTV) { s_scratchRTV->Release(); s_scratchRTV = nullptr; }
+        if (s_scratchColor) { s_scratchColor->Release(); s_scratchColor = nullptr; }
+        return false;
     }
-    // Drop cached textures so replay reloads from guest RAM we just restored.
+    return true;
+}
+
+static void DropReplayTexCaches()
+{
     for (auto& kv : s_texCache)
         ReleaseTex(kv.second);
     s_texCache.clear();
     for (auto& kv : s_efbCopies)
         ReleaseTex(kv.second);
     s_efbCopies.clear();
+}
 
+static bool EnsureEfbInSlot(int slot)
+{
+    if (slot < 0 || slot >= kEfbInSlots || !s_efbColor || !s_efbDepth) return false;
+    EfbInSlot& s = s_efbIn[slot];
+    if (s.color && s.depth) return true;
+    // Match live EFB descs exactly so CopyResource is lossless.
+    D3D11_TEXTURE2D_DESC td{};
+    s_efbColor->GetDesc(&td);
+    if (FAILED(g_device->CreateTexture2D(&td, nullptr, &s.color))) return false;
+    s_efbDepth->GetDesc(&td);
+    if (FAILED(g_device->CreateTexture2D(&td, nullptr, &s.depth)))
+    {
+        s.color->Release();
+        s.color = nullptr;
+        return false;
+    }
+    s.w = td.Width;
+    s.h = td.Height;
+    return true;
+}
+
+int Render_EfbIncomingCapture(uint32_t* outColorHash, uint32_t* outDepthHash,
+                              uint32_t* outW, uint32_t* outH)
+{
+    if (!s_ready || !g_ctx || !s_efbColor) return -1;
+    Flush();
+    // Prefer a free/unreferenced slot; else reuse lowest-ref.
+    int slot = -1;
+    for (int i = 0; i < kEfbInSlots; i++)
+        if (s_efbIn[i].refs == 0)
+        {
+            slot = i;
+            break;
+        }
+    if (slot < 0)
+    {
+        slot = 0;
+        for (int i = 1; i < kEfbInSlots; i++)
+            if (s_efbIn[i].refs < s_efbIn[slot].refs)
+                slot = i;
+        // Steal: force refs to 0 (callers must tolerate).
+        s_efbIn[slot].refs = 0;
+    }
+    if (!EnsureEfbInSlot(slot)) return -1;
+    EfbInSlot& s = s_efbIn[slot];
+    g_ctx->CopyResource(s.color, s_efbColor);
+    g_ctx->CopyResource(s.depth, s_efbDepth);
+    // everyPixel=true so incoming hashes are comparable to live/scratch compare hashes.
+    s.colorHash = HashTextureContents(s.color, true);
+    s.depthHash = HashTextureContents(s.depth, true);
+    D3D11_TEXTURE2D_DESC td{};
+    s.color->GetDesc(&td);
+    s.w = td.Width;
+    s.h = td.Height;
+    s.valid = true;
+    s.refs = 1;
+    if (outColorHash) *outColorHash = s.colorHash;
+    if (outDepthHash) *outDepthHash = s.depthHash;
+    if (outW) *outW = s.w;
+    if (outH) *outH = s.h;
+    return slot;
+}
+
+void Render_EfbIncomingAddRef(int slot)
+{
+    if (slot >= 0 && slot < kEfbInSlots && s_efbIn[slot].valid)
+        s_efbIn[slot].refs++;
+}
+
+void Render_EfbIncomingRelease(int slot)
+{
+    if (slot < 0 || slot >= kEfbInSlots) return;
+    if (s_efbIn[slot].refs > 0)
+        s_efbIn[slot].refs--;
+}
+
+bool Render_EfbIncomingValid(int slot)
+{
+    return slot >= 0 && slot < kEfbInSlots && s_efbIn[slot].valid;
+}
+
+uint32_t Render_EfbIncomingColorHash(int slot)
+{
+    return Render_EfbIncomingValid(slot) ? s_efbIn[slot].colorHash : 0;
+}
+
+uint32_t Render_EfbIncomingDepthHash(int slot)
+{
+    return Render_EfbIncomingValid(slot) ? s_efbIn[slot].depthHash : 0;
+}
+
+bool Render_ScratchBeginFromIncoming(int incomingSlot, uint32_t* outW, uint32_t* outH)
+{
+    if (!EnsureScratchTargets()) return false;
+    if (!Render_EfbIncomingValid(incomingSlot)) return false;
+    DropReplayTexCaches();
+    Render_ResetHostDrawState();
+    g_ctx->CopyResource(s_scratchColor, s_efbIn[incomingSlot].color);
+    g_ctx->CopyResource(s_scratchDepth, s_efbIn[incomingSlot].depth);
+    s_replayIsolation = true;
+    SetEFBTarget();
+    if (outW) *outW = s_efbIn[incomingSlot].w;
+    if (outH) *outH = s_efbIn[incomingSlot].h;
+    return true;
+}
+
+bool Render_ScratchBeginCleared(uint32_t* outW, uint32_t* outH)
+{
+    if (!EnsureScratchTargets()) return false;
+    DropReplayTexCaches();
+    Render_ResetHostDrawState();
     float clear[4] = { 0, 0, 0, 1 };
     g_ctx->ClearRenderTargetView(s_scratchRTV, clear);
     g_ctx->ClearDepthStencilView(s_scratchDSV, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
     s_replayIsolation = true;
     SetEFBTarget();
+    const uint32_t w = EFB_W * s_scale, h = EFB_H * s_scale;
     if (outW) *outW = w;
     if (outH) *outH = h;
     return true;
 }
 
+uint32_t Render_ScratchEndDepthHash()
+{
+    Flush();
+    return HashTextureContents(s_scratchDepth, true);
+}
+
 uint32_t Render_ScratchEndHash()
 {
     Flush();
-    uint32_t h = HashTextureContents(s_scratchColor);
+    uint32_t h = HashTextureContents(s_scratchColor, true);
     s_replayIsolation = false;
     SetEFBTarget();
     return h;
@@ -1544,16 +1709,165 @@ uint32_t Render_ScratchEndHash()
 uint32_t Render_HashLiveEfb()
 {
     Flush();
-    return HashTextureContents(s_efbColor);
+    return HashTextureContents(s_efbColor, true);
+}
+
+uint32_t Render_HashLiveDepth()
+{
+    Flush();
+    return HashTextureContents(s_efbDepth, true);
 }
 
 uint32_t Render_HashScratchBlack()
 {
-    // Requires scratch textures; does not toggle isolation.
-    if (!s_scratchColor) return 0;
+    if (!EnsureScratchTargets()) return 0;
     float clear[4] = { 0, 0, 0, 1 };
     g_ctx->ClearRenderTargetView(s_scratchRTV, clear);
-    return HashTextureContents(s_scratchColor);
+    return HashTextureContents(s_scratchColor, true);
+}
+
+bool Render_CompareLiveVsScratch(RenderEfbCompare& out, bool compareDepth)
+{
+    out = RenderEfbCompare{};
+    if (!s_efbColor || !s_scratchColor || !g_ctx) return false;
+    Flush();
+    UnbindOMTargets();
+    D3D11_TEXTURE2D_DESC d{};
+    s_efbColor->GetDesc(&d);
+    out.width = d.Width;
+    out.height = d.Height;
+    out.liveColorHash = HashTextureContents(s_efbColor, true);
+    out.scratchColorHash = HashTextureContents(s_scratchColor, true);
+    out.liveDepthHash = HashTextureContents(s_efbDepth, true);
+    out.scratchDepthHash = HashTextureContents(s_scratchDepth, true);
+
+    D3D11_TEXTURE2D_DESC sd = d;
+    sd.Usage = D3D11_USAGE_STAGING;
+    sd.BindFlags = 0;
+    sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    sd.MiscFlags = 0;
+    ID3D11Texture2D *stLive = nullptr, *stScr = nullptr;
+    if (FAILED(g_device->CreateTexture2D(&sd, nullptr, &stLive))) return false;
+    if (FAILED(g_device->CreateTexture2D(&sd, nullptr, &stScr)))
+    {
+        stLive->Release();
+        return false;
+    }
+    g_ctx->CopyResource(stLive, s_efbColor);
+    g_ctx->CopyResource(stScr, s_scratchColor);
+    D3D11_MAPPED_SUBRESOURCE ml{}, ms{};
+    if (FAILED(g_ctx->Map(stLive, 0, D3D11_MAP_READ, 0, &ml)) ||
+        FAILED(g_ctx->Map(stScr, 0, D3D11_MAP_READ, 0, &ms)))
+    {
+        if (ml.pData) g_ctx->Unmap(stLive, 0);
+        stLive->Release();
+        stScr->Release();
+        return false;
+    }
+    for (uint32_t y = 0; y < d.Height; y++)
+    {
+        const uint8_t* a = (const uint8_t*)ml.pData + (size_t)y * ml.RowPitch;
+        const uint8_t* b = (const uint8_t*)ms.pData + (size_t)y * ms.RowPitch;
+        for (uint32_t x = 0; x < d.Width; x++)
+        {
+            const uint8_t* pa = a + x * 4;
+            const uint8_t* pb = b + x * 4;
+            out.comparedPixels++;
+            bool mism = false;
+            uint32_t maxd = 0;
+            uint32_t sumd = 0;
+            for (int c = 0; c < 4; c++)
+            {
+                int diff = (int)pa[c] - (int)pb[c];
+                if (diff < 0) diff = -diff;
+                if (diff)
+                {
+                    mism = true;
+                    if ((uint32_t)diff > maxd) maxd = (uint32_t)diff;
+                    sumd += (uint32_t)diff;
+                }
+            }
+            if (mism)
+            {
+                out.colorMismatch++;
+                if (maxd > out.maxChannelDelta) out.maxChannelDelta = maxd;
+                out.sumChannelDelta += sumd;
+            }
+        }
+    }
+    g_ctx->Unmap(stLive, 0);
+    g_ctx->Unmap(stScr, 0);
+    stLive->Release();
+    stScr->Release();
+    out.colorExact = (out.colorMismatch == 0);
+
+    out.depthCompared = false;
+    out.depthExact = false;
+    if (compareDepth && s_efbDepth && s_scratchDepth)
+    {
+        // Serial staging readback (one attachment at a time). Dual concurrent
+        // R32_TYPELESS staging maps have been observed to report false equality
+        // on DXVK while content hashes diverge — hashes are authoritative.
+        if (out.liveDepthHash != 0 && out.scratchDepthHash != 0 &&
+            out.liveDepthHash == out.scratchDepthHash)
+        {
+            out.depthCompared = true;
+            out.depthExact = true;
+            out.depthMismatch = 0;
+        }
+        else if (out.liveDepthHash != out.scratchDepthHash)
+        {
+            out.depthCompared = true;
+            out.depthExact = false;
+            // Count mismatches via serial staging when possible.
+            D3D11_TEXTURE2D_DESC dd{};
+            s_efbDepth->GetDesc(&dd);
+            D3D11_TEXTURE2D_DESC sdd = dd;
+            sdd.Usage = D3D11_USAGE_STAGING;
+            sdd.BindFlags = 0;
+            sdd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            sdd.MiscFlags = 0;
+            std::vector<uint32_t> livePix((size_t)dd.Width * dd.Height);
+            ID3D11Texture2D* st = nullptr;
+            bool counted = false;
+            if (SUCCEEDED(g_device->CreateTexture2D(&sdd, nullptr, &st)))
+            {
+                D3D11_MAPPED_SUBRESOURCE m{};
+                g_ctx->CopyResource(st, s_efbDepth);
+                if (SUCCEEDED(g_ctx->Map(st, 0, D3D11_MAP_READ, 0, &m)))
+                {
+                    for (uint32_t y = 0; y < dd.Height; y++)
+                    {
+                        const uint32_t* row = (const uint32_t*)((const uint8_t*)m.pData + (size_t)y * m.RowPitch);
+                        memcpy(livePix.data() + (size_t)y * dd.Width, row, (size_t)dd.Width * 4);
+                    }
+                    g_ctx->Unmap(st, 0);
+                    g_ctx->CopyResource(st, s_scratchDepth);
+                    if (SUCCEEDED(g_ctx->Map(st, 0, D3D11_MAP_READ, 0, &m)))
+                    {
+                        for (uint32_t y = 0; y < dd.Height; y++)
+                        {
+                            const uint32_t* row = (const uint32_t*)((const uint8_t*)m.pData + (size_t)y * m.RowPitch);
+                            const uint32_t* liveRow = livePix.data() + (size_t)y * dd.Width;
+                            for (uint32_t x = 0; x < dd.Width; x++)
+                                if (liveRow[x] != row[x])
+                                    out.depthMismatch++;
+                        }
+                        g_ctx->Unmap(st, 0);
+                        counted = true;
+                    }
+                }
+                st->Release();
+            }
+            if (!counted)
+                out.depthMismatch = ~0u;
+            else if (out.depthMismatch == 0)
+                out.depthMismatch = 1;  // hash disagrees; never claim 0
+        }
+        else
+            out.depthMismatch = ~0u;  // hashes unavailable
+    }
+    return true;
 }
 
 // ------------------------------------------------------------------ flush
@@ -2271,6 +2585,11 @@ static void DoEFBCopy()
 
     if (clear)
         ClearEFB(sx, sy, sx + sw, sy + sh);
+    // A2d: pass-entry EFB for the *next* archived frame is post-clear (or
+    // post-XFB when clear bit is off). Capture here — not inside OnXfbCopy —
+    // so the snapshot matches live pass starting conditions.
+    if (toXFB && !s_replayIsolation)
+        A2b_OnPassEntryEfb();
     SetEFBTarget();
 }
 

@@ -124,6 +124,12 @@ struct A2bFrameSummary
     uint32_t flags = 0;
     uint32_t commandHash = 0;
     bool gxStartValid = false;
+    bool efbIncomingValid = false;
+    int efbIncomingSlot = -1;          // GPU snapshot handle (renderer-owned)
+    uint32_t efbInColorHash = 0;
+    uint32_t efbInDepthHash = 0;
+    uint32_t efbInW = 0;
+    uint32_t efbInH = 0;
     A2bGxStateSnap gx{};
     A2bContextSnap ctx{};
 };
@@ -145,6 +151,10 @@ struct A2bArchivePacket
     A2bFrameSummary summary{};
     GXState gxStart{};
     bool gxStartValid = false;
+    int efbIncomingSlot = -1;
+    bool efbIncomingValid = false;
+    uint32_t efbInColorHash = 0;
+    uint32_t efbInDepthHash = 0;
     std::vector<uint8_t> cmd;
     std::vector<uint8_t> resData;
     std::vector<uint8_t> tmemStart;   // optional TMEM window at frame start
@@ -165,6 +175,8 @@ void A2b_OnTmemWindow(uint32_t tmemOff, uint32_t size, const uint8_t* data);
 void A2b_NoteDraw();
 void A2b_OnSimFrameEnd();
 void A2b_OnXfbCopy();
+// Call after post-XFB EFB clear (pass-entry state for the next archived frame).
+void A2b_OnPassEntryEfb();
 
 uint64_t A2b_FrameCount();
 bool A2b_HasPair();
