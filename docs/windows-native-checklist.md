@@ -40,10 +40,14 @@ Also test a path with spaces / Unicode for either layout.
 - [ ] Keyboard + rebinding
 - [ ] Stick / trigger dead zones feel correct
 - [ ] Save / load an **input profile** (Settings → Input)
-- [ ] XInput pad detect / disconnect / reconnect (+ toast)
-- [ ] Dual pads if available
+- [ ] `--list-gamepads` shows the pad on **slot 0** (packed XInput users)
+- [ ] Xbox / XInput pad detect / disconnect / reconnect (+ toast)
+- [ ] Launcher ImGui nav with the same pad (A confirm, D-pad / stick)
+- [ ] Dual pads if available (slots pack to 0,1,…)
+- [ ] DualSense / DS4 only if presented as XInput (Steam Input / DS4Windows) — native HID still UNVERIFIED
 - [ ] Launcher and in-game focus
 - [ ] Pause-on-focus-loss: game freezes, audio mutes, rumble stops
+- Optional: `SCR_INPUT_DIAG=1` for throttled button/axis logs
 
 ## Display
 

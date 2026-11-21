@@ -157,6 +157,11 @@ void Pad_SetRumble(int index, uint16_t low, uint16_t high)
     if (p) SDL_RumbleGamepad(p, low, high, low || high ? 0xFFFF : 0);
 }
 
+void Ui_FeedGamepadFromPads()
+{
+    // SDL3 ImGui backend already publishes gamepad state; avoid duplicate events.
+}
+
 bool Key_Down(int vk)
 {
     if (vk == VK_LBUTTON || vk == VK_RBUTTON || vk == VK_MBUTTON || vk == VK_XBUTTON1 || vk == VK_XBUTTON2)

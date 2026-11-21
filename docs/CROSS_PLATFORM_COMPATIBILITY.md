@@ -64,7 +64,7 @@ Discovery: `SCR_MUSIC_BIN` → user `tools/bin` → managed `%LOCALAPPDATA%\…\
 | Saves / NAND | PASS `[auto]` | PASS `[auto]` | PASS | `scr_nand_*_test` |
 | Graphics / window / borderless | PASS | PASS `[source]` | UNVERIFIED | Exclusive FS = Linux only |
 | Audio output | PASS | UNVERIFIED | UNVERIFIED | SDL vs XAudio2 |
-| Controllers / rumble | PASS | UNVERIFIED | UNVERIFIED | SDL vs XInput |
+| Controllers / rumble | PASS `[auto]` | PASS build + Wine API `[auto]`; **UNVERIFIED `[native]` hardware** | PARTIAL | Linux SDL3; Win32 dynamic XInput + **packed slots** (2026-11-21). DualSense/DS4 need Steam Input / XInput wrapper until HID path lands. |
 | Mods / GameBanana | PASS `[source]` | PASS `[source]` | UNVERIFIED | Shared libarchive |
 | Music catalog browse | PASS `[auto]` | PASS `[auto]` | PASS package | `catalog.json` in both packages |
 | Music tab UI responsiveness | PASS `[source]` + microbench | PASS `[source]` / UNVERIFIED `[native]` feel | PARTIAL | `Wav_Probe` + clipper + deps cache; see `MUSIC_LIBRARY_PERFORMANCE.md` |

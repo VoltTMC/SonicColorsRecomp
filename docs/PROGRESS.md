@@ -1,5 +1,25 @@
 # Progress log
 
+## 2026-11-21 — Windows controller fix (critical)
+
+**Goal:** Restore reliable Windows controller input for launcher + gameplay without regressing Linux.
+
+**Root cause (Confirmed):** Win32 `Pad_Read(index)` used raw XInput **user indices** as player slots. Windows often assigns the only pad to user 1–3, so player 1 (`Gamepad_Poll(0)`) never saw buttons while `Pad_Count()` still reported a connected device. Secondary: PE hard-imported `XINPUT1_3.dll` (fails on clean systems without the DX redistributable); ImGui Win32 only polled XInput user 0 for launcher nav.
+
+**Fix (`fix/windows-controller`):**
+- Dynamic `LoadLibrary` of `xinput1_4` → `1_3` → `9_1_0`… (no link-time XInput DLL).
+- Pack connected XInput users into player slots 0..n−1.
+- `Ui_FeedGamepadFromPads()` for launcher/overlay; disable ImGui’s user-0-only XInput poll.
+- `--list-gamepads` prints slot state/axes; `SCR_INPUT_DIAG=1` throttled diagnostics.
+
+**Validation:**
+- MinGW build OK; PE no longer imports `XINPUT1_3.dll`.
+- Wine API: loads `xinput1_4.dll`, `--list-gamepads` runs (`pads: 0` with no pad attached).
+- Linux build OK (SDL path unchanged; `Ui_FeedGamepadFromPads` no-op).
+- **Native Windows + physical pad:** not run on this host (no working Windows VM / hardware path). Required before release claim.
+
+**Limits:** DualSense/DS4 without an XInput wrapper still unsupported on Windows (XInput-only backend). Linux SDL3 continues to cover those via HID.
+
 ## 2026-11-21 — A3b: camera-pose interpolation + scratch rendering
 
 **Goal:** Interpolate consecutive camera poses (TRS/quat, not element-wise view lerp) and apply the intermediate pose to archived GX rendering in scratch only. No second XFB / no unique-FPS claim / no skeletal interp.

@@ -460,6 +460,9 @@ if(WIN32 OR LINUX)
     target_compile_definitions(imgui PUBLIC IMGUI_DISABLE_OBSOLETE_FUNCTIONS)
     if(WIN32)
         target_sources(imgui PRIVATE ${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp)
+        # Gamepad nav comes from Ui_FeedGamepadFromPads() (packed XInput slots). Disable
+        # ImGui's built-in user-0-only XInput poll to avoid duplicate button events.
+        target_compile_definitions(imgui PRIVATE IMGUI_IMPL_WIN32_DISABLE_GAMEPAD)
     else()
         target_sources(imgui PRIVATE ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp)
         target_link_libraries(imgui PUBLIC SDL3::SDL3 dxvk)
@@ -534,7 +537,9 @@ if(WIN32)
     else()
         set(SCR_XAUDIO_LIB xaudio2)
     endif()
-    target_link_libraries(SonicColorsRecomp PRIVATE scr_installer imgui scr_archive scr_json winhttp windowscodecs bcrypt d3d11 dxgi d3dcompiler xinput winmm ole32 uuid shell32 psapi ${SCR_XAUDIO_LIB} dbghelp dwmapi)
+    # XInput is LoadLibrary'd at runtime (xinput1_4 → 1_3 → 9_1_0); do not hard-link
+    # XINPUT1_3.dll — missing redistributable would prevent process start on clean Windows.
+    target_link_libraries(SonicColorsRecomp PRIVATE scr_installer imgui scr_archive scr_json winhttp windowscodecs bcrypt d3d11 dxgi d3dcompiler winmm ole32 uuid shell32 psapi ${SCR_XAUDIO_LIB} dbghelp dwmapi)
 else()
     target_link_libraries(SonicColorsRecomp PRIVATE scr_installer imgui scr_archive scr_json SDL3::SDL3 dxvk vkd3d_shader pthread dl)
 endif()

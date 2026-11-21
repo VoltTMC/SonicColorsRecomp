@@ -13,6 +13,9 @@ void UiBackend_NewFrame();
 void UiBackend_Shutdown();
 // Overlay (render thread): feeds ImGui the input the window thread queued for it.
 void UiBackend_ReplayInput();
+// Feed ImGui gamepad nav from packed player-slot 0 (Win32 XInput remap / Linux SDL).
+// Call once per UI frame after UiBackend_NewFrame().
+void Ui_FeedGamepadFromPads();
 
 // ---------------------------------------------------------------- launcher window
 // Creates the launcher window (hidden until UiWindow_Show), centered on the desktop.
