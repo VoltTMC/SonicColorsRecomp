@@ -13,6 +13,7 @@
 #include "debug/a1c_gx_capture.h"
 #include "debug/a2b_fifo_archive.h"
 #include "debug/a3a_draw_attr.h"
+#include "debug/a3b_camera_interp.h"
 
 #include <atomic>
 #include <algorithm>
@@ -220,6 +221,7 @@ void Perf_OnGuestFrameEnd()
     A1c_OnSimFrameEnd();  // no-op unless SCR_A1C_GX_CAPTURE=1
     A2b_OnSimFrameEnd();  // no-op unless SCR_A2B_FIFO_CAPTURE=1
     A3a_OnSimFrameEnd();  // no-op unless SCR_A3A_DRAW_ATTR=1
+    A3b_OnSimFrameEnd();  // no-op unless SCR_A3B_CAMERA_INTERP=1
     if (!s_on || !t_guest0) return;
     const uint64_t now = Now();
     s_guestNs.fetch_add(now - t_guest0, std::memory_order_relaxed);
@@ -337,6 +339,7 @@ void Perf_OnXfbCopy()
     A1c_OnXfbCopy();  // no-op unless SCR_A1C_GX_CAPTURE=1
     A2b_OnXfbCopy();  // no-op unless SCR_A2B_FIFO_CAPTURE=1
     A3a_OnXfbCopy();  // no-op unless SCR_A3A_DRAW_ATTR=1
+    A3b_OnXfbCopy();  // no-op unless SCR_A3B_CAMERA_INTERP=1
     if (!s_on) return;
     s_xfbN.fetch_add(1, std::memory_order_relaxed);
 }

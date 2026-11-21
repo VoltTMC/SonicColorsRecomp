@@ -14,6 +14,7 @@
 #include "../debug/a2c_scratch_replay.h"
 #include "../debug/a2g_natural_trace.h"
 #include "../debug/a3a_draw_attr.h"
+#include "../debug/a3b_camera_interp.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
 #include "../tas/tas.h"
@@ -318,6 +319,13 @@ void Overlay_Render(float w, float h)
                 A3a_OverlayLine(a3a, sizeof(a3a));
                 if (a3a[0])
                     ImGui::TextUnformatted(a3a);
+            }
+            if (A3b_CameraInterpEnabled())
+            {
+                char a3b[160];
+                A3b_OverlayLine(a3b, sizeof(a3b));
+                if (a3b[0])
+                    ImGui::TextUnformatted(a3b);
             }
             if (A2b_FifoCaptureEnabled() || A2c_ScratchReplayEnabled())
             {

@@ -2,12 +2,14 @@
 #include "a2c_scratch_replay.h"
 #include "a2b_fifo_archive.h"
 #include "a3a_draw_attr.h"
+#include "a3b_camera_interp.h"
 #include "../gx/gx_state.h"
 #include "../gx/texture_decode.h"
 #include "../kernel/memory.h"
 #include "../log.h"
 #include "../platform/platform.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -457,8 +459,14 @@ void RunScratchReplay(A2bArchivePacket& pkt, const A2cPassReport& pass, A2cRepla
         // Suspended during primary live-vs-scratch MATCH; probe enables it explicitly.
         if (A3a_MatrixOverrideEnabled() && !A3a_OverrideSuspended())
             A3a_ApplyMatrixOverride();
+        // A3b: apply interpolated camera delta to PNMTX0..9 (model-view left-multiply).
+        if (A3b_CameraInterpEnabled() && !A3b_CameraSuspended())
+            A3b_BeginScratchCamera(A3b_CameraAlpha());
 
         GX_ReplayCommands(pkt.cmd.data(), pass.passBytes);
+
+        if (A3b_ScratchCameraActive())
+            A3b_EndScratchCamera();
 
         if (doCompare)
         {
@@ -527,8 +535,9 @@ void RunScratchReplay(A2bArchivePacket& pkt, const A2cPassReport& pass, A2cRepla
         return Render_ScratchEndHash();
     };
 
-    // Keep override off for primary live-vs-scratch acceptance.
+    // Keep A3a/A3b overrides off for primary live-vs-scratch acceptance.
     A3a_SuspendOverride(true);
+    A3b_SuspendCamera(true);
     const uint32_t h1 = replayOnce(true);
     // Determinism probe: skip second full replay once family has MATCH'd (costly).
     bool skipDet = false;
@@ -564,8 +573,69 @@ void RunScratchReplay(A2bArchivePacket& pkt, const A2cPassReport& pass, A2cRepla
             LOG_INFO("A3a TestB: controlled tx substitution DIFF as expected row={}",
                      A3a_OverrideRow());
     }
-    else
-        A3a_SuspendOverride(false);
+
+    // A3b camera probes: α=0 / α=1 endpoints + configured α midpoint.
+    // Skip while the live pair is still discontinuous (boot proj changes).
+    A3bCameraPair a3bPair{};
+    const bool a3bPairOk =
+        A3b_CameraInterpEnabled() && A3b_GetPair(a3bPair) && a3bPair.interpolable;
+    if (A3b_CameraInterpEnabled() && rr.completed && h1 != 0 && rr.imageMatch && a3bPairOk)
+    {
+        A3b_SuspendCamera(true);
+        const uint32_t hBase = replayOnce(false);
+        // Test A — α=0 (previous pose / identity delta)
+        {
+            A3b_SetProbeAlpha(0.f);
+            A3b_SuspendCamera(false);
+            A3b_ResetCameraStats();
+            const uint32_t h0 = replayOnce(false);
+            A3b_SuspendCamera(true);
+            A3b_NoteCameraHashes(hBase, h0);
+            if (hBase == h0 && A3b_GetCameraStats().exercised)
+                LOG_INFO("A3b TestA: α=0 endpoint MATCH+exercised");
+            else if (hBase == h0 && !A3b_GetCameraStats().exercised)
+                LOG_INFO("A3b TestA: α=0 hash match but not exercised (fail={:03x})",
+                         A3b_GetCameraStats().failBits);
+            A3b_SetProbeAlpha(NAN);
+        }
+        // Test B — α=1 (current pose). Distinct from baseline only when view moved.
+        {
+            A3b_SetProbeAlpha(1.f);
+            A3b_SuspendCamera(false);
+            A3b_ResetCameraStats();
+            const uint32_t h1a = replayOnce(false);
+            A3b_SuspendCamera(true);
+            A3b_NoteCameraHashes(hBase, h1a);
+            const A3bCameraStats st = A3b_GetCameraStats();
+            if (st.exercised && hBase == h1a)
+                LOG_INFO("A3b TestB: α=1 exercised; hash==baseline (view unchanged or archive=curr)");
+            else if (st.exercised && hBase != h1a)
+                LOG_INFO("A3b TestB: α=1 exercised; hash≠baseline (curr pose on prev archive)");
+            else
+                LOG_INFO("A3b TestB: not exercised (fail={:03x})", st.failBits);
+            A3b_SetProbeAlpha(NAN);
+        }
+        // Test C — configured α (default 0.5)
+        {
+            A3b_SuspendCamera(false);
+            A3b_ResetCameraStats();
+            const uint32_t hMid = replayOnce(false);
+            A3b_SuspendCamera(true);
+            A3b_NoteCameraHashes(hBase, hMid);
+            const A3bCameraStats st = A3b_GetCameraStats();
+            if (st.exercised && st.midpointDistinct)
+                LOG_INFO("A3b TestC: α={:.2f} midpoint distinct from baseline (hash)", st.alpha);
+            else if (st.exercised && !st.midpointDistinct)
+                LOG_INFO("A3b TestC: α={:.2f} exercised but hash==baseline (no cam delta / UI pass)",
+                         st.alpha);
+            else
+                LOG_INFO("A3b TestC: skipped or not exercised (fail={:03x})", st.failBits);
+        }
+    }
+
+    A3a_SuspendOverride(false);
+    A3b_SuspendCamera(false);
+    A3b_SetProbeAlpha(NAN);
 
     cleanup();
 

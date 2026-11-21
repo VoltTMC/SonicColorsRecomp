@@ -723,6 +723,49 @@ SCR_A2G_NATURAL_TRACE=1 SCR_A2G_SELFTEST=0 ./out/SonicColorsRecomp \
 
 **Next:** Other stages / effects-heavy scenes if TR1’s mip-chain-dominated EFB pattern is not representative — still no scene-wide / no interp / no unique-FPS. Do **not** treat synthetic retain as natural.
 
+### Approach A3b — camera-pose interpolation + scratch rendering (2026-11-21)
+
+Opt-in only. **No second XFB, no unique-FPS claim, no skeletal interpolation.**
+
+| Switch | Role |
+|--------|------|
+| `SCR_A3B_CAMERA_INTERP=1` | Capture consecutive camera poses; scratch-only view delta |
+| `SCR_A3B_CAMERA_ALPHA` | Interpolation α ∈ [0,1] (default **0.5**) |
+| `SCR_A3B_FORCE_VIEW_DX` | When live views are identical, synthesize +X camera translation for midpoint proof (default off) |
+
+Prefer `SCR_A1B_POSE_CAPTURE=1` together with A3b so seq/proj/view pairing uses A1b.
+
+#### View-matrix semantics
+
+- Captured view = A1b first XF `LoadXF` of **PNMTX0** in the XFB frame (fallback: live XF row 0 at XFB).
+- Convention: guest **3×4 world-to-view**, row-major, column vectors (`out = R·p + t`). Camera-to-world = rigid inverse.
+- Model-view matrices in XF are typically `View * Model`. Camera change uses left-multiply:
+  - \(V_\alpha\) = interpolate via camWorld TRS (lerp T + quat slerp), then invert
+  - \(D = V_\alpha · V_0^{-1}\)
+  - \(M' = D · M\) for GX_PNMTX0..9 (rows 0,3,…,27)
+- Projection / viewport: captured; **projection changes invalidate** interpolation (`fail` incl. `ProjChange`).
+- Do **not** element-wise lerp view matrix entries. Fail closed on shear / reflection / non-uniform scale / cuts / missing poses.
+
+#### Scratch path
+
+1. Primary A2f live-vs-scratch MATCH runs with camera suspended (like A3a).
+2. Probes: α=0 (identity delta → MATCH), α=1, α=configured.
+3. Archived matrices immutable; live guest XF / camera / EFB untouched; PE IRQs suppressed.
+
+#### Validation
+
+| Test | Result |
+|------|--------|
+| Math unit (`scr_a3b_camera_math_test`) | OK |
+| A — α=0 endpoint | MATCH + exercised (`phase27_a3b_force_dx.log`) |
+| B/C — FORCE_VIEW_DX=8 | α=1 DIFF; α=0.5 midpoint distinct |
+| TR1 pose ring | Smooth `viewT` motion with `fail=000`; large jumps `fail=020` Cut (`phase27_a3b_tr1_view.log`) |
+| A2d/A2e/A2f | Still MATCH; capture-off ~60 Hz |
+
+**Coverage:** GX_PNMTX0..9 only. Full TR1 scene archive still incomplete — natural 3D midpoint on env geometry needs a bounded camera-sensitive archive (next). UI passes without force-DX stay hash-stable at α=0.5 when view is static.
+
+**Not claimed:** full-scene camera interp readiness; intermediate XFB; unique FPS.
+
 ### Approach A3a — draw-level transform attribution + scratch substitution (2026-11-21)
 
 Opt-in diagnostics only. **No interpolation, no second XFB, no unique-FPS claim.**

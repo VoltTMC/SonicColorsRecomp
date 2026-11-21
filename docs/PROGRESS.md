@@ -1,5 +1,24 @@
 # Progress log
 
+## 2026-11-21 — A3b: camera-pose interpolation + scratch rendering
+
+**Goal:** Interpolate consecutive camera poses (TRS/quat, not element-wise view lerp) and apply the intermediate pose to archived GX rendering in scratch only. No second XFB / no unique-FPS claim / no skeletal interp.
+
+**Camera / view semantics:** A1b `viewMtx` = first XF LoadXF of PNMTX0 in the XFB frame = guest **world-to-view** (3×4 row-major, column vectors). Model-views are `View*Model`; camera delta `D = Vα · inv(V0)` is **left-multiplied** onto GX_PNMTX0..9 (rows 0,3,…,27). PNMTX0 is not always a standalone camera during UI; during menu/TR1 motion `viewT` tracks camera movement. Guest `CameraManager` node pos hooks often idle (`camPos=0`); XF view is the rendering source of truth for A3b.
+
+**Shipped:** `a3b_camera_math.*` (decompose/slerp/delta) + `a3b_camera_interp.*` (pose ring, cut/proj fail-closed, scratch apply); `SCR_A3B_CAMERA_INTERP`, `SCR_A3B_CAMERA_ALPHA`, `SCR_A3B_FORCE_VIEW_DX` (static-view midpoint proof); unit test `scr_a3b_camera_math_test`; A2c probes TestA/B/C; overlay line.
+
+**Evidence:**
+- Math unit test OK (identical / translate / rotate / slerp sign / singular / shear / reflection).
+- TestA α=0 endpoint MATCH+exercised on A2f (`phase27_a3b_force_dx.log`).
+- TestC α=0.5 with `FORCE_VIEW_DX=8` midpoint hash distinct + TestB α=1 DIFF (`phase27_a3b_force_dx.log`).
+- TR1 consecutive poses with `fail=000` and smooth `viewT` motion; cuts `fail=020` (`phase27_a3b_tr1_view.log`).
+- Boot proj changes fail-closed (`fail=080`); A2d/A2e/A2f still MATCH; capture-off ~60 Hz; `regression_smoke` OK.
+
+**Limits:** Full TR1 scene archives still overflow / not replay-ready — A3b scratch proof uses complete A2f/A2e UI passes + forced view delta, plus real pose capture on TR1. Not full-scene camera interp. No second XFB.
+
+**Next:** Bounded camera-sensitive env draw archive for natural (non-forced) midpoint on 3D geometry — still before skeletal interp / second XFB.
+
 ## 2026-11-21 — A3a: draw-level transform attribution + scratch matrix override
 
 **Goal:** Know which PNMTXIDX rows each GX draw uses, correspond draws across frames, and safely substitute a matrix in scratch replay only.

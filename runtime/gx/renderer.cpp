@@ -29,6 +29,7 @@
 #include "../debug/a2b_fifo_archive.h"
 #include "../debug/a2c_scratch_replay.h"
 #include "../debug/a3a_draw_attr.h"
+#include "../debug/a3b_camera_interp.h"
 
 #include <chrono>
 #include <cstdlib>
@@ -2434,6 +2435,8 @@ void Render_OnXF(uint32_t addr, uint32_t count, bool indexed)
     // A3a: re-apply scratch override after FIFO LoadXF during isolation only.
     if (A3a_MatrixOverrideEnabled() && s_replayIsolation)
         A3a_OnXfLoadIsolation(addr, count);
+    if (A3b_CameraInterpEnabled() && s_replayIsolation)
+        A3b_OnXfLoadIsolation(addr, count);
 }
 
 void Render_OnCP(uint32_t reg)
