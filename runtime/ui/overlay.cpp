@@ -8,6 +8,7 @@
 #include "../log.h"
 #include "../perf.h"
 #include "../debug/a1_xf_capture.h"
+#include "../debug/a1b_pose_capture.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
 #include "../tas/tas.h"
@@ -284,6 +285,13 @@ void Overlay_Render(float w, float h)
                 A1_OverlayLine(a1, sizeof(a1));
                 if (a1[0])
                     ImGui::TextUnformatted(a1);
+            }
+            if (A1b_PoseCaptureEnabled())
+            {
+                char a1b[160];
+                A1b_OverlayLine(a1b, sizeof(a1b));
+                if (a1b[0])
+                    ImGui::TextUnformatted(a1b);
             }
         }
         ImGui::End();

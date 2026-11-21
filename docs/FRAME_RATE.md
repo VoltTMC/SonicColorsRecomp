@@ -165,13 +165,67 @@ Guest GXFIFO MMIO
 
 **Blocked for a unique-frame prototype this phase:** no safe way to emit a *visually distinct* second XFB without either (unsafe) guest redraw, (identical) FIFO replay, or (not yet built) pose interpolation into a new render pass.
 
+### Approach A1b — guest pose / camera-state capture (2026-11-21)
+
+Opt-in immutable snapshots at completed sim-frame boundaries for future host interpolation. **No extra unique XFBs, no guest redraw, no FIFO replay.**
+
+| Item | Detail |
+|------|--------|
+| Code | [`runtime/debug/a1b_pose_capture.cpp`](../runtime/debug/a1b_pose_capture.cpp) |
+| Enable | `SCR_A1B_POSE_CAPTURE=1` (default off); `SCR_A1B_POSE_DUMP=1` for log lines |
+| Ring | `A1bPoseSnap` current + previous; `seq` ++ once per `Perf_OnGuestFrameEnd` |
+
+#### Guest sources (decomp-verified)
+
+| Field | Source | Notes |
+|-------|--------|-------|
+| Player shell | `PlayerGetPos` `fn_80033C34` **r4**; also `PlayerGetWorldMtxPtr` `fn_80033C78` **r3**; `BoostPluginTick` **r4** | MEM1/MEM2 (`0x8…` / `0x9…`) |
+| Body | shell `+0x28` → `+0x84` | Same walk as `fn_80033C78` |
+| World mtx | body `+0x0C` (3×4 GC MTX) | Pointer from `fn_80033C78`; may need `fn_80053718` refresh before translation is non-zero |
+| Position | body `+0x168` | `fn_80033C34` |
+| Camera mgr | `CameraManagerTick` `fn_80571720` **r3** | Contains `PushWorldUpVector` @ `0x80571B44` |
+| Camera node | mgr`+0xBC`→`+0x20`→`+0xC068`, else list head mgr`+0xC0` | Tick’s r27 path / `fn_805C1540` |
+| Cam pos | node `+0x90` / alt `+0xA8` | Written/read in `fn_80570FF0` / Tick |
+| View mtx | First XF LoadXF into pos-mtx 0 each GPU frame | Via `Render_OnXF` → `A1b_OnXfPosMtx0` |
+| Projection / viewport | `XF_PROJECTION` / `XF_VIEWPORT` at XFB | Reuses A1 registers |
+
+**Not the player shell:** `PlayerSingletonPtr` / `lbl_808F3378` (type `0x88C0` from `fn_80015E84`) — `+0x28` is not the shell chain.
+
+#### Matrix / coordinate conventions
+
+- Guest matrices are GameCube **3×4 row-major** `MTX`: rows `[r0 r1 r2 tx]`, `[r3 r4 r5 ty]`, `[r6 r7 r8 tz]`.
+- Handedness / multiply order match GX (right-handed view, column vectors on the right when expanded to 4×4).
+- Host D3D expects conversion at draw time (existing renderer path); capture stores **guest** floats unmodified.
+- `XF_VIEWPORT` is **not** a view matrix (A1); use `viewMtx` / `gxPosMtx0` for orientation.
+
+#### Scene-wide interpolation requirements (not implemented in A1b)
+
+| Category | Status |
+|----------|--------|
+| Sonic root / body pose | **Capturable** (this phase) |
+| Gameplay camera / view / projection | **Capturable** (mgr + XF view + A1 proj) |
+| Enemies / NPCs | **Needs guest instrumentation** (actor registry walk / per-type hooks) |
+| Animated props / moving platforms | **Needs instrumentation** (object update vtables) |
+| Skeletal bones | **Needs instrumentation** (`cPoseAccumulator::GetNodeMatrix` paths; not yet typed) |
+| Particles / FX | **Unsuitable** for pure transform interp (spawn/lifetime/GPU state) |
+| Transparent sorting | **Unsuitable** without re-submitting draw order |
+| HUD / menus | **Unsuitable** (2D / screen-space; keep at sim rate or separate pass) |
+
+**What still blocks a full interpolated scene pass:** no FIFO archive, no safe second draw, no actor/bone capture, particles/UI not transform-warpable, and player body `+0x0C` translation may stay identity until the guest refresh path is hooked read-only.
+
+#### Validation (TR1 path, `userdata` NAND + input script)
+
+- Capture **off**: no `A1b:` logs; normal 60 Hz present.
+- Capture **on**: `player=ok` after stage entry; `camMgr`/`view` live; `seq` tracks `sim`; `pair=yes` with `prevSeq=seq-1`; `xf=ok` on XFB dump; `simulation_hz`≈60; underruns≈0 in-stage; A1 XF still works when co-enabled.
+- **No unique-frame claim.**
+
 ### Approach A roadmap
 
 | Phase | Goal | Exit criteria | Status |
 |-------|------|---------------|--------|
 | A0 | Honest metrics + docs | No claim of unique>60 | Done |
-| A1 | XF / camera capture investigation + XF snap groundwork | Overlay shows XF snaps; zero gameplay change; docs of A–D | **This delivery** |
-| A1b | Resolve player/camera world matrices in guest RAM | Stable addresses or type-walk; debug overlay poses | Next |
+| A1 | XF / camera capture investigation + XF snap groundwork | Overlay shows XF snaps; zero gameplay change; docs of A–D | Done |
+| A1b | Resolve player/camera world matrices in guest RAM | Stable addresses or type-walk; debug overlay poses | **Done** |
 | A2 | Debug-only host warp/composite from two captures | Visual check; **not** counted as `unique_xfb` | Later |
 | A2b | Optional FIFO archive (flag) + IRQ-safe replay spike | Can re-issue last frame’s draws into EFB under flag | Later |
 | A3 | Interpolated second XFB without guest update | `unique_xfb` >60 behind debug flag | Later |

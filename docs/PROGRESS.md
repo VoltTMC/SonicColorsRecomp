@@ -1,5 +1,17 @@
 # Progress log
 
+## 2026-11-21 — Approach A1b: guest pose / camera-state capture
+
+**Goal:** Immutable guest pose snapshots for future host interpolation (Approach A). No extra unique XFBs.
+
+**Shipped:** `runtime/debug/a1b_pose_capture.*` behind `SCR_A1B_POSE_CAPTURE=1` / `SCR_A1B_POSE_DUMP=1`. Curr+prev `A1bPoseSnap` at sim-frame end; XF proj/viewport + first pos-mtx-0 view at XFB. Overlay line when enabled.
+
+**Guest sources:** `PlayerGetPos` (`0x80033C34`, r4=shell), `PlayerGetWorldMtxPtr` (`0x80033C78`), `BoostPlugin*` r4; body via shell→`+0x28`→`+0x84`; mtx `+0x0C`, pos `+0x168`. `CameraManagerTick` (`0x80571720`). **Not** `lbl_808F3378` as shell (type `0x88C0`; chain invalid). MEM2 pointers (`0x9…`) accepted.
+
+**Validation:** Title + TR1 path (`--nand userdata`, phase8-style input script). `player=ok` with live shell/body; viewT moves with camera; `pair=yes`; sim≈60; in-stage underruns≈0; capture-off silent. Body `+0x0C` translation often identity without `fn_80053718` refresh — documented blocker for A2. No unique-frame claim.
+
+**Docs:** `docs/FRAME_RATE.md` A1b (sources, matrix conventions, scene-wide classification). `regression_smoke` after push.
+
 ## 2026-11-21 — Approach A1: renderer feasibility investigation
 
 **Pipeline:** Guest `fn_800123A0` → `fn_800115BC` → `fn_80014AA8`/`fn_80014BD0` (update+draw coupled) → GXFIFO → `gx_fifo` consume/erase → BP `0x52` XFB → Present. `Renderer_RepeatLastXfb` is blit-only.

@@ -4,6 +4,7 @@
 #include "../kernel/memory.h"
 #include "../log.h"
 #include "../platform/platform.h"
+#include "a1b_pose_capture.h"
 
 #include <cmath>
 #include <cstring>
@@ -28,6 +29,8 @@ PPC_OVERRIDE(BoostPluginSnBoost)
 {
     const uint32_t self = ctx.r[3];
     const uint32_t player = ctx.r[4];
+    if (A1b_PoseCaptureEnabled())
+        A1b_CachePlayerShell(player);
     float f14 = 0.f, f18 = 0.f;
     uint32_t u04 = 0, u08 = 0, u0c = 0, u10 = 0, st1c = 0;
     if (self && (self >> 28) == 0x8)
@@ -76,6 +79,9 @@ PPC_OVERRIDE(BoostPluginTick)
 {
     const uint32_t self = ctx.r[3];
     const uint32_t player = ctx.r[4];
+    // A1b: BoostPluginTick r4 is the live player shell during stage (fn_80088CB8).
+    if (A1b_PoseCaptureEnabled())
+        A1b_CachePlayerShell(player);
     uint32_t st1c = 0;
     float f14 = 0.f, f18 = 0.f;
     if (self && (self >> 28) == 0x8)

@@ -39,6 +39,14 @@ ObjSpringPoleCollide         func 800CEFFC
 BoostPluginSnBoost           func 800888CC
 # Boost plugin per-frame/state tick (vtable @ 8075e0a8); +0x1C state → 80088D28 / 80088F0C
 BoostPluginTick              func 80088CB8
+# A1b pose capture: player shell → body+0x0C world mtx (fn_80033C78); r3=shell
+PlayerGetWorldMtxPtr         func 80033C78
+# A1b: copy world position (fn_80033C34); r3=dst float[3], r4=shell (widely called)
+PlayerGetPos                 func 80033C34
+# cCameraManager large method containing PushWorldUpVector @ 80571B44; r3=this at entry
+CameraManagerTick            func 80571720
+# Boot-time type-0x88C0 alloc (fn_80015E84); NOT the player shell (+0x28 chain fails)
+PlayerSingletonPtr           data 808F3378
 # MSL sprintf — Music Mods watches scripts/%s_mission.lua (and friends) for live stage loads
 sprintf                      func 80379820
 
