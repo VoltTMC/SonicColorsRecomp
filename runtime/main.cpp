@@ -108,7 +108,7 @@ static void PrintUsage()
         "                          and print its path; exit 0 on success, 1 on failure.\n"
         "  --portable              Keep config/saves/logs next to the executable\n"
         "                          (also: SCR_PORTABLE=1). Portable ZIP default; installer\n"
-        "                          builds use %APPDATA%\\SonicColorsRecomp unless this is set.\n"
+        "                          builds use %%APPDATA%%\\SonicColorsRecomp unless this is set.\n"
         "                          useful for AppImage when you want a side-by-side folder.\n"
         "  --skip-launcher         Start the game without the launcher UI\n"
         "  --data DIR              Game data directory (extracted DATA)\n"
