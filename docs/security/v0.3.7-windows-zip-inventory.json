@@ -1,0 +1,282 @@
+[
+  {
+    "path": "SonicColorsRecomp/README.md",
+    "size": 7064,
+    "sha256": "31619cc10e62787ea4fb6b40f3c4f42367c04bfcc519893080355f43a6285639",
+    "kind": "text",
+    "compress_size": 3249
+  },
+  {
+    "path": "SonicColorsRecomp/RUNTIME_DEPS.txt",
+    "size": 759,
+    "sha256": "4411d89d01c76ed08487fc75435ff850f87cd0cab8c434ce647cf19836fc4b89",
+    "kind": "text",
+    "compress_size": 315
+  },
+  {
+    "path": "SonicColorsRecomp/SonicColorsRecomp.exe",
+    "size": 512433009,
+    "sha256": "2bc687b765f82dbc91e21f75213aebd03bdc6c1e1eb392500ecf7612557fb554",
+    "kind": "PE-EXE",
+    "compress_size": 174504601
+  },
+  {
+    "path": "SonicColorsRecomp/TESTING.txt",
+    "size": 1233,
+    "sha256": "17cee67f9360e9b2e16c2180429d0a6768f37711c770cfd85132d01bf7694018",
+    "kind": "text",
+    "compress_size": 685
+  },
+  {
+    "path": "SonicColorsRecomp/data/music_deps_manifest.json",
+    "size": 3050,
+    "sha256": "40ceea9e8224fe853b240e92b775c80e2e1c88214471a8f281ce01c5c5ac7f48",
+    "kind": "text",
+    "compress_size": 1194
+  },
+  {
+    "path": "SonicColorsRecomp/docs/WINDOWS_FEATURE_PARITY.md",
+    "size": 9169,
+    "sha256": "1132f256b59113e118a4afa1a485760ce41f500cb2048ca0bd12b69d4fdbf680",
+    "kind": "text",
+    "compress_size": 3118
+  },
+  {
+    "path": "SonicColorsRecomp/docs/windows-native-checklist.md",
+    "size": 5589,
+    "sha256": "506cde1973b60f477cb7db413c108cffdc4d4a74e0b9407763d10b3a7eea7452",
+    "kind": "text",
+    "compress_size": 2648
+  },
+  {
+    "path": "SonicColorsRecomp/game/ABOUT_THIS_FOLDER.txt",
+    "size": 383,
+    "sha256": "2d32fb09430399fb65cf5a73942cc6681a777555446c5ce1831a2959314ea591",
+    "kind": "text",
+    "compress_size": 258
+  },
+  {
+    "path": "SonicColorsRecomp/libwinpthread-1.dll",
+    "size": 61429,
+    "sha256": "9230fabfb5b5909d6f223327d2ac72cf17e161dfe51e9c7537517ae61a05e62e",
+    "kind": "PE-DLL",
+    "compress_size": 26641
+  },
+  {
+    "path": "SonicColorsRecomp/licenses/LICENSE.txt",
+    "size": 17984,
+    "sha256": "edaef632cbb643e4e7a221717a6c441a4c1a7c918e6e4d56debc3d8739b233f6",
+    "kind": "text",
+    "compress_size": 6788
+  },
+  {
+    "path": "SonicColorsRecomp/licenses/MUSIC_DEPS_RUNTIME.txt",
+    "size": 1291,
+    "sha256": "77288c8536965b9549805141a68a0dc0defaec175602c35399abe4aa2dc85bd7",
+    "kind": "text",
+    "compress_size": 634
+  },
+  {
+    "path": "SonicColorsRecomp/licenses/imgui-LICENSE.txt",
+    "size": 1083,
+    "sha256": "173506a2d6f7fb67990d257fb2507f188690eca39060c39469ae7bef43aae2a3",
+    "kind": "text",
+    "compress_size": 642
+  },
+  {
+    "path": "SonicColorsRecomp/licenses/libarchive-COPYING.txt",
+    "size": 3089,
+    "sha256": "30e556b3959e3985d66efefec5eaac51d4995053caa1d3cffe6eb916f146f229",
+    "kind": "text",
+    "compress_size": 1429
+  },
+  {
+    "path": "SonicColorsRecomp/licenses/liblzma-COPYING.0BSD.txt",
+    "size": 607,
+    "sha256": "0b01625d853911cd0e2e088dcfb743261034a091bb379246cb25a14cc4c74bf1",
+    "kind": "text",
+    "compress_size": 375
+  },
+  {
+    "path": "SonicColorsRecomp/licenses/nlohmann-json-LICENSE.MIT.txt",
+    "size": 1076,
+    "sha256": "46a65cffd1ea955132d95a8dd921640714a8d6b537d2e4e482d31145ae95b603",
+    "kind": "text",
+    "compress_size": 637
+  },
+  {
+    "path": "SonicColorsRecomp/licenses/nod-LICENSE-MIT.txt",
+    "size": 1065,
+    "sha256": "544ffe9befaefa6b59ab1fdde58789069ba7c1b65432bdea273a16b2117909b7",
+    "kind": "text",
+    "compress_size": 626
+  },
+  {
+    "path": "SonicColorsRecomp/licenses/zlib-LICENSE.txt",
+    "size": 1002,
+    "sha256": "e32ff4e00d9d94930537635291da39e7e612703334bf6fde8c7f1686fe8a45a2",
+    "kind": "text",
+    "compress_size": 528
+  },
+  {
+    "path": "SonicColorsRecomp/mods/music/README.md",
+    "size": 305,
+    "sha256": "e16cc67083cfc09fabdd87e4f49e2145eeb004dbd849bb8f5cb1dac59e34328d",
+    "kind": "text",
+    "compress_size": 226
+  },
+  {
+    "path": "SonicColorsRecomp/mods/music/catalog.json",
+    "size": 124327,
+    "sha256": "eb2508d9b956a82bfcbff4e340857d59063df1d0c0a8b0a4f39870f6d50d670f",
+    "kind": "text",
+    "compress_size": 11090
+  },
+  {
+    "path": "SonicColorsRecomp/portable.txt",
+    "size": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "kind": "text",
+    "compress_size": 0
+  },
+  {
+    "path": "SonicColorsRecomp/recomplauncher.json",
+    "size": 8975,
+    "sha256": "39e958507121bc419ba57bcf5883b2838a45781a1e23503e5edb9f60e1a82b51",
+    "kind": "text",
+    "compress_size": 2235
+  },
+  {
+    "path": "SonicColorsRecomp/shadercache/ps_keys.bin",
+    "size": 3000,
+    "sha256": "7d531f7e20a71cc6280efd4145a500a89a763cefae1e643c1e6191ceec74215e",
+    "kind": "data",
+    "compress_size": 149
+  },
+  {
+    "path": "SonicColorsRecomp/shadercache/vs_keys.bin",
+    "size": 864,
+    "sha256": "bf65fa743d1143ba0273a9853d1fe7398390e507dbf2d50459016d27f8d53206",
+    "kind": "data",
+    "compress_size": 67
+  },
+  {
+    "path": "SonicColorsRecomp/tools/MUSIC_ASSET_WINDOWS.txt",
+    "size": 2970,
+    "sha256": "80a163f7fe75f2f830514a7f3fadca23eed262bf5a036940546042748ff82e35",
+    "kind": "text",
+    "compress_size": 1411
+  },
+  {
+    "path": "SonicColorsRecomp/tools/bin/README.md",
+    "size": 2098,
+    "sha256": "149f6b63e5ad7c5b5ab6742054cfa1be599ed87390201fae37ce6a03b08e1058",
+    "kind": "text",
+    "compress_size": 1105
+  },
+  {
+    "path": "SonicColorsRecomp/tools/libwinpthread-1.dll",
+    "size": 61429,
+    "sha256": "9230fabfb5b5909d6f223327d2ac72cf17e161dfe51e9c7537517ae61a05e62e",
+    "kind": "PE-DLL",
+    "compress_size": 26641
+  },
+  {
+    "path": "SonicColorsRecomp/tools/music_asset.cmd",
+    "size": 482,
+    "sha256": "38015ed68f1fb36fe1544c052cafe169505438bed6b746101be700689930dbc9",
+    "kind": "script",
+    "compress_size": 273
+  },
+  {
+    "path": "SonicColorsRecomp/tools/music_asset.exe",
+    "size": 16372524,
+    "sha256": "ba06251a67febf79d368cacba388324fcafa5ff5c86a58d4b354eddfee973e2b",
+    "kind": "PE-EXE",
+    "compress_size": 4835301
+  },
+  {
+    "path": "SonicColorsRecomp/tools/music_asset_pkg/__init__.py",
+    "size": 98,
+    "sha256": "5f5f6faf89ecc927191641d487d4b55dd6d3596044b8a3ed85cfae4006609ab1",
+    "kind": "other",
+    "compress_size": 95
+  },
+  {
+    "path": "SonicColorsRecomp/tools/music_asset_pkg/catalog.py",
+    "size": 6852,
+    "sha256": "c7fd6d42244c03d1ec20dd06d201c78ded761d860ffdaa4b3f30924d8e63c6e7",
+    "kind": "other",
+    "compress_size": 2318
+  },
+  {
+    "path": "SonicColorsRecomp/tools/music_asset_pkg/cli.py",
+    "size": 6054,
+    "sha256": "8259d7f7db0ec8ab872cdf4affcbb3400fe3ce2268cf0e1a21d32ba9d3faa85d",
+    "kind": "other",
+    "compress_size": 1667
+  },
+  {
+    "path": "SonicColorsRecomp/tools/music_asset_pkg/cpk_patch.py",
+    "size": 10403,
+    "sha256": "561a80b55283e953cdfb3e7ea78a6b675b9fdb2e675c7b61a342786fd0a3cda6",
+    "kind": "other",
+    "compress_size": 3208
+  },
+  {
+    "path": "SonicColorsRecomp/tools/music_asset_pkg/cricodecs_env.py",
+    "size": 2354,
+    "sha256": "9354c36bdf8c8436be512f801bed600a2f67b7a0fc9c632049a5901e0587eb8a",
+    "kind": "other",
+    "compress_size": 929
+  },
+  {
+    "path": "SonicColorsRecomp/tools/music_asset_pkg/doctor.py",
+    "size": 22563,
+    "sha256": "d5aa345bea51b44d24291fd6ee6f02be3ce77a438f603cab32f95d575cd98e9a",
+    "kind": "other",
+    "compress_size": 6221
+  },
+  {
+    "path": "SonicColorsRecomp/tools/music_asset_pkg/export.py",
+    "size": 9447,
+    "sha256": "985457ce9b26fe6a27ddab6dc922853b439011656fc303dc4b945d1f386413b2",
+    "kind": "other",
+    "compress_size": 3084
+  },
+  {
+    "path": "SonicColorsRecomp/tools/music_asset_pkg/mapping.py",
+    "size": 2522,
+    "sha256": "3b06518eb4ae680e89d0ecafbe65621af7d9c5e7146d9cbb5e8a9ffcb1459252",
+    "kind": "other",
+    "compress_size": 492
+  },
+  {
+    "path": "SonicColorsRecomp/tools/music_asset_pkg/prepare.py",
+    "size": 10301,
+    "sha256": "ad8b08de060c0099701e24a89def15f1d3de33b661716d0b88992e6983f373b5",
+    "kind": "other",
+    "compress_size": 2997
+  },
+  {
+    "path": "SonicColorsRecomp/tools/music_asset_pkg/preview.py",
+    "size": 3634,
+    "sha256": "06945108f8158a803c0a3243bc15dfec652eed158fc239714abbca22d97eb282",
+    "kind": "other",
+    "compress_size": 1238
+  },
+  {
+    "path": "SonicColorsRecomp/tools/music_asset_pkg/wav_to_aax.py",
+    "size": 15210,
+    "sha256": "eef0df9570d53d2ddf2d07dfe8d3eb43d565618cf3a540136d02efbcd3167f6f",
+    "kind": "other",
+    "compress_size": 4728
+  },
+  {
+    "path": "SonicColorsRecomp/tools/music_deps_setup.cmd",
+    "size": 2225,
+    "sha256": "0981b3d5f5b7bd3a13a9961f6b9ba84edd5197a50c2ad4b78e6cc0153af438a1",
+    "kind": "script",
+    "compress_size": 991
+  }
+]

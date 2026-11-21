@@ -1,0 +1,124 @@
+# Clean Windows package build for provenance / RecompStore review.
+# Does NOT create a GitHub Release. Artifacts are workflow uploads only.
+#
+# Trigger manually with the exact tag or SHA to rebuild (e.g. v0.3.7 / 89452043…).
+name: windows-release-package
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to build (tag, branch, or full SHA)"
+        required: true
+        default: "v0.3.7"
+      strip_debug:
+        description: "Strip DWARF/debug sections from PE before packaging"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows-mingw-package:
+    name: MinGW package (${{ inputs.ref }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Checkout exact ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: Record provenance
+        run: |
+          set -euo pipefail
+          {
+            echo "ref=${{ inputs.ref }}"
+            echo "resolved_sha=$(git rev-parse HEAD)"
+            echo "describe=$(git describe --tags --always --dirty)"
+            echo "runner=$(uname -a)"
+            echo "strip_debug=${{ inputs.strip_debug }}"
+            date -u +"built_utc=%Y-%m-%dT%H:%M:%SZ"
+          } | tee provenance.txt
+          git log -1 --format=fuller | tee git-head.txt
+
+      - name: Install MinGW toolchain
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build zip \
+            g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64 \
+            mingw-w64-tools
+          x86_64-w64-mingw32-g++ --version | head -1 | tee toolchain.txt
+          x86_64-w64-mingw32-objdump --version | head -1 | tee -a toolchain.txt
+
+      - name: Configure (windows-mingw)
+        run: cmake --preset windows-mingw
+
+      - name: Build
+        run: cmake --build --preset windows-mingw --target SonicColorsRecomp music_asset -j"$(nproc)"
+
+      - name: Optional strip of debug sections
+        if: ${{ inputs.strip_debug }}
+        run: |
+          set -euo pipefail
+          for pe in out-windows/SonicColorsRecomp.exe out-windows/music_asset.exe; do
+            [ -f "$pe" ] || continue
+            before=$(stat -c%s "$pe")
+            x86_64-w64-mingw32-strip --strip-debug "$pe"
+            after=$(stat -c%s "$pe")
+            echo "stripped $pe: $before -> $after bytes" | tee -a strip-report.txt
+          done
+
+      - name: Package ZIP
+        env:
+          SCR_VERSION: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          # Normalize SCR_VERSION for package_windows_cross (avoid refs/tags/ prefix noise)
+          ver="${SCR_VERSION#refs/tags/}"
+          export SCR_VERSION="$ver"
+          tools/package_windows_cross.sh
+          ls -lh dist/*windows-x86_64.zip
+
+      - name: SHA-256 manifest
+        run: |
+          set -euo pipefail
+          mkdir -p dist/manifest
+          {
+            echo "# Sonic Colors Recomp Windows package manifest"
+            echo "# Built from $(git rev-parse HEAD)"
+            echo
+            sha256sum dist/SonicColorsRecomp-*-windows-x86_64.zip
+            echo
+            # Inventory PE members inside the newest windows zip
+            zip=$(ls -1t dist/SonicColorsRecomp-*-windows-x86_64.zip | head -1)
+            python3 - <<'PY'
+          import hashlib, zipfile, glob, os
+          zpath = sorted(glob.glob("dist/SonicColorsRecomp-*-windows-x86_64.zip"), key=os.path.getmtime)[-1]
+          print(f"archive={zpath}")
+          with zipfile.ZipFile(zpath) as z:
+              for info in sorted(z.infolist(), key=lambda i: i.filename):
+                  if info.is_dir():
+                      continue
+                  data = z.read(info.filename)
+                  h = hashlib.sha256(data).hexdigest()
+                  kind = "PE" if data[:2] == b"MZ" else "other"
+                  print(f"{h}  {info.file_size:12d}  {kind:5}  {info.filename}")
+          PY
+          } | tee dist/manifest/SHA256SUMS.txt
+          cp provenance.txt git-head.txt toolchain.txt dist/manifest/ 2>/dev/null || true
+          [ -f strip-report.txt ] && cp strip-report.txt dist/manifest/
+
+      - name: Upload package + manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x86_64-${{ inputs.ref }}
+          path: |
+            dist/SonicColorsRecomp-*-windows-x86_64.zip
+            dist/manifest/**
+          if-no-files-found: error
+          retention-days: 30
