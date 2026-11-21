@@ -70,6 +70,24 @@
 
 **Next:** Broader env layers / multi-pass depth stacks still before skeletal interp or second XFB.
 
+## 2026-11-21 — Windows controller fix (critical)
+
+**Goal:** Reliable Windows/Wine controller input (Xbox + DualShock/DualSense) without regressing Linux.
+
+**Root cause:** First pass used XInput-only packing. DualShock 4 (`054C:05C4`) is not an XInput device, so Wine/Windows saw `pads: 0` while Linux SDL listed `PS4 Controller`. Earlier slot-packing bug (raw XInput user index as player slot) remains fixed by packing connect order.
+
+**Fix (`fix/windows-controller`):**
+- Shared `runtime/platform/sdl_gamepad.{h,cpp}` for Linux + Win32.
+- Win32: `SDL_Init(GAMEPAD)` only (no SDL video); HIDAPI hints before init; hotplug via `SdlGamepad_PumpHotplug`.
+- CMake: FetchContent SDL3 for `WIN32`; link `SDL3::SDL3`; POST_BUILD copy `SDL3.dll`.
+- `Ui_FeedGamepadFromPads()` for launcher/overlay ImGui nav from packed slot 0.
+
+**Validation:**
+- MinGW: PE imports `SDL3.dll` (not `XINPUT1_3.dll`); `SDL3.dll` beside exe.
+- Wine + USB DS4: `--list-gamepads` → `pads: 1` / `0: PS4 Controller`.
+- Linux native: same pad → `pads: 1` / `PS4 Controller`.
+- **Native Windows hardware:** still required before release claim (Wine ≠ native).
+
 ## 2026-11-21 — A3b: camera-pose interpolation + scratch rendering
 
 **Goal:** Interpolate consecutive camera poses (TRS/quat, not element-wise view lerp) and apply the intermediate pose to archived GX rendering in scratch only. No second XFB / no unique-FPS claim / no skeletal interp.

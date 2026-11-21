@@ -652,6 +652,7 @@ bool Launcher_Run(std::string& dataDir, const std::string& isoPath, const fs::pa
 
         ImGui_ImplDX11_NewFrame();
         UiBackend_NewFrame();
+        Ui_FeedGamepadFromPads();
         // Match font raster density to the drawable scale so text stays sharp after DPI/resize.
         {
             float dpi = std::max(io.DisplayFramebufferScale.x, io.DisplayFramebufferScale.y);

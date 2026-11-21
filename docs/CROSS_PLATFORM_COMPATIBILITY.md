@@ -64,7 +64,7 @@ Discovery: `SCR_MUSIC_BIN` → user `tools/bin` → managed `%LOCALAPPDATA%\…\
 | Saves / NAND | PASS `[auto]` | PASS `[auto]` | PASS | `scr_nand_*_test` |
 | Graphics / window / borderless | PASS | PASS `[source]` | UNVERIFIED | Exclusive FS = Linux only |
 | Audio output | PASS | UNVERIFIED | UNVERIFIED | SDL vs XAudio2 |
-| Controllers / rumble | PASS | UNVERIFIED | UNVERIFIED | SDL vs XInput |
+| Controllers / rumble | PASS `[auto]` | PASS build + Wine SDL API `[auto]` (DS4 `pads: 1`); **UNVERIFIED `[native]` hardware** | PARTIAL | Shared `sdl_gamepad` (Linux + Win32). Wine ≠ native Windows PASS. |
 | Mods / GameBanana | PASS `[source]` | PASS `[source]` | UNVERIFIED | Shared libarchive |
 | Music catalog browse | PASS `[auto]` | PASS `[auto]` | PASS package | `catalog.json` in both packages |
 | Music tab UI responsiveness | PASS `[source]` + microbench | PASS `[source]` / UNVERIFIED `[native]` feel | PARTIAL | `Wav_Probe` + clipper + deps cache; see `MUSIC_LIBRARY_PERFORMANCE.md` |

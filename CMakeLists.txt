@@ -380,28 +380,38 @@ if(WIN32 OR LINUX)
                                                               RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
 endif()
 
-# ---------------------------------------------------------------- Linux platform libraries
+# ---------------------------------------------------------------- Platform libraries
 # Downloaded at configure time, pinned like nod and ImGui; their shared libraries are copied
-# next to the executable (out/) and into the AppImage (tools/package_linux.sh).
-#   SDL3 (https://libsdl.org, zlib): window, input, audio, dialogs
-#   dxvk-native (https://github.com/doitsujin/dxvk, zlib): Direct3D 11 on Vulkan, prebuilt
-#     for the Steam Runtime; its MinGW Windows/DirectX headers are LGPL-2.1+ (data
-#     structure definitions only, see its include/dxvk/README.md)
-#   vkd3d-shader (https://gitlab.winehq.org/wine/vkd3d, LGPL-2.1+): compiles the generated
-#     HLSL to DXBC (the D3DCompile of Wine and Proton), linked statically
-if(LINUX)
+# next to the executable (out/ / out-windows/) and into the AppImage (tools/package_linux.sh).
+#   SDL3 (https://libsdl.org, zlib): Linux window/input/audio; Windows/Wine gamepads (HIDAPI
+#     DualShock/DualSense + XInput Xbox). Win32 windowing stays native.
+#   dxvk-native / vkd3d-shader: Linux only.
+if(LINUX OR WIN32)
     set(SDL_SHARED ON CACHE BOOL "" FORCE)
     set(SDL_STATIC OFF CACHE BOOL "" FORCE)
     set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
     set(SDL_TESTS OFF CACHE BOOL "" FORCE)
     set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
+    # Windows gamepad build: skip unused video/audio host backends where practical.
+    if(WIN32)
+        set(SDL_RENDER_D3D OFF CACHE BOOL "" FORCE)
+        set(SDL_RENDER_D3D11 OFF CACHE BOOL "" FORCE)
+        set(SDL_RENDER_D3D12 OFF CACHE BOOL "" FORCE)
+        set(SDL_RENDER_VULKAN OFF CACHE BOOL "" FORCE)
+        set(SDL_RENDER_OGL OFF CACHE BOOL "" FORCE)
+        set(SDL_RENDER_OGL_ES2 OFF CACHE BOOL "" FORCE)
+        set(SDL_RENDER_METAL OFF CACHE BOOL "" FORCE)
+        set(SDL_RENDER_GPU OFF CACHE BOOL "" FORCE)
+    endif()
     FetchContent_Declare(SDL3
         URL https://github.com/libsdl-org/SDL/releases/download/release-3.4.18/SDL3-3.4.18.tar.gz
         URL_HASH SHA256=9c75cf16330322c217dedd2e0609f1124f1b54b8633e763467b4684d0f4334a3
         DOWNLOAD_EXTRACT_TIMESTAMP FALSE)
     FetchContent_MakeAvailable(SDL3)
+endif()
 
+if(LINUX)
     FetchContent_Declare(dxvk_native
         URL https://github.com/doitsujin/dxvk/releases/download/v3.1.1/dxvk-native-3.1.1-steamrt-sniper.tar.gz
         URL_HASH SHA256=506fa1ea5bb6ce9a89e11436f7ab5191bc0196e8a577e0cf0b16a45bbc9991b7
@@ -460,6 +470,9 @@ if(WIN32 OR LINUX)
     target_compile_definitions(imgui PUBLIC IMGUI_DISABLE_OBSOLETE_FUNCTIONS)
     if(WIN32)
         target_sources(imgui PRIVATE ${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp)
+        # Gamepad nav comes from Ui_FeedGamepadFromPads() (packed XInput slots). Disable
+        # ImGui's built-in user-0-only XInput poll to avoid duplicate button events.
+        target_compile_definitions(imgui PRIVATE IMGUI_IMPL_WIN32_DISABLE_GAMEPAD)
     else()
         target_sources(imgui PRIVATE ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp)
         target_link_libraries(imgui PUBLIC SDL3::SDL3 dxvk)
@@ -516,6 +529,7 @@ endif()
 list(FILTER PLATFORM_SOURCES EXCLUDE REGEX "/sha1[.]cpp$")   # in scr_installer
 list(APPEND RUNTIME_SOURCES ${PLATFORM_SOURCES})
 list(APPEND RUNTIME_SOURCES runtime/platform/run_process.cpp)
+list(APPEND RUNTIME_SOURCES runtime/platform/sdl_gamepad.cpp)
 add_executable(SonicColorsRecomp ${RUNTIME_SOURCES})
 target_include_directories(SonicColorsRecomp PRIVATE runtime runtime/cpu generated)
 target_sources(SonicColorsRecomp PRIVATE $<TARGET_OBJECTS:ppcrecomp>)
@@ -534,7 +548,10 @@ if(WIN32)
     else()
         set(SCR_XAUDIO_LIB xaudio2)
     endif()
-    target_link_libraries(SonicColorsRecomp PRIVATE scr_installer imgui scr_archive scr_json winhttp windowscodecs bcrypt d3d11 dxgi d3dcompiler xinput winmm ole32 uuid shell32 psapi ${SCR_XAUDIO_LIB} dbghelp dwmapi)
+    # SDL3 provides gamepads (HIDAPI DualShock/DualSense + XInput Xbox). No hard XInput link.
+    target_link_libraries(SonicColorsRecomp PRIVATE scr_installer imgui scr_archive scr_json SDL3::SDL3
+                          winhttp windowscodecs bcrypt d3d11 dxgi d3dcompiler winmm ole32 uuid shell32
+                          psapi ${SCR_XAUDIO_LIB} dbghelp dwmapi)
 else()
     target_link_libraries(SonicColorsRecomp PRIVATE scr_installer imgui scr_archive scr_json SDL3::SDL3 dxvk vkd3d_shader pthread dl)
 endif()
@@ -598,6 +615,10 @@ if(MINGW)
                     /usr/x86_64-w64-mingw32/bin/libwinpthread-1.dll $<TARGET_FILE_DIR:SonicColorsRecomp>
             VERBATIM)
     endif()
+    # SDL3.dll next to the exe (Wine + native Windows).
+    add_custom_command(TARGET SonicColorsRecomp POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:SDL3-shared> $<TARGET_FILE_DIR:SonicColorsRecomp>
+        VERBATIM)
 endif()
 if(LINUX)
     # MSVC runtime names (compat.h) everywhere; type punning as with MSVC

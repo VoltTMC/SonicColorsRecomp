@@ -239,14 +239,20 @@ int main(int argc, char** argv)
         }
         if (a == "--list-gamepads")
         {
+            Platform_Init(argc, argv);
             Input_EnsurePadsProbed();
             const int n = Pad_Count();
             std::printf("pads: %d\n", n);
             for (int i = 0; i < 4; i++)
             {
                 const char* name = Pad_Name(i);
-                if (name)
-                    std::printf("%d: %s\n", i, name);
+                PadState st{};
+                const bool ok = Pad_Read(i, st);
+                if (name || ok)
+                    std::printf("%d: %s buttons=%04x sticks=(%d,%d)(%d,%d) triggers=%u/%u\n", i,
+                                name ? name : "(unnamed)", ok ? st.buttons : 0, ok ? st.lx : 0,
+                                ok ? st.ly : 0, ok ? st.rx : 0, ok ? st.ry : 0, ok ? st.lt : 0,
+                                ok ? st.rt : 0);
             }
             return 0;
         }
