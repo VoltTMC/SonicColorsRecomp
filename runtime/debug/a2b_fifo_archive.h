@@ -35,6 +35,15 @@ enum A2bResType : uint32_t
     A2bRes_Texture = 7,       // guest texture source bytes
     A2bRes_TlutRam = 8,       // TLUT source in guest RAM
     A2bRes_TmemWindow = 9,    // snapshot of TMEM used by CI
+    A2bRes_EfbCopy = 10,      // A2f: non-toXFB EFB→tex producer (metadata; result via replay)
+};
+
+enum A2bEfbCopyFlags : uint32_t
+{
+    A2bEfbCopy_Half = 1u << 0,
+    A2bEfbCopy_DepthSrc = 1u << 1,
+    A2bEfbCopy_Intensity = 1u << 2,
+    A2bEfbCopy_Sampled = 1u << 3,  // GetTexture later consumed this dest
 };
 
 enum A2bResLifetime : uint32_t
@@ -172,11 +181,16 @@ void A2b_OnVertexArray(uint32_t guestEa, uint32_t size, uint32_t stride, uint32_
 void A2b_OnTexture(uint32_t guestEa, uint32_t size, uint32_t fmt, uint32_t w, uint32_t h);
 void A2b_OnTlutRam(uint32_t guestEa, uint32_t size);
 void A2b_OnTmemWindow(uint32_t tmemOff, uint32_t size, const uint8_t* data);
+// A2f: non-toXFB EFB copy. aux packs sx|sy|sw|sh; size=fmt; lifetime flags via A2bEfbCopyFlags in flags high bits via contentHash reserved — see OnEfbCopy.
+void A2b_OnEfbCopy(uint32_t destAddr, uint32_t ctl, uint32_t sx, uint32_t sy, uint32_t sw, uint32_t sh,
+                   uint32_t fmt, uint32_t copyFlags);
+void A2b_OnEfbCopySampled(uint32_t destAddr);
 void A2b_NoteDraw();
 void A2b_OnSimFrameEnd();
 void A2b_OnXfbCopy();
 // Call after post-XFB EFB clear (pass-entry state for the next archived frame).
 void A2b_OnPassEntryEfb();
+uint32_t A2b_CountEfbCopiesInCmd(const uint8_t* cmd, uint32_t n);  // non-toXFB BP 0x52 count
 
 uint64_t A2b_FrameCount();
 bool A2b_HasPair();

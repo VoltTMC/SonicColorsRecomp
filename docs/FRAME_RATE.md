@@ -232,6 +232,7 @@ Opt-in immutable snapshots at completed sim-frame boundaries for future host int
 | A2c | Resource closure + isolated scratch-EFB replay | Replay-ready gate; PE-suppressed scratch replay; no live XFB | **Done (experiment)** |
 | A2d | EFB initial-state + host-state closure | Live-vs-scratch pixel MATCH for selected pass | **Done (experiment)** |
 | A2e | Second independent static/UI pass MATCH | Two structurally different families both MATCH | **Done (experiment)** |
+| A2f | Controlled EFB→tex feedback replay | Scratch-sourced copy chain MATCH | **Done (experiment)** |
 | A3 | Interpolated second XFB without guest update | `unique_xfb` >60 behind debug flag | Later |
 | A4 | Quality gate; promote to uncapped | Honest unique>60 in production | Later |
 
@@ -556,6 +557,67 @@ Not the same pass at another frame: different size, draw count, and dependency m
 - `regression_smoke` OK. Windows: source compiles via existing mingw preset (no native GPU A2e run in this phase).
 
 **Verdict:** Two genuinely different static/UI passes independently MATCH on the same archive/replay architecture. **Not** arbitrary GX replay; **not** unique-FPS.
+
+### Approach A2f — controlled EFB-feedback capture/replay (2026-11-21)
+
+Extend A2d/A2e so mid-pass **EFB→texture** feedback is archived, reconstructed on scratch, and still MATCHES live.
+
+| Item | Detail |
+|------|--------|
+| Selected pass | Title/boot idle HUD **mip-chain** (same ~5.5 KiB / ~70 draws as A2d) with **5 sampled EFB copies** |
+| Evidence | `out/shots/capture.txt`: `ctl=010063` copies 640×480→160×120→80×60→40×30→20×15 then sample |
+| Enable | `SCR_A2B_FIFO_CAPTURE=1` + `SCR_A2C_SCRATCH_REPLAY=1`; `SCR_A2C_COMPARE_SYNC=1` forces sync everyPixel |
+
+#### Dependency chain
+
+1. Producer draws into EFB (scratch under isolation).
+2. Non-toXFB BP `0x52` copies regions into host `s_efbCopies[dest]` (**from scratch EFB when isolated** — was incorrectly reading live before A2f).
+3. `GetTexture` hits those dests → `A2b_OnEfbCopySampled`.
+4. Consumer draws sample the scratch-produced copies.
+5. Pass ends at first toXFB `0x52` (excluded).
+
+Archive: `A2bRes_EfbCopy` metadata (dest, region, fmt, ctl, Sampled). Copy **result** is reproduced by replaying the BP ops into scratch, not by substituting live textures.
+
+#### Gate / family
+
+- `A2cReady_EfbFeedback`: no copies, or ≥1 sampled with metadata-complete copies.
+- Family `A2f-efbfb`: idle-scale + `efbC sampled≥1`.
+- Flags `3ff` when fully ready.
+
+#### Async compare (Phase 1)
+
+- `Render_CompareBeginAsync` / `Poll`: staging CopyResource + event query; Map/CPU walk deferred.
+- Status: pending / completed / skipped / failed — **skipped ≠ MATCH**.
+- First N attempts + mismatch + `SCR_A2C_COMPARE_SYNC=1` force sync everyPixel.
+- Bounded queue (2 slots).
+
+#### Results (`out/phase22_a2f_*.log`)
+
+| Check | Result |
+|-------|--------|
+| A2f-efbfb | `efbC=5/5`, `seed=1/1`, `det=1`, `colorMis=0`, `depthMis=0`, `dCmp=1` **MATCH** |
+| A2e-multitex under A2f | `pass=12112`, `efbC=5/5`, same everyPixel **MATCH** (`phase22_a2f_long.log`) |
+| Scratch-sourced copies | Proven: MATCH after DoEFBCopy reads scratch under isolation |
+| Capture off | Silent; sim/unique_xfb ≈60 (`phase22_a2f_off.log`) |
+| Capture+replay async | ~35–37 Hz sim while validating; underruns≈0 after settle (`phase22_a2f_async.log`) |
+| Capture+replay sync | ~33–37 Hz sim (`phase22_a2f_long.log`); async does not fully remove capture/replay cost |
+| Queue | `q=0/0` in MATCH lines; skipped ≠ MATCH |
+| `regression_smoke` | OK |
+| Windows GPU A2f | MinGW links (`out-windows/SonicColorsRecomp.exe`); native GPU replay unverified |
+
+#### Evaluation answers
+
+1. EFB copy from archived inputs? **Yes** — via scratch EFB + archived BP copy cmds.
+2. Consumer samples correctly? **Yes** (`efbC=5/5` sampled + MATCH).
+3. Producer→copy→consumer generic? **Yes** (metadata + Sampled flag; no hard-coded EAs).
+4. Pass-specific addresses? **No** — structural family only.
+5. Unsupported modes: exotic depth-copy consumers, EFB copy as persistent cross-frame texture without in-pass sample, multi-frame feedback.
+6. Depth copies: infrastructure flags `DepthSrc`; this pass uses colour mip path (`pf=0`).
+7. Multiple copies/pass: **Yes** (5 in the mip chain).
+8. Gameplay blockers: actors/matrices, cross-frame EFB textures, resource caps, PE timing.
+9. **Next:** third static/UI **or** smallest cross-frame EFB-texture lifetime test — still no scene-wide / no interp.
+
+**Verdict:** A2f proves isolated scratch **generates and samples its own EFB-derived textures** with exact live MATCH on the title mip-chain pass.
 
 ### Audio
 

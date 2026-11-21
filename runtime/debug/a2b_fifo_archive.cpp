@@ -512,6 +512,133 @@ void A2b_OnTlutRam(uint32_t guestEa, uint32_t size)
     AddResource(A2bRes_TlutRam, guestEa, size, true, A2bResLife_FrameLocal, 0, true);
 }
 
+void A2b_OnEfbCopy(uint32_t destAddr, uint32_t ctl, uint32_t sx, uint32_t sy, uint32_t sw,
+                   uint32_t sh, uint32_t fmt, uint32_t copyFlags)
+{
+    if (!EnvOn()) return;
+    std::lock_guard lk(s_mu);
+    EnsureGxStartLocked();
+    const uint32_t ea = CanonGuestEa(destAddr);
+    const uint32_t aux = (sx & 0x3FF) | ((sy & 0x3FF) << 10) | ((sw & 0x3FF) << 20);
+    const uint32_t size = (sh & 0xFFFF) | ((fmt & 0xFF) << 16);
+    int existing = FindResource(s_build, A2bRes_EfbCopy, ea, size, aux);
+    if (existing >= 0)
+    {
+        A2bResource& er = s_build.resources[existing];
+        er.refCount++;
+        er.flags |= A2bRes_Required | A2bRes_Copied;
+        er.lifetime |= copyFlags;
+        er.contentHash = ctl ? ctl : er.contentHash;
+        return;
+    }
+    if (s_build.resCount >= kA2bMaxResources)
+    {
+        s_build.flags |= A2bFrame_OverflowResources | A2bFrame_Incomplete;
+        return;
+    }
+    A2bResource& r = s_build.resources[s_build.resCount++];
+    r = A2bResource{};
+    r.type = A2bRes_EfbCopy;
+    r.guestEa = ea;
+    r.size = size;
+    r.aux = aux;
+    r.contentHash = ctl;
+    r.lifetime = copyFlags;
+    r.refCount = 1;
+    r.submitSeq = s_build.submitCount > 0 ? s_build.submitCount - 1 : 0;
+    // Metadata-complete: the copy is reproduced from scratch EFB + BP cmds at replay.
+    r.flags = A2bRes_Required | A2bRes_Copied;
+    r.copiedSize = 0;
+}
+
+void A2b_OnEfbCopySampled(uint32_t destAddr)
+{
+    if (!EnvOn()) return;
+    std::lock_guard lk(s_mu);
+    const uint32_t ea = CanonGuestEa(destAddr);
+    for (uint32_t i = 0; i < s_build.resCount; i++)
+    {
+        A2bResource& r = s_build.resources[i];
+        if (r.type == A2bRes_EfbCopy && r.guestEa == ea)
+        {
+            r.lifetime |= A2bEfbCopy_Sampled;
+            r.flags |= A2bRes_Required;
+            r.refCount++;
+        }
+    }
+}
+
+uint32_t A2b_CountEfbCopiesInCmd(const uint8_t* cmd, uint32_t n)
+{
+    // Same walk as FindFirstBp52; count non-toXFB BP 0x52.
+    if (!cmd || n == 0) return 0;
+    uint32_t savedCp[0x100];
+    memcpy(savedCp, g_gx.cp, sizeof(savedCp));
+    uint32_t i = 0, count = 0;
+    while (i < n)
+    {
+        const uint8_t op = cmd[i];
+        if (op == 0x00 || op == 0x44 || op == 0x48) { i += 1; continue; }
+        if (op == 0x08)
+        {
+            if (i + 6 > n) break;
+            g_gx.cp[cmd[i + 1]] = ((uint32_t)cmd[i + 2] << 24) | ((uint32_t)cmd[i + 3] << 16) |
+                                  ((uint32_t)cmd[i + 4] << 8) | cmd[i + 5];
+            i += 6;
+            continue;
+        }
+        if (op == 0x10)
+        {
+            if (i + 5 > n) break;
+            uint32_t w = ((uint32_t)cmd[i + 1] << 24) | ((uint32_t)cmd[i + 2] << 16) |
+                         ((uint32_t)cmd[i + 3] << 8) | cmd[i + 4];
+            uint32_t need = 5 + 4 * (((w >> 16) & 0xF) + 1);
+            if (i + need > n) break;
+            i += need;
+            continue;
+        }
+        if (op == 0x20 || op == 0x28 || op == 0x30 || op == 0x38)
+        {
+            if (i + 5 > n) break;
+            i += 5;
+            continue;
+        }
+        if (op == 0x40)
+        {
+            if (i + 9 > n) break;
+            i += 9;
+            continue;
+        }
+        if (op == 0x61)
+        {
+            if (i + 5 > n) break;
+            if (cmd[i + 1] == 0x52)
+            {
+                uint32_t val = ((uint32_t)cmd[i + 2] << 16) | ((uint32_t)cmd[i + 3] << 8) | cmd[i + 4];
+                if (((val >> 14) & 1) == 0)
+                    count++;
+            }
+            i += 5;
+            continue;
+        }
+        if (op & 0x80)
+        {
+            if (i + 3 > n) break;
+            int vat = op & 7;
+            uint32_t vtxCount = ((uint32_t)cmd[i + 1] << 8) | cmd[i + 2];
+            VertexLayout l{};
+            GX_ComputeLayout(vat, l);
+            uint32_t need = 3 + vtxCount * l.size;
+            if (i + need > n) break;
+            i += need;
+            continue;
+        }
+        i += 1;
+    }
+    memcpy(g_gx.cp, savedCp, sizeof(savedCp));
+    return count;
+}
+
 void A2b_OnTmemWindow(uint32_t tmemOff, uint32_t size, const uint8_t* data)
 {
     if (!EnvOn() || !data || size == 0) return;

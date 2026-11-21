@@ -144,5 +144,12 @@ struct RenderEfbCompare
 // Live sample point: pass-exit EFB (after archived cmds, before post-XFB clear).
 bool Render_CompareLiveVsScratch(RenderEfbCompare& out, bool compareDepth);
 
+// Async compare: GPU CopyResource into staging + event query (no Map on submit).
+// Ticket 0 = failure. Poll until ready; skipped tickets are never reported as MATCH.
+int Render_CompareBeginAsync(bool compareDepth);
+bool Render_ComparePoll(int ticket, RenderEfbCompare& out, bool* stillPending);
+void Render_CompareCancel(int ticket);
+uint32_t Render_CompareQueueDepth();
+
 uint8_t* Render_TmemPtr();
 size_t Render_TmemSize();

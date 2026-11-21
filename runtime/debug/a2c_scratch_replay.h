@@ -18,17 +18,28 @@ enum A2cReadyFlags : uint32_t
     A2cReady_DlComplete = 1u << 5,
     A2cReady_NoOverflow = 1u << 6,
     A2cReady_PassSelected = 1u << 7,
-    A2cReady_EfbIncoming = 1u << 8,   // A2d/A2e: pass-entry EFB snapshot present
-    A2cReady_All = 0x1FFu,
+    A2cReady_EfbIncoming = 1u << 8,   // pass-entry EFB snapshot present
+    A2cReady_EfbFeedback = 1u << 9,   // A2f: producer→copy→sample chain closed (or N/A)
+    A2cReady_All = 0x3FFu,
 };
 
 // Structural families — classified by cmd/draw/dep profile, not addresses.
 enum A2cPassFamily : uint32_t
 {
     A2cFamily_None = 0,
-    A2cFamily_A2dIdle = 1,    // title/boot idle HUD (~5–7 KiB, ~70 draws, 1–3 deps)
+    A2cFamily_A2dIdle = 1,     // title/boot idle HUD without required EFB feedback
     A2cFamily_A2eMultiTex = 2, // richer static/UI (~10–16 KiB, ~80+ draws, ≥6 deps)
-    A2cFamily_Other = 3,      // selected but outside named families
+    A2cFamily_A2fEfbFb = 3,    // EFB→tex mip/feedback chain sampled in-pass
+    A2cFamily_Other = 4,
+};
+
+enum A2cCompareStatus : uint32_t
+{
+    A2cCompare_None = 0,
+    A2cCompare_Pending = 1,
+    A2cCompare_Completed = 2,
+    A2cCompare_Skipped = 3,
+    A2cCompare_Failed = 4,
 };
 
 struct A2cPassReport
@@ -44,6 +55,8 @@ struct A2cPassReport
     uint32_t depTex = 0;
     uint32_t depVert = 0;
     uint32_t depTmem = 0;
+    uint32_t depEfbCopy = 0;
+    uint32_t depEfbCopySampled = 0;
     uint32_t depOther = 0;
     uint32_t unresolvedRequired = 0;
     uint32_t readyFlags = 0;
@@ -70,6 +83,8 @@ struct A2cReplayResult
     bool seededFromIncoming = false;
     bool seedColorMatch = false;   // scratch after seed == incoming colour hash
     bool seedDepthMatch = false;
+    bool efbFeedbackOk = false;    // scratch-sourced EFB copies used (A2f)
+    uint32_t compareStatus = A2cCompare_None;
     uint32_t family = A2cFamily_None;
     uint32_t liveEfbHash = 0;
     uint32_t scratchEfbHash = 0;

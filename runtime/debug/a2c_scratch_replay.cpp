@@ -35,13 +35,16 @@ std::mutex s_mu;
 A2cPassReport s_pass{};
 A2cReplayResult s_lastReplay{};
 bool s_havePass = false;
-// Per-family last ready report + replay (A2d idle + A2e multi-tex).
-A2cPassReport s_familyPass[4]{};
-A2cReplayResult s_familyReplay[4]{};
-bool s_haveFamilyPass[4]{};
-bool s_haveFamilyReplay[4]{};
+// Per-family last ready report + replay (A2d / A2e / A2f).
+constexpr uint32_t kFamilySlots = 5;
+A2cPassReport s_familyPass[kFamilySlots]{};
+A2cReplayResult s_familyReplay[kFamilySlots]{};
+bool s_haveFamilyPass[kFamilySlots]{};
+bool s_haveFamilyReplay[kFamilySlots]{};
 uint32_t s_replayBudgetFrames = 0;
-uint64_t s_lastReplayMsByFamily[4]{};
+uint64_t s_lastReplayMsByFamily[kFamilySlots]{};
+uint32_t s_forcedCompareLeft = 4;  // first N replays force sync everyPixel compare
+uint32_t s_comparePending = 0, s_compareDone = 0, s_compareSkipped = 0, s_compareFailed = 0;
 
 uint32_t HashBytes(const uint8_t* p, size_t n)
 {
@@ -158,14 +161,18 @@ void CaptureIndexedArrays(int vat, uint32_t count, const uint8_t* stream, uint32
     }
 }
 
-uint32_t ClassifyFamily(uint32_t passBytes, uint32_t draws, uint32_t deps)
+uint32_t ClassifyFamily(uint32_t passBytes, uint32_t draws, uint32_t deps, uint32_t efbCopySampled)
 {
     // Structural fingerprints only — no guest addresses / hard-coded EAs.
-    // A2d: title/boot idle HUD — small cmd stream, ~70 draws, few deps.
+    // A2f: idle-scale pass with sampled EFB→tex feedback (mip-chain HUD).
+    if (efbCopySampled >= 1 && passBytes >= 4000 && passBytes <= 7000 && draws >= 60 &&
+        draws <= 75)
+        return A2cFamily_A2fEfbFb;
+    // A2d: same size band without sampled EFB feedback (rare once capture is on).
     if (passBytes >= 4000 && passBytes <= 7000 && draws >= 60 && draws <= 75 && deps >= 1 &&
-        deps <= 3)
+        deps <= 8)
         return A2cFamily_A2dIdle;
-    // A2e: richer static/UI — larger stream, more draws, multi-texture deps.
+    // A2e: richer static/UI — larger stream / multi-texture (EFB copies optional).
     if (passBytes >= 10000 && passBytes <= 16000 && draws >= 75 && draws <= 100 && deps >= 6)
         return A2cFamily_A2eMultiTex;
     return A2cFamily_Other;
@@ -223,6 +230,12 @@ void EvaluatePass(const A2bArchivePacket& pkt, A2cPassReport& out)
             out.depTmem++;
         else if (r.type == A2bRes_VertexArray || r.type == A2bRes_IndexedXf)
             out.depVert++;
+        else if (r.type == A2bRes_EfbCopy)
+        {
+            out.depEfbCopy++;
+            if (r.lifetime & A2bEfbCopy_Sampled)
+                out.depEfbCopySampled++;
+        }
         else
             out.depOther++;
         const bool incomplete = (r.flags & A2bRes_Unresolved) || (r.flags & A2bRes_Truncated) ||
@@ -234,15 +247,23 @@ void EvaluatePass(const A2bArchivePacket& pkt, A2cPassReport& out)
             texOk = false;
         if (r.type == A2bRes_DisplayList && incomplete) dlOk = false;
         if (r.type == A2bRes_IndexedXf && incomplete) vertOk = false;
+        if (r.type == A2bRes_EfbCopy && incomplete) texOk = false;
     }
     out.depCount = deps;
     out.depBytes = depBytes;
     out.unresolvedRequired = reqUnres;
-    out.family = ClassifyFamily(out.passBytes, out.drawCount, deps);
+    out.family = ClassifyFamily(out.passBytes, out.drawCount, deps, out.depEfbCopySampled);
 
     ok(A2cReady_VertexComplete, vertOk);
     ok(A2cReady_TextureComplete, texOk);
     ok(A2cReady_DlComplete, dlOk);
+
+    // EFB feedback: if the pass produced copies, every required copy must be
+    // metadata-complete; A2f also requires at least one sampled consumer.
+    const bool efbFbOk =
+        (out.depEfbCopy == 0) ||
+        (out.depEfbCopySampled >= 1 && out.depEfbCopy >= out.depEfbCopySampled);
+    ok(A2cReady_EfbFeedback, efbFbOk);
 
     // Selection: static/UI-scale pass (not full TR1 scenes). Named families preferred
     // but Other within size bounds remains selectable for diagnostics.
@@ -271,10 +292,10 @@ void EvaluatePass(const A2bArchivePacket& pkt, A2cPassReport& out)
     {
         std::snprintf(out.reason, sizeof(out.reason),
                       "ready fam=%s passBytes=%u draws=%u deps=%u "
-                      "(dl=%u tex=%u vert=%u tmem=%u) efbIn=%08x/%08x",
+                      "(dl=%u tex=%u vert=%u tmem=%u efbC=%u/%u) efbIn=%08x/%08x",
                       A2c_FamilyName(out.family), out.passBytes, out.drawCount, deps, out.depDl,
-                      out.depTex, out.depVert, out.depTmem, out.efbInColorHash,
-                      out.efbInDepthHash);
+                      out.depTex, out.depVert, out.depTmem, out.depEfbCopySampled, out.depEfbCopy,
+                      out.efbInColorHash, out.efbInDepthHash);
     }
 }
 
@@ -394,24 +415,65 @@ void RunScratchReplay(A2bArchivePacket& pkt, const A2cPassReport& pass, A2cRepla
 
         if (doCompare)
         {
-            // Live EFB unchanged (draws went to scratch); same pass-exit boundary.
-            RenderEfbCompare cmp{};
-            if (Render_CompareLiveVsScratch(cmp, true))
+            rr.efbFeedbackOk = (pass.depEfbCopySampled > 0);
+            // Prefer async staging+query so Map/CPU walk leave the XFB path.
+            // Force sync for the first few attempts / SCR_A2C_COMPARE_SYNC=1 /
+            // after any mismatch (s_forcedCompareLeft).
+            static int syncEnv = -1;
+            if (syncEnv < 0)
             {
-                rr.imageCompared = true;
-                rr.colorExact = cmp.colorExact;
-                rr.depthExact = cmp.depthExact;
-                rr.depthCompared = cmp.depthCompared;
-                rr.colorMismatch = cmp.colorMismatch;
-                rr.depthMismatch = cmp.depthMismatch;
-                rr.maxChannelDelta = cmp.maxChannelDelta;
-                rr.comparedPixels = cmp.comparedPixels;
-                rr.liveEfbHash = cmp.liveColorHash;
-                rr.scratchEfbHash = cmp.scratchColorHash;
-                rr.liveDepthHash = cmp.liveDepthHash;
-                rr.scratchDepthHash = cmp.scratchDepthHash;
-                rr.imageMatch = cmp.colorExact && cmp.depthCompared && cmp.depthExact &&
-                                rr.seedColorMatch && rr.seedDepthMatch;
+                const char* v = std::getenv("SCR_A2C_COMPARE_SYNC");
+                syncEnv = (v && v[0] && v[0] != '0') ? 1 : 0;
+            }
+            const bool forceSync = syncEnv || s_forcedCompareLeft > 0;
+            if (forceSync)
+            {
+                RenderEfbCompare cmp{};
+                if (Render_CompareLiveVsScratch(cmp, true))
+                {
+                    rr.compareStatus = A2cCompare_Completed;
+                    rr.imageCompared = true;
+                    rr.colorExact = cmp.colorExact;
+                    rr.depthExact = cmp.depthExact;
+                    rr.depthCompared = cmp.depthCompared;
+                    rr.colorMismatch = cmp.colorMismatch;
+                    rr.depthMismatch = cmp.depthMismatch;
+                    rr.maxChannelDelta = cmp.maxChannelDelta;
+                    rr.comparedPixels = cmp.comparedPixels;
+                    rr.liveEfbHash = cmp.liveColorHash;
+                    rr.scratchEfbHash = cmp.scratchColorHash;
+                    rr.liveDepthHash = cmp.liveDepthHash;
+                    rr.scratchDepthHash = cmp.scratchDepthHash;
+                    rr.imageMatch = cmp.colorExact && cmp.depthCompared && cmp.depthExact &&
+                                    rr.seedColorMatch && rr.seedDepthMatch;
+                    if (rr.imageMatch && s_forcedCompareLeft)
+                        s_forcedCompareLeft--;
+                    if (!rr.imageMatch)
+                        s_forcedCompareLeft = 4;  // mismatch → re-enable sync investigation
+                    s_compareDone++;
+                }
+                else
+                {
+                    rr.compareStatus = A2cCompare_Failed;
+                    s_compareFailed++;
+                }
+            }
+            else
+            {
+                const int ticket = Render_CompareBeginAsync(true);
+                if (ticket >= 0)
+                {
+                    rr.compareStatus = A2cCompare_Pending;
+                    s_comparePending++;
+                    // Stash ticket in comparedPixels temporarily for poll (unique id).
+                    rr.comparedPixels = (uint32_t)ticket | 0x80000000u;
+                }
+                else
+                {
+                    // Queue full — skip rather than stall; never count as MATCH.
+                    rr.compareStatus = A2cCompare_Skipped;
+                    s_compareSkipped++;
+                }
             }
         }
 
@@ -419,12 +481,18 @@ void RunScratchReplay(A2bArchivePacket& pkt, const A2cPassReport& pass, A2cRepla
     };
 
     const uint32_t h1 = replayOnce(true);
-    // Determinism probe — do not clobber comparison hashes from the first run.
+    // Determinism probe: skip second full replay once family has MATCH'd (costly).
+    bool skipDet = false;
+    if (pass.family < kFamilySlots && s_haveFamilyReplay[pass.family] &&
+        s_familyReplay[pass.family].imageMatch)
+        skipDet = true;
     const A2cReplayResult saved = rr;
-    const uint32_t h2 = replayOnce(false);
+    uint32_t h2 = h1;
+    if (!skipDet)
+        h2 = replayOnce(false);
     rr = saved;
     rr.attempted = true;
-    if (!rr.imageCompared)
+    if (!rr.imageCompared && rr.compareStatus != A2cCompare_Pending)
         rr.scratchEfbHash = h1;
     const bool deterministic = (h1 != 0 && h1 == h2);
     rr.completed = deterministic && rr.seededFromIncoming && rr.isolationOk;
@@ -432,7 +500,11 @@ void RunScratchReplay(A2bArchivePacket& pkt, const A2cPassReport& pass, A2cRepla
     cleanup();
 
     const char* verdict = "DIFF";
-    if (rr.imageMatch)
+    if (rr.compareStatus == A2cCompare_Pending)
+        verdict = "PENDING";
+    else if (rr.compareStatus == A2cCompare_Skipped)
+        verdict = "SKIPPED";
+    else if (rr.imageMatch)
         verdict = "MATCH";
     else if (rr.colorExact && !rr.depthCompared)
         verdict = "COLOR_MATCH";
@@ -441,15 +513,18 @@ void RunScratchReplay(A2bArchivePacket& pkt, const A2cPassReport& pass, A2cRepla
     else if (!rr.seedColorMatch || !rr.seedDepthMatch)
         verdict = "SEED_DIFF";
     std::snprintf(rr.detail, sizeof(rr.detail),
-                  "fam=%s xfb=%llu pass=%u deps=%u seed=%d/%d det=%d "
-                  "colorMis=%u depthMis=%u maxΔ=%u dCmp=%d %s",
+                  "fam=%s xfb=%llu pass=%u deps=%u efbC=%u/%u seed=%d/%d det=%d "
+                  "colorMis=%u depthMis=%u maxΔ=%u dCmp=%d cmp=%u %s",
                   A2c_FamilyName(rr.family), (unsigned long long)pass.xfbIndex, pass.passBytes,
-                  pass.depCount, rr.seedColorMatch ? 1 : 0, rr.seedDepthMatch ? 1 : 0,
-                  deterministic ? 1 : 0, rr.colorMismatch, rr.depthMismatch, rr.maxChannelDelta,
-                  rr.depthCompared ? 1 : 0, verdict);
-    LOG_INFO("A2e replay: {} liveC={:08x} scrC={:08x} liveD={:08x} scrD={:08x} inC={:08x} inD={:08x}",
+                  pass.depCount, pass.depEfbCopySampled, pass.depEfbCopy,
+                  rr.seedColorMatch ? 1 : 0, rr.seedDepthMatch ? 1 : 0, deterministic ? 1 : 0,
+                  rr.colorMismatch, rr.depthMismatch, rr.maxChannelDelta,
+                  rr.depthCompared ? 1 : 0, rr.compareStatus, verdict);
+    LOG_INFO("A2f replay: {} liveC={:08x} scrC={:08x} liveD={:08x} scrD={:08x} inC={:08x} inD={:08x} "
+             "q={}/{}",
              rr.detail, rr.liveEfbHash, rr.scratchEfbHash, rr.liveDepthHash,
-             rr.scratchDepthHash, rr.efbInColorHash, rr.efbInDepthHash);
+             rr.scratchDepthHash, rr.efbInColorHash, rr.efbInDepthHash,
+             Render_CompareQueueDepth(), s_compareSkipped);
 }
 
 }  // namespace
@@ -482,6 +557,53 @@ void A2c_OnTlutRam(uint32_t physAddr, uint32_t byteSize)
     A2b_OnTlutRam(physAddr, byteSize);
 }
 
+static void PollPendingComparesLocked()
+{
+    // Complete any async compare tickets stashed on family replay results.
+    for (uint32_t f = 0; f < kFamilySlots; f++)
+    {
+        if (!s_haveFamilyReplay[f]) continue;
+        A2cReplayResult& rr = s_familyReplay[f];
+        if (rr.compareStatus != A2cCompare_Pending) continue;
+        if ((rr.comparedPixels & 0x80000000u) == 0) continue;
+        const int ticket = (int)(rr.comparedPixels & 0x7FFFFFFFu);
+        RenderEfbCompare cmp{};
+        bool pending = false;
+        if (!Render_ComparePoll(ticket, cmp, &pending))
+        {
+            if (pending) continue;
+            rr.compareStatus = A2cCompare_Failed;
+            s_compareFailed++;
+            if (s_comparePending) s_comparePending--;
+            continue;
+        }
+        if (s_comparePending) s_comparePending--;
+        s_compareDone++;
+        rr.compareStatus = A2cCompare_Completed;
+        rr.imageCompared = true;
+        rr.colorExact = cmp.colorExact;
+        rr.depthExact = cmp.depthExact;
+        rr.depthCompared = cmp.depthCompared;
+        rr.colorMismatch = cmp.colorMismatch;
+        rr.depthMismatch = cmp.depthMismatch;
+        rr.maxChannelDelta = cmp.maxChannelDelta;
+        rr.comparedPixels = cmp.comparedPixels;
+        rr.liveEfbHash = cmp.liveColorHash;
+        rr.scratchEfbHash = cmp.scratchColorHash;
+        rr.liveDepthHash = cmp.liveDepthHash;
+        rr.scratchDepthHash = cmp.scratchDepthHash;
+        rr.imageMatch = cmp.colorExact && cmp.depthCompared && cmp.depthExact &&
+                        rr.seedColorMatch && rr.seedDepthMatch;
+        if (!rr.imageMatch)
+            s_forcedCompareLeft = 4;
+        LOG_INFO("A2f async: fam={} {} colorMis={} depthMis={} liveC={:08x} scrC={:08x}",
+                 A2c_FamilyName(rr.family), rr.imageMatch ? "MATCH" : "DIFF", rr.colorMismatch,
+                 rr.depthMismatch, rr.liveEfbHash, rr.scratchEfbHash);
+        if (rr.family == s_lastReplay.family)
+            s_lastReplay = rr;
+    }
+}
+
 void A2c_OnArchivedFrame()
 {
     A2bArchivePacket pkt;
@@ -492,9 +614,10 @@ void A2c_OnArchivedFrame()
 
     {
         std::lock_guard lk(s_mu);
+        PollPendingComparesLocked();
         s_pass = report;
         s_havePass = true;
-        if (report.family < 4)
+        if (report.family < kFamilySlots)
         {
             s_familyPass[report.family] = report;
             s_haveFamilyPass[report.family] = true;
@@ -503,18 +626,19 @@ void A2c_OnArchivedFrame()
 
     static uint64_t lastLogMs = 0;
     const uint64_t now = Platform_TickMs();
-    const bool namedFamily =
-        report.family == A2cFamily_A2dIdle || report.family == A2cFamily_A2eMultiTex;
+    const bool namedFamily = report.family == A2cFamily_A2dIdle ||
+                             report.family == A2cFamily_A2eMultiTex ||
+                             report.family == A2cFamily_A2fEfbFb;
     if (now - lastLogMs >= 2500 || (report.replayReady && namedFamily && now - lastLogMs >= 800))
     {
         lastLogMs = now;
-        LOG_INFO("A2e ready: fam={} xfb={} ready={} flags={:03x}/{:03x} passBytes={} draws={} "
-                 "deps={} (dl={} tex={} vert={} tmem={}) reqUnres={} efbIn={} — {}",
+        LOG_INFO("A2f ready: fam={} xfb={} ready={} flags={:03x}/{:03x} passBytes={} draws={} "
+                 "deps={} (dl={} tex={} vert={} tmem={} efbC={}/{}) reqUnres={} efbIn={} — {}",
                  A2c_FamilyName(report.family), report.xfbIndex,
                  report.replayReady ? "yes" : "no", report.readyFlags, report.failFlags,
                  report.passBytes, report.drawCount, report.depCount, report.depDl, report.depTex,
-                 report.depVert, report.depTmem, report.unresolvedRequired,
-                 report.efbIncomingValid ? "yes" : "no", report.reason);
+                 report.depVert, report.depTmem, report.depEfbCopySampled, report.depEfbCopy,
+                 report.unresolvedRequired, report.efbIncomingValid ? "yes" : "no", report.reason);
     }
 
     if (!ReplayEnv() || !report.replayReady) return;
@@ -523,27 +647,30 @@ void A2c_OnArchivedFrame()
     if (!namedFamily)
     {
         std::lock_guard lk(s_mu);
-        if (s_haveFamilyPass[A2cFamily_A2dIdle] || s_haveFamilyPass[A2cFamily_A2eMultiTex])
+        if (s_haveFamilyPass[A2cFamily_A2dIdle] || s_haveFamilyPass[A2cFamily_A2eMultiTex] ||
+            s_haveFamilyPass[A2cFamily_A2fEfbFb])
             return;
     }
 
-    // Global floor 1.0s; per-family 2.0s. Yield matched families so the other can run.
-    // After both named families MATCH, back off hard — full EFB compare is costly.
+    // Prefer unmatched named families; back off once A2d+A2e+A2f all MATCH.
     static uint64_t lastReplayMs = 0;
     if (now - lastReplayMs < 1000) return;
-    if (report.family < 4)
+    if (report.family < kFamilySlots)
     {
         std::lock_guard lk(s_mu);
         const bool selfMatch =
             s_haveFamilyReplay[report.family] && s_familyReplay[report.family].imageMatch;
-        const uint32_t other =
-            report.family == A2cFamily_A2dIdle ? A2cFamily_A2eMultiTex : A2cFamily_A2dIdle;
-        const bool otherMatch =
-            s_haveFamilyReplay[other] && s_familyReplay[other].imageMatch;
-        if (selfMatch && otherMatch && now - s_lastReplayMsByFamily[report.family] < 10000)
+        bool allNamedMatch =
+            (s_haveFamilyReplay[A2cFamily_A2fEfbFb] &&
+             s_familyReplay[A2cFamily_A2fEfbFb].imageMatch) &&
+            ((s_haveFamilyReplay[A2cFamily_A2eMultiTex] &&
+              s_familyReplay[A2cFamily_A2eMultiTex].imageMatch) ||
+             !s_haveFamilyPass[A2cFamily_A2eMultiTex]);
+        // A2d-idle may be superseded by A2f on the same boot HUD; treat A2f as the
+        // primary idle-with-feedback result.
+        if (selfMatch && allNamedMatch && now - s_lastReplayMsByFamily[report.family] < 10000)
             return;
-        // After a MATCH, yield ~6s so the sibling family can claim replay slots.
-        if (selfMatch && !otherMatch && namedFamily &&
+        if (selfMatch && !allNamedMatch && namedFamily &&
             now - s_lastReplayMsByFamily[report.family] < 6000)
             return;
         if (now - s_lastReplayMsByFamily[report.family] < 2000 &&
@@ -552,14 +679,14 @@ void A2c_OnArchivedFrame()
     }
 
     lastReplayMs = now;
-    if (report.family < 4) s_lastReplayMsByFamily[report.family] = now;
+    if (report.family < kFamilySlots) s_lastReplayMsByFamily[report.family] = now;
     s_replayBudgetFrames++;
 
     A2cReplayResult rr{};
     RunScratchReplay(pkt, report, rr);  // releases pkt's EFB slot ref
     std::lock_guard lk(s_mu);
     s_lastReplay = rr;
-    if (rr.family < 4)
+    if (rr.family < kFamilySlots)
     {
         s_familyReplay[rr.family] = rr;
         s_haveFamilyReplay[rr.family] = true;
@@ -585,7 +712,7 @@ bool A2c_GetLastReplay(A2cReplayResult& out)
 bool A2c_GetFamilyPassReport(uint32_t family, A2cPassReport& out)
 {
     std::lock_guard lk(s_mu);
-    if (family >= 4 || !s_haveFamilyPass[family]) return false;
+    if (family >= kFamilySlots || !s_haveFamilyPass[family]) return false;
     out = s_familyPass[family];
     return true;
 }
@@ -593,7 +720,7 @@ bool A2c_GetFamilyPassReport(uint32_t family, A2cPassReport& out)
 bool A2c_GetFamilyReplay(uint32_t family, A2cReplayResult& out)
 {
     std::lock_guard lk(s_mu);
-    if (family >= 4 || !s_haveFamilyReplay[family]) return false;
+    if (family >= kFamilySlots || !s_haveFamilyReplay[family]) return false;
     out = s_familyReplay[family];
     return true;
 }
@@ -604,6 +731,7 @@ const char* A2c_FamilyName(uint32_t family)
     {
     case A2cFamily_A2dIdle: return "A2d-idle";
     case A2cFamily_A2eMultiTex: return "A2e-multitex";
+    case A2cFamily_A2fEfbFb: return "A2f-efbfb";
     case A2cFamily_Other: return "other";
     default: return "none";
     }
@@ -613,23 +741,30 @@ void A2c_OverlayLine(char* buf, size_t bufSize)
 {
     if (!buf || bufSize == 0) return;
     buf[0] = 0;
-    A2cReplayResult a{}, b{};
+    A2cReplayResult a{}, b{}, f{};
     const bool haveA = A2c_GetFamilyReplay(A2cFamily_A2dIdle, a);
     const bool haveB = A2c_GetFamilyReplay(A2cFamily_A2eMultiTex, b);
-    if (haveA || haveB)
+    const bool haveF = A2c_GetFamilyReplay(A2cFamily_A2fEfbFb, f);
+    if (haveA || haveB || haveF)
     {
-        std::snprintf(buf, bufSize, "A2d:%s A2e:%s",
-                      haveA ? (a.imageMatch ? "MATCH" : (a.completed ? "DIFF" : "fail")) : "-",
-                      haveB ? (b.imageMatch ? "MATCH" : (b.completed ? "DIFF" : "fail")) : "-");
+        auto tag = [](bool have, const A2cReplayResult& r) -> const char* {
+            if (!have) return "-";
+            if (r.compareStatus == A2cCompare_Pending) return "pend";
+            if (r.imageMatch) return "MATCH";
+            if (r.completed) return "DIFF";
+            return "fail";
+        };
+        std::snprintf(buf, bufSize, "A2d:%s A2e:%s A2f:%s", tag(haveA, a), tag(haveB, b),
+                      tag(haveF, f));
         return;
     }
     A2cPassReport p{};
     if (!A2c_GetPassReport(p))
     {
         if (A2c_ScratchReplayEnabled())
-            std::snprintf(buf, bufSize, "A2e: waiting");
+            std::snprintf(buf, bufSize, "A2f: waiting");
         return;
     }
-    std::snprintf(buf, bufSize, "A2e %s %s pass=%u d=%u", A2c_FamilyName(p.family),
-                  p.replayReady ? "READY" : "no", p.passBytes, p.depCount);
+    std::snprintf(buf, bufSize, "A2f %s %s pass=%u d=%u efbC=%u", A2c_FamilyName(p.family),
+                  p.replayReady ? "READY" : "no", p.passBytes, p.depCount, p.depEfbCopySampled);
 }

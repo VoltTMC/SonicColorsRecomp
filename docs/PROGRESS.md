@@ -1,5 +1,17 @@
 # Progress log
 
+## 2026-11-21 — Approach A2f: controlled EFB-feedback capture/replay
+
+**Goal:** Archive and scratch-replay a pass with real EFB→tex feedback (producer → copy → sample → consume), with exact MATCH. Also defer everyPixel compare off the XFB critical path where possible.
+
+**Selected pass:** Title/boot idle HUD mip-chain (~5504 B, ~70 draws, **5 sampled EFB copies**). Same screen as A2d, but now classified `A2f-efbfb` once copy→sample is closed. Prior bug: isolation `DoEFBCopy` read **live** EFB; fixed to copy from **scratch**.
+
+**Shipped:** `A2bRes_EfbCopy` + Sampled; scratch-sourced DoEFBCopy; `A2cReady_EfbFeedback`; async compare begin/poll (skipped ≠ MATCH); `SCR_A2C_COMPARE_SYNC`.
+
+**Validation (`out/phase22_a2f_*.log`):** A2f-efbfb MATCH (`efbC=5/5`, `det=1`, `colorMis=0`, `depthMis=0`, `dCmp=1`, `liveC==scrC`); A2e-multitex also MATCH under A2f (`phase22_a2f_long.log`); capture off ~60 Hz; on-path ~35 Hz (capture/replay cost; async compare does not eliminate it); underruns≈0 after settle; `regression_smoke` OK. MinGW links; native Win GPU replay unverified.
+
+**Next:** cross-frame EFB texture lifetime, or another static/UI profile — no scene-wide / no unique-FPS. Docs: `docs/FRAME_RATE.md` A2f.
+
 ## 2026-11-21 — Approach A2e: second independent static/UI pass MATCH
 
 **Goal:** Show A2c/A2d archive→incoming-EFB seed→scratch MATCH is reproducible on a second, structurally different static/UI pass — not a one-pass special case. No scene-wide / interpolation / second XFB / unique-FPS claim.

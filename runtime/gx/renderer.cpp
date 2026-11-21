@@ -1148,6 +1148,8 @@ static ID3D11ShaderResourceView* GetTexture(int map, uint32_t* outW, uint32_t* o
         {
             e.lastFrame = s_frame;
             e.hashedFrame = s_frame;
+            if (A2c_ClosureCaptureEnabled() && !s_replayIsolation)
+                A2b_OnEfbCopySampled(addr);
             return e.srv;
         }
         ReleaseTex(e);
@@ -1882,6 +1884,167 @@ bool Render_CompareLiveVsScratch(RenderEfbCompare& out, bool compareDepth)
     return true;
 }
 
+// Deferred everyPixel compare: staging copies + event query (no Map on begin).
+struct AsyncCompareSlot
+{
+    ID3D11Texture2D* liveColor = nullptr;
+    ID3D11Texture2D* scrColor = nullptr;
+    ID3D11Query* query = nullptr;
+    uint32_t width = 0, height = 0;
+    uint32_t liveDepthHash = 0, scratchDepthHash = 0;
+    bool compareDepth = false;
+    bool occupied = false;
+    bool failed = false;
+};
+static constexpr int kAsyncCmpSlots = 2;
+static AsyncCompareSlot s_asyncCmp[kAsyncCmpSlots];
+static uint32_t s_asyncCmpDepth = 0;
+
+static void ReleaseAsyncSlot(AsyncCompareSlot& s)
+{
+    if (s.liveColor) { s.liveColor->Release(); s.liveColor = nullptr; }
+    if (s.scrColor) { s.scrColor->Release(); s.scrColor = nullptr; }
+    if (s.query) { s.query->Release(); s.query = nullptr; }
+    s.occupied = false;
+    s.failed = false;
+}
+
+int Render_CompareBeginAsync(bool compareDepth)
+{
+    if (!s_efbColor || !s_scratchColor || !g_ctx || !g_device) return -1;
+    int slot = -1;
+    for (int i = 0; i < kAsyncCmpSlots; i++)
+        if (!s_asyncCmp[i].occupied) { slot = i; break; }
+    if (slot < 0) return -1;
+
+    Flush();
+    UnbindOMTargets();
+    AsyncCompareSlot& s = s_asyncCmp[slot];
+    ReleaseAsyncSlot(s);
+    D3D11_TEXTURE2D_DESC d{};
+    s_efbColor->GetDesc(&d);
+    s.width = d.Width;
+    s.height = d.Height;
+    s.compareDepth = compareDepth;
+    D3D11_TEXTURE2D_DESC sd = d;
+    sd.Usage = D3D11_USAGE_STAGING;
+    sd.BindFlags = 0;
+    sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    sd.MiscFlags = 0;
+    if (FAILED(g_device->CreateTexture2D(&sd, nullptr, &s.liveColor)) ||
+        FAILED(g_device->CreateTexture2D(&sd, nullptr, &s.scrColor)))
+    {
+        ReleaseAsyncSlot(s);
+        return -1;
+    }
+    g_ctx->CopyResource(s.liveColor, s_efbColor);
+    g_ctx->CopyResource(s.scrColor, s_scratchColor);
+    // Capture depth fingerprints now — scratch may be reused before Poll.
+    s.liveDepthHash = compareDepth ? HashTextureContents(s_efbDepth, true) : 0;
+    s.scratchDepthHash = compareDepth ? HashTextureContents(s_scratchDepth, true) : 0;
+    D3D11_QUERY_DESC qd{};
+    qd.Query = D3D11_QUERY_EVENT;
+    if (FAILED(g_device->CreateQuery(&qd, &s.query)))
+    {
+        ReleaseAsyncSlot(s);
+        return -1;
+    }
+    g_ctx->End(s.query);
+    s.occupied = true;
+    s_asyncCmpDepth++;
+    return slot;
+}
+
+bool Render_ComparePoll(int ticket, RenderEfbCompare& out, bool* stillPending)
+{
+    out = RenderEfbCompare{};
+    if (stillPending) *stillPending = false;
+    if (ticket < 0 || ticket >= kAsyncCmpSlots || !s_asyncCmp[ticket].occupied)
+        return false;
+    AsyncCompareSlot& s = s_asyncCmp[ticket];
+    if (s.failed)
+    {
+        ReleaseAsyncSlot(s);
+        if (s_asyncCmpDepth) s_asyncCmpDepth--;
+        return false;
+    }
+    BOOL done = FALSE;
+    const HRESULT hr = g_ctx->GetData(s.query, &done, sizeof(done), 0);
+    if (hr == S_FALSE || !done)
+    {
+        if (stillPending) *stillPending = true;
+        return false;
+    }
+    // Map staging and run the same everyPixel colour walk as the sync path.
+    out.width = s.width;
+    out.height = s.height;
+    D3D11_MAPPED_SUBRESOURCE ml{}, ms{};
+    if (FAILED(g_ctx->Map(s.liveColor, 0, D3D11_MAP_READ, 0, &ml)) ||
+        FAILED(g_ctx->Map(s.scrColor, 0, D3D11_MAP_READ, 0, &ms)))
+    {
+        if (ml.pData) g_ctx->Unmap(s.liveColor, 0);
+        ReleaseAsyncSlot(s);
+        if (s_asyncCmpDepth) s_asyncCmpDepth--;
+        return false;
+    }
+    uint32_t hLive = 2166136261u, hScr = 2166136261u;
+    for (uint32_t y = 0; y < s.height; y++)
+    {
+        const uint8_t* a = (const uint8_t*)ml.pData + (size_t)y * ml.RowPitch;
+        const uint8_t* b = (const uint8_t*)ms.pData + (size_t)y * ms.RowPitch;
+        for (uint32_t x = 0; x < s.width; x++)
+        {
+            const uint8_t* pa = a + x * 4;
+            const uint8_t* pb = b + x * 4;
+            out.comparedPixels++;
+            bool mism = false;
+            uint32_t maxd = 0, sumd = 0;
+            for (int c = 0; c < 4; c++)
+            {
+                int diff = (int)pa[c] - (int)pb[c];
+                if (diff < 0) diff = -diff;
+                hLive = (hLive ^ pa[c]) * 16777619u;
+                hScr = (hScr ^ pb[c]) * 16777619u;
+                if (diff)
+                {
+                    mism = true;
+                    if ((uint32_t)diff > maxd) maxd = (uint32_t)diff;
+                    sumd += (uint32_t)diff;
+                }
+            }
+            if (mism)
+            {
+                out.colorMismatch++;
+                if (maxd > out.maxChannelDelta) out.maxChannelDelta = maxd;
+                out.sumChannelDelta += sumd;
+            }
+        }
+    }
+    g_ctx->Unmap(s.liveColor, 0);
+    g_ctx->Unmap(s.scrColor, 0);
+    out.liveColorHash = hLive ? hLive : 1u;
+    out.scratchColorHash = hScr ? hScr : 1u;
+    out.colorExact = (out.colorMismatch == 0);
+    out.liveDepthHash = s.liveDepthHash;
+    out.scratchDepthHash = s.scratchDepthHash;
+    out.depthCompared = s.compareDepth && out.liveDepthHash != 0 && out.scratchDepthHash != 0;
+    out.depthExact = out.depthCompared && (out.liveDepthHash == out.scratchDepthHash);
+    out.depthMismatch = out.depthExact ? 0u : (out.depthCompared ? 1u : ~0u);
+    ReleaseAsyncSlot(s);
+    if (s_asyncCmpDepth) s_asyncCmpDepth--;
+    return true;
+}
+
+void Render_CompareCancel(int ticket)
+{
+    if (ticket < 0 || ticket >= kAsyncCmpSlots) return;
+    if (!s_asyncCmp[ticket].occupied) return;
+    ReleaseAsyncSlot(s_asyncCmp[ticket]);
+    if (s_asyncCmpDepth) s_asyncCmpDepth--;
+}
+
+uint32_t Render_CompareQueueDepth() { return s_asyncCmpDepth; }
+
 // ------------------------------------------------------------------ flush
 static uint32_t s_drawCalls = 0;
 
@@ -2395,10 +2558,15 @@ static void DoEFBCopy()
     bool half = (ctl >> 9) & 1;
     uint32_t destAddr = (BP(0x4B) & 0xFFFFFF) << 5;
 
-    // snapshot EFB for sampling
+    // Snapshot EFB for sampling. Under scratch isolation, copy FROM scratch
+    // attachments so EFB→tex feedback is reconstructed, not sampled from live.
+    if (s_replayIsolation)
+        Flush();
     g_ctx->OMSetRenderTargets(0, nullptr, nullptr);
-    g_ctx->CopyResource(s_efbColorCopy, s_efbColor);
-    g_ctx->CopyResource(s_efbDepthCopy, s_efbDepth);
+    ID3D11Texture2D* srcColor = (s_replayIsolation && s_scratchColor) ? s_scratchColor : s_efbColor;
+    ID3D11Texture2D* srcDepth = (s_replayIsolation && s_scratchDepth) ? s_scratchDepth : s_efbDepth;
+    g_ctx->CopyResource(s_efbColorCopy, srcColor);
+    g_ctx->CopyResource(s_efbDepthCopy, srcDepth);
 
     float u0 = (float)sx / EFB_W, v0 = (float)sy / EFB_H, u1 = (float)(sx + sw) / EFB_W, v1 = (float)(sy + sh) / EFB_H;
 
@@ -2584,6 +2752,15 @@ static void DoEFBCopy()
         e.hashedFrame = s_frame;
         e.efbCopy = true;
         e.lastFrame = s_frame;
+        if (A2c_ClosureCaptureEnabled() && !s_replayIsolation)
+        {
+            uint32_t cf = 0;
+            if (half) cf |= A2bEfbCopy_Half;
+            if (depthSrc) cf |= A2bEfbCopy_DepthSrc;
+            if (intensity) cf |= A2bEfbCopy_Intensity;
+            A2b_OnEfbCopy(destAddr, ctl, (uint32_t)sx, (uint32_t)sy, (uint32_t)sw, (uint32_t)sh,
+                          fmt, cf);
+        }
         if (Capturing())
         {
             char path[64];
