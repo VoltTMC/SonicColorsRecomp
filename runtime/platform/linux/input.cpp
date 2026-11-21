@@ -1,160 +1,27 @@
-// Controllers (SDL3 gamepads, Steam Input's virtual pads included), keyboard and mouse
-// on Linux, translated to XInput's layout and Windows key codes.
+// Controllers (SDL3 via sdl_gamepad), keyboard and mouse on Linux.
 #include "../input.h"
 #include "sdl.h"
-#include "../../input/gamepad.h"
-#include "../../log.h"
-#include "../../ui/overlay.h"
+#include "../sdl_gamepad.h"
 
-#include <format>
-#include <mutex>
-#include <string>
+#include <SDL3/SDL.h>
 
-namespace
-{
-std::mutex s_padMutex;
-SDL_Gamepad* s_pads[4];   // player slots, in the order the controllers were connected
+void Input_HandleEvent(const SDL_Event& e) { SdlGamepad_HandleEvent(e); }
 
-void CompactPads()
-{
-    int w = 0;
-    for (int r = 0; r < 4; r++)
-        if (s_pads[r]) s_pads[w++] = s_pads[r];
-    while (w < 4) s_pads[w++] = nullptr;
-}
+void Input_ProbeConnectedPads() { SdlGamepad_ProbeConnected(false); }
 
-void AddPad(SDL_JoystickID id, bool toast)
-{
-    std::lock_guard lk(s_padMutex);
-    for (SDL_Gamepad* p : s_pads)
-        if (p && SDL_GetGamepadID(p) == id) return;
-    for (int i = 0; i < 4; i++)
-        if (!s_pads[i])
-        {
-            s_pads[i] = SDL_OpenGamepad(id);
-            if (s_pads[i])
-            {
-                const char* name = SDL_GetGamepadName(s_pads[i]);
-                LOG_INFO("controller {} connected: {}", i + 1, name ? name : "?");
-                if (toast)
-                {
-                    std::string msg = std::format("Controller {} connected{}", i + 1,
-                                                  name && name[0] ? std::format(" ({})", name) : "");
-                    Overlay_Toast(msg.c_str());
-                }
-            }
-            return;
-        }
-    LOG_WARN("controller ignored (4 already connected)");
-}
+void Input_EnsurePadsProbed() { SdlGamepad_ProbeConnected(false); }
 
-void RemovePad(SDL_JoystickID id)
-{
-    std::lock_guard lk(s_padMutex);
-    bool removed = false;
-    int slot = -1;
-    for (int i = 0; i < 4; i++)
-        if (s_pads[i] && SDL_GetGamepadID(s_pads[i]) == id)
-        {
-            LOG_INFO("controller {} disconnected", i + 1);
-            SDL_CloseGamepad(s_pads[i]);
-            s_pads[i] = nullptr;
-            removed = true;
-            slot = i;
-            break;
-        }
-    if (!removed) return;
-    // Pack remaining pads into low slots so player 2 does not stay stranded in slot 3
-    // while slot 1 is empty after player 1 unplugs.
-    CompactPads();
-    if (slot == 0)
-    {
-        LOG_INFO("controller: player 1 pad gone — keyboard/mouse still control player 1");
-        Overlay_Toast("Controller 1 disconnected — keyboard/mouse active");
-    }
-    else if (slot > 0)
-        Overlay_Toast(std::format("Controller {} disconnected", slot + 1).c_str());
-}
+void Input_PollHotplug() {}  // SDL_EVENT_GAMEPAD_* from the window loop
 
-int16_t Axis(SDL_Gamepad* p, SDL_GamepadAxis a, bool invert)
-{
-    int v = SDL_GetGamepadAxis(p, a);
-    if (invert) v = -v - 1;   // SDL: down is positive; XInput: up is positive
-    return (int16_t)v;
-}
-}   // namespace
+int Pad_Count() { return SdlGamepad_Count(); }
 
-void Input_HandleEvent(const SDL_Event& e)
-{
-    if (e.type == SDL_EVENT_GAMEPAD_ADDED) AddPad(e.gdevice.which, true);
-    else if (e.type == SDL_EVENT_GAMEPAD_REMOVED) RemovePad(e.gdevice.which);
-}
+const char* Pad_Name(int index) { return SdlGamepad_Name(index); }
 
-void Input_ProbeConnectedPads()
-{
-    int n = 0;
-    SDL_JoystickID* ids = SDL_GetGamepads(&n);
-    if (!ids) return;
-    for (int i = 0; i < n; i++)
-        AddPad(ids[i], false);   // startup probe — no toast spam
-    SDL_free(ids);
-}
-
-void Input_EnsurePadsProbed() { Input_ProbeConnectedPads(); }
-
-void Input_PollHotplug() {}   // SDL_EVENT_GAMEPAD_* handled in Input_HandleEvent
-
-int Pad_Count()
-{
-    std::lock_guard lk(s_padMutex);
-    int n = 0;
-    for (SDL_Gamepad* p : s_pads)
-        if (p) n++;
-    return n;
-}
-
-const char* Pad_Name(int index)
-{
-    std::lock_guard lk(s_padMutex);
-    SDL_Gamepad* p = index >= 0 && index < 4 ? s_pads[index] : nullptr;
-    if (!p) return nullptr;
-    const char* n = SDL_GetGamepadName(p);
-    return n && n[0] ? n : "Gamepad";
-}
-
-bool Pad_Read(int index, PadState& out)
-{
-    std::lock_guard lk(s_padMutex);
-    SDL_Gamepad* p = index >= 0 && index < 4 ? s_pads[index] : nullptr;
-    if (!p) return false;
-    static const struct { SDL_GamepadButton b; uint16_t bit; } kButtons[] = {
-        { SDL_GAMEPAD_BUTTON_DPAD_UP, PAD_DPAD_UP }, { SDL_GAMEPAD_BUTTON_DPAD_DOWN, PAD_DPAD_DOWN },
-        { SDL_GAMEPAD_BUTTON_DPAD_LEFT, PAD_DPAD_LEFT }, { SDL_GAMEPAD_BUTTON_DPAD_RIGHT, PAD_DPAD_RIGHT },
-        { SDL_GAMEPAD_BUTTON_START, PAD_START }, { SDL_GAMEPAD_BUTTON_BACK, PAD_BACK },
-        { SDL_GAMEPAD_BUTTON_LEFT_STICK, PAD_LTHUMB }, { SDL_GAMEPAD_BUTTON_RIGHT_STICK, PAD_RTHUMB },
-        { SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, PAD_LB }, { SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, PAD_RB },
-        // by position, like XInput: bottom A, right B, left X, top Y
-        { SDL_GAMEPAD_BUTTON_SOUTH, PAD_A }, { SDL_GAMEPAD_BUTTON_EAST, PAD_B },
-        { SDL_GAMEPAD_BUTTON_WEST, PAD_X }, { SDL_GAMEPAD_BUTTON_NORTH, PAD_Y },
-    };
-    out = PadState();
-    for (auto& k : kButtons)
-        if (SDL_GetGamepadButton(p, k.b)) out.buttons |= k.bit;
-    out.lx = Axis(p, SDL_GAMEPAD_AXIS_LEFTX, false);
-    out.ly = Axis(p, SDL_GAMEPAD_AXIS_LEFTY, true);
-    out.rx = Axis(p, SDL_GAMEPAD_AXIS_RIGHTX, false);
-    out.ry = Axis(p, SDL_GAMEPAD_AXIS_RIGHTY, true);
-    out.lt = (uint8_t)(SDL_GetGamepadAxis(p, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) * 255 / 32767);
-    out.rt = (uint8_t)(SDL_GetGamepadAxis(p, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) * 255 / 32767);
-    return true;
-}
+bool Pad_Read(int index, PadState& out) { return SdlGamepad_Read(index, out); }
 
 void Pad_SetRumble(int index, uint16_t low, uint16_t high)
 {
-    std::lock_guard lk(s_padMutex);
-    SDL_Gamepad* p = index >= 0 && index < 4 ? s_pads[index] : nullptr;
-    // XInput motors run until changed; SDL's stop after a duration (at most ~65 s)
-    if (p) SDL_RumbleGamepad(p, low, high, low || high ? 0xFFFF : 0);
+    SdlGamepad_SetRumble(index, low, high);
 }
 
 void Ui_FeedGamepadFromPads()

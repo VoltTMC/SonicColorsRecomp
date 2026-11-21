@@ -39,8 +39,11 @@ void Platform_Init(int argc, char** argv)
     setenv("DXVK_WSI_DRIVER", "SDL3", 0);
     // SDL on the main thread: windows and their events stay here (Platform_RunGame)
     SDL_SetAppMetadata("Sonic Colors - Recompiled", nullptr, "SonicColorsRecomp");
-    SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");   // controllers read while unfocused, as XInput
+    extern void SdlGamepad_ApplyHints();
+    extern void SdlGamepad_Init();
+    SdlGamepad_ApplyHints();
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) s_sdlError = SDL_GetError();
+    else SdlGamepad_Init();
 }
 
 static void (*s_game)() = nullptr;
