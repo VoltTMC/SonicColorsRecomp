@@ -175,7 +175,9 @@ static bool s_on = false;
 
 static std::atomic<uint64_t> s_guestFrameIndex{ 0 };
 static std::atomic<uint64_t> s_xfbTotal{ 0 }, s_presentTotal{ 0 };  // always-on
-static std::atomic<uint64_t> s_guestN{ 0 }, s_presentN{ 0 }, s_xfbN{ 0 };
+static std::atomic<uint64_t> s_uniquePresentedTotal{ 0 };           // XFBs presented ≥ once
+static std::atomic<uint64_t> s_lastUniquePresentedXfb{ 0 };         // watermark vs s_xfbTotal
+static std::atomic<uint64_t> s_guestN{ 0 }, s_presentN{ 0 }, s_xfbN{ 0 }, s_uniquePresentedN{ 0 };
 static std::atomic<uint64_t> s_guestNs{ 0 }, s_presentNs{ 0 }, s_gxSyncNs{ 0 }, s_viWaitNs{ 0 };
 static std::atomic<uint64_t> s_gapNs{ 0 };   // wall time between FrameLoopWait exit → next enter
 static std::atomic<uint64_t> s_gxSyncCount{ 0 }, s_viSpinIters{ 0 };
@@ -230,6 +232,11 @@ uint64_t Perf_XfbFrameIndex()
 uint64_t Perf_PresentFrameIndex()
 {
     return s_presentTotal.load(std::memory_order_relaxed);
+}
+
+uint64_t Perf_UniqueFramesPresentedIndex()
+{
+    return s_uniquePresentedTotal.load(std::memory_order_relaxed);
 }
 
 void Perf_OnViSpinSample(bool spinning)
@@ -292,6 +299,22 @@ void Perf_OnPresentEnd()
     const uint64_t next = prev ? (prev * 7 + dt) / 8 : dt;
     s_presentSmoothNs.store(next, std::memory_order_relaxed);
     s_presentTotal.fetch_add(1, std::memory_order_relaxed);
+    // Count each new XFB the first time any Present shows it (not every re-Present).
+    {
+        const uint64_t xfb = s_xfbTotal.load(std::memory_order_acquire);
+        uint64_t prev = s_lastUniquePresentedXfb.load(std::memory_order_relaxed);
+        while (xfb > prev)
+        {
+            if (s_lastUniquePresentedXfb.compare_exchange_weak(prev, xfb, std::memory_order_acq_rel))
+            {
+                const uint64_t n = xfb - prev;
+                s_uniquePresentedTotal.fetch_add(n, std::memory_order_relaxed);
+                if (s_on)
+                    s_uniquePresentedN.fetch_add(n, std::memory_order_relaxed);
+                break;
+            }
+        }
+    }
     if (!s_on) return;
     s_presentNs.fetch_add(dt, std::memory_order_relaxed);
     s_presentN.fetch_add(1, std::memory_order_relaxed);
@@ -349,6 +372,7 @@ void Perf_LogStatus(double secs)
     uint64_t guestN = s_guestN.exchange(0);
     uint64_t presentN = s_presentN.exchange(0);
     uint64_t xfbN = s_xfbN.exchange(0);
+    uint64_t uniquePresN = s_uniquePresentedN.exchange(0);
     uint64_t guestNs = s_guestNs.exchange(0);
     uint64_t presentNs = s_presentNs.exchange(0);
     uint64_t gxNs = s_gxSyncNs.exchange(0);
@@ -362,7 +386,8 @@ void Perf_LogStatus(double secs)
 
     double guestHz = guestN * inv;       // simulation steps (FrameLoopWait)
     double presentHz = presentN * inv;   // all Present() including re-presents
-    double xfbHz = xfbN * inv;           // guest XFB copies (unique frames)
+    double xfbHz = xfbN * inv;           // guest XFB copies
+    double uniquePresHz = uniquePresN * inv; // first Present per XFB only
     double repeatHz = repeatN * inv;
     // guestN begins counted this window; gap samples are N-1 ≈ N for large N
     double guestMs = guestN ? (guestNs * nsToMs) / guestN : 0;
@@ -373,9 +398,10 @@ void Perf_LogStatus(double secs)
     double viMsPerGuest = guestN ? viMsTot / guestN : 0;
 
     LOG_INFO("perf: simulation_hz {:.1f} ({:.2f} ms in-wait + {:.2f} ms gap), unique_xfb {:.1f}, "
-             "present_calls {:.1f} (repeat {:.1f}, {:.2f} ms), display_refresh_hz {:.0f}, vsync={}, "
-             "VI-wait {:.2f} ms/sim ({} spins), VI-post skip/run {}/{}, GX-sync {:.2f} ms x{}",
-             guestHz, guestMs, gapMs, xfbHz, presentHz, repeatHz, presentMs,
+             "unique_frames_presented {:.1f}, present_calls {:.1f} (repeat {:.1f}, {:.2f} ms), "
+             "display_refresh_hz {:.0f}, vsync={}, VI-wait {:.2f} ms/sim ({} spins), "
+             "VI-post skip/run {}/{}, GX-sync {:.2f} ms x{}",
+             guestHz, guestMs, gapMs, xfbHz, uniquePresHz, presentHz, repeatHz, presentMs,
              Video_DisplayRefreshHz(), g_videoConfig.vsync ? "on" : "off",
              viMsPerGuest, viIters, viPostSkip, viPostRun, gxMs, gxCnt);
 }

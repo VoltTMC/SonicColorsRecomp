@@ -1,5 +1,22 @@
 # Progress log
 
+## 2026-11-21 — Genuine unique frames >60: blocked; Approach A roadmap
+
+**Verdict:** Uncapped today is presentation-uncapped only (`unique_xfb` ≈ 60). Guest update→draw→FIFO→XFB is one chain per `FrameLoopWait`; FIFO is consumed (not safely replayable); raising sim Hz (Approach B) breaks per-iteration systems. **Approach B rejected.** Long-term path is Approach A (decoupled host render between 60 Hz sim steps) — multi-phase; not claimed complete.
+
+Delivered A0: architecture docs in `docs/FRAME_RATE.md`, `unique_frames_presented` metric (first Present per XFB only), audio underrun check vs 60 FPS baseline. Do not treat `present_calls` as unique game FPS.
+
+Boot-path `--perf` scale=3 @ 120 Hz (`out/phase14_*.log`):
+
+| Mode | sim | unique_xfb | unique_frames_presented | present_calls | underruns/window | repeats |
+|------|----:|-----------:|------------------------:|--------------:|-----------------:|--------:|
+| uncapped `--no-vsync` | ~60 | ~60 | ~60 | **~120** | ~0 | ~0–2 |
+| uncapped `--vsync` | ~60 | ~60 | ~60 | ~60 | ~0–2 | ~0 |
+| `--60fps` | ~60 | ~60 | ~60 | ~60 | ~64 (pre-existing boot/SDL) | ~0 |
+| `--frame-rate 30` | ~30 | ~30 | ~30 | ~30 | ~0–7 | ~0 |
+
+Uncapped underruns ≤ 60 FPS baseline; `unique_frames_presented` tracks `unique_xfb`, not re-Presents.
+
 ## 2026-11-21 — High-refresh presentation: honest metrics + paced Present
 
 **Problem:** Uncapped mode reported ~500–700 “FPS” from `Present()` spam of an unchanged XFB while `unique_xfb` stayed ~60. That figure is not unique game frames.

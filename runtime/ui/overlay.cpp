@@ -212,8 +212,8 @@ void Overlay_Render(float w, float h)
     if (showFps)
     {
         static uint64_t s_lastMs = 0;
-        static uint64_t s_lastSim = 0, s_lastXfb = 0, s_lastPresent = 0, s_lastVi = 0;
-        static float s_simHz = 0.0f, s_xfbHz = 0.0f, s_presentHz = 0.0f, s_viHz = 0.0f;
+        static uint64_t s_lastSim = 0, s_lastXfb = 0, s_lastUniquePres = 0, s_lastPresent = 0, s_lastVi = 0;
+        static float s_simHz = 0.0f, s_xfbHz = 0.0f, s_uniquePresHz = 0.0f, s_presentHz = 0.0f, s_viHz = 0.0f;
         static uint64_t s_lastRssMs = 0, s_rssMb = 0;
         extern uint32_t g_viFieldCount;
         extern int g_audioUnderruns;
@@ -222,6 +222,7 @@ void Overlay_Render(float w, float h)
         {
             const uint64_t sim = Perf_GuestFrameIndex();
             const uint64_t xfb = Perf_XfbFrameIndex();
+            const uint64_t uniquePres = Perf_UniqueFramesPresentedIndex();
             const uint64_t present = Perf_PresentFrameIndex();
             const uint64_t vi = g_viFieldCount;
             if (s_lastMs)
@@ -231,12 +232,14 @@ void Overlay_Render(float w, float h)
                 {
                     s_simHz = (float)((sim - s_lastSim) / secs);
                     s_xfbHz = (float)((xfb - s_lastXfb) / secs);
+                    s_uniquePresHz = (float)((uniquePres - s_lastUniquePres) / secs);
                     s_presentHz = (float)((present - s_lastPresent) / secs);
                     s_viHz = (float)((vi - s_lastVi) / secs);
                 }
             }
             s_lastSim = sim;
             s_lastXfb = xfb;
+            s_lastUniquePres = uniquePres;
             s_lastPresent = present;
             s_lastVi = vi;
             s_lastMs = now;
@@ -255,8 +258,9 @@ void Overlay_Render(float w, float h)
                                  ImGuiWindowFlags_NoInputs;
         if (ImGui::Begin("##scr_fps", nullptr, flags))
         {
-            // unique_xfb = new guest images; present_calls may re-show the same XFB.
-            ImGui::Text("sim %.0f  ·  unique_xfb %.0f  ·  present_calls %.0f", s_simHz, s_xfbHz, s_presentHz);
+            // unique_frames_presented = first Present per XFB; present_calls may re-show the same XFB.
+            ImGui::Text("sim %.0f  ·  unique_xfb %.0f  ·  unique_pres %.0f  ·  present_calls %.0f",
+                        s_simHz, s_xfbHz, s_uniquePresHz, s_presentHz);
             if (dispHz > 0.0f)
                 ImGui::Text("display_refresh %.0f Hz  ·  VSync %s%s", dispHz,
                             Video_VsyncEnabled() ? "on" : "off",

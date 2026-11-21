@@ -18,13 +18,16 @@ CLI: `--vsync` / `--no-vsync` override config for one run.
 | Metric | What it measures |
 |--------|------------------|
 | `simulation_hz` | Guest `FrameLoopWait` / simulation steps per second |
-| `unique_xfb` | Unique guest XFB copies (new game images available to blit) |
+| `unique_xfb` | Unique guest XFB copies (new game images from EFB→XFB) |
+| `unique_frames_presented` | First Present of each new XFB (never counts re-Presents) |
 | `present_calls` | Host `IDXGISwapChain::Present` invocations (may re-show the **same** XFB) |
 | `guest_vi_hz` | Emulated Wii VI field rate (~60 Hz NTSC) |
 | `display_refresh_hz` | Physical monitor mode from the OS (`Window_DisplayRefreshHz`) |
 | `vsync` | `Present(1)` vs `Present(0[, ALLOW_TEARING])` |
 
 **`present_calls` is not unique game FPS.** On a 120 Hz panel with 60 Hz `unique_xfb`, ~120 `present_calls` means each image may occupy two refreshes — not 120 distinct rendered game frames.
+
+**`unique_frames_presented` ≈ `unique_xfb` today** (each XFB Present is immediate). Re-Presents from `Renderer_RepeatLastXfb` inflate `present_calls` only.
 
 Actual panel refreshes are not counted separately (compositor feedback is unavailable / unreliable across Wayland + DXGI/vkd3d). We report `display_refresh_hz` from the OS mode instead of inventing a “displayed FPS.”
 
@@ -36,9 +39,32 @@ From the SNCP8P decomp (`fn_803E19B0` / `fn_800115BC`):
 - Float `dt = N / 60` (seconds per guest step) at `0x808F2D98`.
 - Many guest systems still advance **once per loop iteration**; wall-clock dt alone does not make the engine frame-rate independent.
 
+## Pipeline (why unique XFB stays ~60 Hz)
+
+```
+Guest VI (~60 Hz)
+    → FrameLoopWait (pace / skip VI barriers when uncapped)
+    → guest update + draw (fn_800115BC → fn_80014AA8 → fn_80014BD0)
+    → GX FIFO consume (not retained for replay)
+    → EFB → XFB copy (BP 0x52)     ← unique_xfb++
+    → Host Present                   ← unique_frames_presented++ (first time)
+PaceUncappedHost (uncapped, VSync off)
+    → re-Present same XFB at display_refresh_hz   ← present_calls only
+```
+
+| Stage | Behaviour |
+|-------|-----------|
+| VI / `FrameLoopWait` | Uncapped skips VI EQ/flush/retrace but **holds sim to 60 Hz** with `dt=1/60` |
+| Guest update | One update+draw dispatch per wait — no separate render-only entry |
+| GX | FIFO is consumed on the GPU thread; no safe retained stream to replay |
+| XFB | One unique copy per guest EFB copy; host blit cannot invent new game images |
+| Prior VI-bypass without 60 Hz pace | Sim ran at Present rate → **accelerated gameplay**; pacing must stay |
+
+VI bypasses, fixed `dt`, and the sim/present split are **necessary** for correct wall-clock gameplay and audio. Removing them without a new architecture reintroduces speedup or re-locks presentation to VI.
+
 ## Uncapped mode (`--frame-rate 0`)
 
-### Architecture
+### Current architecture (presentation uncapped only)
 
 ```
 each FrameLoopWait (uncapped):
@@ -47,7 +73,7 @@ each FrameLoopWait (uncapped):
   PaceUncappedHost:
     until next 60 Hz sim deadline:
       pump Sched_RunDue + ppc_check_irq   # audio
-      Present latest XFB at display_refresh_hz (or host_fps_cap)
+      Present latest XFB at display_refresh_hz (or host_fps_cap)  # VSync off only
 ```
 
 | Setting | Present cadence |
@@ -56,24 +82,43 @@ each FrameLoopWait (uncapped):
 | VSync off | `Present(0)` + tearing if supported; latest-frame re-Present paced to ≈ display refresh |
 | `host_fps_cap` > 0 | Cap `present_calls` when VSync is off (still not unique_xfb) |
 
-Default uncapped no longer spam-Presents at ~1000 Hz. That inflated `present_calls` without new game images and burned CPU/GPU.
+**Honest claim today:** uncapped / high-refresh = up to `display_refresh_hz` presentations of ~60 Hz unique content, with correct sim/audio timing. **Not** genuine unique game frames above 60 Hz.
 
-With VSync on a 120 Hz panel: expect `present_calls` ≈ `unique_xfb` ≈ 60, `display_refresh_hz` = 120, Present duration ≈ one host refresh (~8 ms), not a hidden guest-VI 16.7 ms cap.
+### Approach A vs B (genuine unique frames)
 
-### Can we get genuine 120 unique game frames/s?
+#### Approach A — Decoupled simulation and rendering (recommended long-term)
 
-**Not with the current XFB architecture**, without a major redesign:
+Keep sim at 60 Hz; emit additional XFBs between steps from a host-owned path that does **not** advance gameplay.
 
-- Guest GX finishes into an XFB once per simulation step (~60 Hz in uncapped / `--60fps`).
-- Host presentation blits that completed XFB; re-Present does not re-run GX.
-- Raising sim above 60 Hz accelerates per-iteration logic (see prior uncapped speedup RCA).
-- Safe visual interpolation (player/camera only) is **not** implemented; it would need retained guest transforms, careful side-effect analysis, and must not touch physics/collision/audio.
+| Factor | Assessment |
+|--------|------------|
+| Unique frames? | Yes, if a second render path emits new XFBs without guest update |
+| Complexity | High — no clean guest render-only API; FIFO not retained; matrices inside consumed XF/BP traffic |
+| Gameplay risk | Low for sim if sim stays 60 Hz; medium for visual correctness |
+| GX | Must not re-run guest draw that mutates anim/particles/one-shots |
+| Audio | Keep IRQ/pace pumps; avoid Present(1) storms on the guest thread |
 
-Until such work exists, **honest claim:** uncapped / high-refresh = up to `display_refresh_hz` presentations of ~60 Hz unique content, with correct sim/audio timing.
+Naive variants rejected: blind guest draw replay (side effects); FIFO replay as-is (identical image unless matrices patched).
+
+#### Approach B — Higher-frequency guest sim+render (rejected for >60)
+
+Raising `FrameLoopWait` / VI-equivalent rate looks small but is unsafe: many systems advance **per iteration**, not `* dt`. Even wait=1 (60 Hz) has known/potential bugs (see compatibility audit). 120 Hz doubles that pressure vs 60.
+
+**Rejected** for uncapped unique-frame goals.
+
+### Approach A roadmap
+
+| Phase | Goal | Exit criteria |
+|-------|------|----------------|
+| A0 (current) | Honest metrics + docs | No claim of unique>60 |
+| A1 | Capture stable camera + player world matrices each sim step | Debug overlay shows poses; zero gameplay change |
+| A2 | Debug-only host warp/composite from two captured poses | Visual check; **not** counted as `unique_xfb` |
+| A3 | Safe second XFB without guest update | `unique_xfb` can exceed 60 behind a debug flag |
+| A4 | Quality gate (physics/audio/TR1 timing); promote to uncapped | Honest unique>60 in production uncapped |
 
 ### Audio
 
-`PaceUncappedHost` pumps `Sched_RunDue` / `ppc_check_irq` like VI spins so AI DMA/AX stay fed. See progress log 2026-11-21.
+`PaceUncappedHost` pumps `Sched_RunDue` / `ppc_check_irq` like VI spins so AI DMA/AX stay fed. Measured boot-path uncapped underruns/repeats stay near zero and are not worse than `--60fps` on the same host (see `docs/PROGRESS.md` 2026-11-21).
 
 ## Spring soft-lock (TR1 WideSpring) — FIXED
 

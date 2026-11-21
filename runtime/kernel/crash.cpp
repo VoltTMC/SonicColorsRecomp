@@ -76,22 +76,25 @@ static void WatchdogThread()
             extern int g_audioUnderruns, g_audioDrops, g_audioRepeats;
             extern uint64_t g_audioFrames;
             static uint64_t lastAudio = 0;
-            static uint64_t lastSim = 0, lastXfb = 0, lastPresent = 0;
+            static uint64_t lastSim = 0, lastXfb = 0, lastUniquePres = 0, lastPresent = 0;
             const char* tgt = g_cfgFrameRate == 0 ? "uncapped"
                               : (g_cfgFrameRate >= 60 || Perf_Guest60Forced() ? "60/guest" : "30");
             const uint64_t sim = Perf_GuestFrameIndex();
             const uint64_t xfb = Perf_XfbFrameIndex();
+            const uint64_t uniquePres = Perf_UniqueFramesPresentedIndex();
             const uint64_t present = Perf_PresentFrameIndex();
             const float dispHz = Video_DisplayRefreshHz();
-            // present_calls = swapchain Present() invocations (may re-show the same XFB).
-            // unique_xfb = guest framebuffer copies (unique game images available).
+            // present_calls = swapchain Present() (may re-show the same XFB).
+            // unique_xfb = guest EFB→XFB copies. unique_frames_presented = first Present per XFB.
             // display_refresh_hz = physical monitor mode — not equal to present_calls.
-            LOG_INFO("status: target {} | simulation_hz {:.1f} | unique_xfb {:.1f} | present_calls {:.1f} | "
+            LOG_INFO("status: target {} | simulation_hz {:.1f} | unique_xfb {:.1f} | "
+                     "unique_frames_presented {:.1f} | present_calls {:.1f} | "
                      "guest_vi_hz {:.2f} | display_refresh_hz {:.0f} | vsync {}{} | "
                      "audio peak {} underruns {} drops {} repeats {} rate {:.0f} Hz",
                      tgt,
                      (sim - lastSim) / secs,
                      (xfb - lastXfb) / secs,
+                     (uniquePres - lastUniquePres) / secs,
                      (present - lastPresent) / secs,
                      (g_viFieldCount - lastFields) / secs,
                      dispHz,
@@ -107,6 +110,7 @@ static void WatchdogThread()
             lastFields = g_viFieldCount;
             lastSim = sim;
             lastXfb = xfb;
+            lastUniquePres = uniquePres;
             lastPresent = present;
             g_audioPeak = 0;
         }
