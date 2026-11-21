@@ -286,6 +286,8 @@ bool Disc_ReadPartition(uint64_t offset, uint32_t length, uint8_t* out)
         {
             Tas_OnFileRead(it->path);
             MusicMod_OnDiscPath(it->path);
+            extern void A2gNat_OnDiscPathHint(const char*);
+            A2gNat_OnDiscPathHint(it->path.c_str());
         }
         const uint64_t hostOff = s - it->offset;
         const size_t n = (size_t)(e - s);

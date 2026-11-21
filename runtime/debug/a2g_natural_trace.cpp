@@ -234,6 +234,33 @@ void A2gNat_OnGuestFrame()
     s_ctr.guestFrames++;
 }
 
+void A2gNat_OnStageHint(const char* stage, const char* via)
+{
+    if (!EnvOn() || !stage || !stage[0]) return;
+    static char s_last[16]{};
+    if (std::strncmp(s_last, stage, sizeof(s_last)) == 0) return;
+    std::snprintf(s_last, sizeof(s_last), "%s", stage);
+    LOG_INFO("A2g-Stage: entered '{}' via {} (gameplay coverage marker)", stage,
+             via ? via : "?");
+}
+
+void A2gNat_OnDiscPathHint(const char* path)
+{
+    if (!EnvOn() || !path || !path[0]) return;
+    // Log once per distinctive stage asset path substring.
+    const char* keys[] = { "stg110", "stg120", "stg210", "stg310", "stg410", "stg510",
+                           "stg610", "stg710", nullptr };
+    for (int i = 0; keys[i]; i++)
+    {
+        if (!std::strstr(path, keys[i])) continue;
+        static uint32_t seenBits = 0;
+        if (seenBits & (1u << i)) return;
+        seenBits |= (1u << i);
+        LOG_INFO("A2g-Stage: disc read mentions '{}' path='{}'", keys[i], path);
+        return;
+    }
+}
+
 void A2gNat_GetCounters(A2gNatCounters& out)
 {
     std::lock_guard lk(s_mu);

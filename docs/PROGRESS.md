@@ -1,5 +1,21 @@
 # Progress log
 
+## 2026-11-21 — A2g-StageCoverage: TR1 access + natural EFB search
+
+**Goal:** Reproducible Tropical Resort Act 1 entry on an isolated NAND, then natural (unforced) cross-frame EFB sampling search during real gameplay.
+
+**Shipped:** `--nand` / `SCR_TEST_NAND_DIR` isolation + boot diagnostics; `tools/setup_a2g_test_nand.sh`; `tools/a2g_tr1_enter.txt`; stage/disc hints in `a2g_natural_trace`; audit `docs/NAND_SAVE_AUDIT.md`.
+
+**Fixture:** Copy of verified in-tree save (Tropical Resort unlocked) into gitignored `out/test_nand/` — not a hand-written flag dump. Userdata SHA unchanged across test runs.
+
+**Stage entry:** **PASS** — `A2g-Stage: entered 'stg110'` + music stage context (`phase25_tr1_nat_full.log`). Input = normal pad script only.
+
+**Natural TR1 (~8k presents, walk/jump/boost/camera/pause):** nextXfb=**0**, multiXfb=**0**, CROSS=**0**, longestLifeXfb=**0**. Resources replaced same-present before later sampling. Synthetic history stress **skipped** (no new lifetime question beyond A2g retain MATCH + this natural result).
+
+**Perf:** Trace-on TR1 sim often ~35–55 Hz (stage + trace cost); underruns≈0 after settle. Capture/trace off path unchanged. No unique-FPS claim.
+
+**Next:** Other stages if needed; natural replay still blocked (no consumer). Do not equate A2g selftest with natural.
+
 ## 2026-11-21 — A2g-Natural: live cross-frame EFB discovery
 
 **Goal:** Find whether the unmodified game samples an unrecreated EFB→tex generation across a guest/present boundary.
@@ -8,7 +24,7 @@
 
 **Evidence:** Title + 150s TAS menu mash — **0** next/multi natural samples (`phase24_nat_*.log`); ~129k creates / ~593k same-frame binds; replacements ≈ creates. Trace @ ~60 Hz. Selftest still MATCH; off silent; `regression_smoke` OK.
 
-**Natural replay:** not started (no consumer). **Next:** synthetic multi-frame history stress **or** TR1 with a real save — do not call selftest “natural.”
+**Natural replay:** not started (no consumer). Follow-up: A2g-StageCoverage (TR1).
 
 ## 2026-11-21 — Approach A2g: cross-frame EFB texture persistence
 

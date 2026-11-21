@@ -1,0 +1,68 @@
+# A2g-StageCoverage: deterministic TR1 entry + gameplay coverage.
+# Proven menu timing from phase8/scr_a1b_tr1 (works with a Tropical Resort–unlocked save).
+# Use against isolated NAND only:
+#   ./tools/setup_a2g_test_nand.sh
+#   SCR_A2G_NATURAL_TRACE=1 SCR_A2G_SELFTEST=0 ./out/SonicColorsRecomp \
+#     --data game/SNCP8P --skip-launcher --nobox --mute --perf --scale 3 --60fps \
+#     --nand out/test_nand --input-script tools/a2g_tr1_enter.txt --music-debug
+# Expect: "A2g-Stage: entered 'stg110'" and "[MUSIC] stage context 'stg110'".
+# Normal controller input only — no guest state patches.
+
+# --- Menu mash (leave logos / title / load) ---
+2.0 0.10 A
+4.0 0.10 A
+6.0 0.10 A
+8.0 0.10 A
+10.0 0.10 A
+12.0 0.10 A
+14.0 0.10 A
+16.0 0.10 A
+18.0 0.10 A
+20.0 0.12 START
+21.5 0.12 START
+23.0 0.12 START
+24.5 0.12 START
+26.0 0.10 A
+28.0 0.10 A
+30.0 0.10 A
+32.0 0.10 A
+34.0 0.10 A
+36.0 0.10 A
+
+# --- TR1 gameplay coverage ---
+# Approach / walk
+38.0 9.0 LY=0.65
+# Stationary settle (natural EFB baseline)
+47.0 2.0 NONE
+# Jump into glass / capsule path
+49.0 0.20 A
+49.5 0.20 A
+50.0 0.20 A
+50.5 4.0 LY=0.55
+# More jumps
+54.5 0.20 A
+55.0 0.20 A
+55.5 0.20 A
+# Boost hold (Wii B) + light forward
+56.0 12.0 B+LY=0.7
+# Camera sweep
+68.0 2.0 RX=0.55
+70.0 2.0 RX=-0.55
+# Run + jump
+72.0 5.0 LY=0.8
+77.0 0.20 A
+77.5 0.20 A
+78.0 4.0 LY=0.65
+# Pause / resume
+82.0 0.15 START
+83.5 1.5 NONE
+85.0 0.15 START
+# Sustained movement (enemies / env / effects)
+86.0 8.0 LY=0.7
+94.0 0.20 A
+94.5 3.0 LY=0.6
+97.5 4.0 B+LY=0.75
+101.5 6.0 LY=0.55
+107.5 2.0 RX=0.4
+109.5 2.0 RX=-0.4
+111.5 8.0 LY=0.7

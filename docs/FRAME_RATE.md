@@ -234,7 +234,8 @@ Opt-in immutable snapshots at completed sim-frame boundaries for future host int
 | A2e | Second independent static/UI pass MATCH | Two structurally different families both MATCH | **Done (experiment)** |
 | A2f | Controlled EFB→tex feedback replay | Scratch-sourced copy chain MATCH | **Done (experiment)** |
 | A2g | Cross-frame EFB texture retain/replay | Sequential scratch retain MATCH | **Done (experiment)** |
-| A2g-Natural | Live cross-frame EFB sample discovery | Trace-only; 0 natural next/multi samples | **Done (report)** |
+| A2g-Natural | Live cross-frame EFB sample discovery | Trace-only; 0 natural next/multi (title/menu) | **Done (report)** |
+| A2g-StageCoverage | Isolated NAND + TR1 natural search | TR1 entered; 0 natural next/multi in gameplay | **Done (report)** |
 | A3 | Interpolated second XFB without guest update | `unique_xfb` >60 behind debug flag | Later |
 | A4 | Quality gate; promote to uncapped | Honest unique>60 in production | Later |
 
@@ -678,11 +679,48 @@ Opt-in `SCR_A2G_NATURAL_TRACE=1` observes unmodified live EFB→tex create / rep
 
 Final TAS snapshot: `presents≈8600`, `creates≈129058`, `samples≈593331`, `sameFrame≈111787`, `nextXfb=0`, `multiXfb=0`, `replacements≈129041`, `crossEdges=0`. Trace overhead: sim stays ~60 Hz. Capture off remains silent.
 
-**Natural producer/consumer:** **none found** on inspected title/menu paths. Host copies persist in the map but are **replaced every present before any later-frame sample**. Tropical Resort Act 1 proper was not reached without a usable save; menu/transition mash still showed zero natural cross samples.
+**Natural producer/consumer:** **none found** on inspected title/menu paths. Host copies persist in the map but are **replaced every present before any later-frame sample**. Title/menu alone is **not** evidence about gameplay.
 
 **Synthetic selftest** (`SCR_A2G_SELFTEST=1`, default with scratch replay): still `edges=5/5 retain=1 MATCH` — labeled synthetic, not natural.
 
-**Next milestone (evidence-based):** Prefer a **multi-frame synthetic history stress** (3–8 frames, replacement + multi-consumer cleanup) to harden lifetime mechanics — clearly labeled non-natural — **or** a NAND/save path that can enter TR1 gameplay for a second natural search. Still no scene-wide / no interp / no unique-FPS.
+### Approach A2g-StageCoverage — TR1 natural search (2026-11-21)
+
+Isolated disposable NAND + verified save fixture + deterministic TR1 entry; then natural trace on real gameplay. See `docs/NAND_SAVE_AUDIT.md`.
+
+| Piece | Detail |
+|-------|--------|
+| NAND isolation | `--nand out/test_nand` / `SCR_TEST_NAND_DIR`; boot log `ISOLATED test override` |
+| Fixture | `tools/setup_a2g_test_nand.sh` copies verified `userdata/…/data` → `out/test_nand/` (gitignored); **no** invented save flags |
+| Stage entry | `tools/a2g_tr1_enter.txt` (phase8-proven timing); marker `A2g-Stage: entered 'stg110'` + `[MUSIC] stage context 'stg110'` |
+| Trace | `SCR_A2G_NATURAL_TRACE=1` `SCR_A2G_SELFTEST=0` — no forced retention / no copy suppression |
+
+#### TR1 evidence (`out/phase25_tr1_nat_full.log`)
+
+| Coverage | Result |
+|----------|--------|
+| Stage entry | **Yes** — `stg110` via normal menus + input script |
+| Activities | Walk/run, jump, boost (B), camera RX, pause/resume, sustained movement |
+| Presents (full run) | ~8000 (~2000 menu + ~6000 in/near TR1) |
+| Creates / samples | ~130k / ~564k |
+| Same-frame gens | ~114k |
+| Next-XFB / multi-XFB | **0 / 0** |
+| CROSS edges | **0** |
+| Longest life (XFB) | **0** (replaced before later-frame sample) |
+| Live `efbCopies` | ~6 concurrent (replaced each present) |
+| Userdata SHA | Unchanged before/after test NAND runs |
+
+**Natural producer/consumer on TR1:** **none found.** Generations are created and sampled in the same present, then replaced. Synthetic multi-frame history stress was **not** added — A2g retain selftest already covers cross-frame MATCH; natural TR1 shows no lifetime window that would need a longer synthetic chain.
+
+**Reproduce:**
+
+```bash
+./tools/setup_a2g_test_nand.sh
+SCR_A2G_NATURAL_TRACE=1 SCR_A2G_SELFTEST=0 ./out/SonicColorsRecomp \
+  --data game/SNCP8P --skip-launcher --nobox --mute --perf --scale 3 --60fps \
+  --nand out/test_nand --input-script tools/a2g_tr1_enter.txt --music-debug
+```
+
+**Next:** Other stages / effects-heavy scenes if TR1’s mip-chain-dominated EFB pattern is not representative — still no scene-wide / no interp / no unique-FPS. Do **not** treat synthetic retain as natural.
 
 ### Audio
 

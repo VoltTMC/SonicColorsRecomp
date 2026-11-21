@@ -357,6 +357,9 @@ void MusicMod_OnAxVoiceStats(int total, int running, int streaming)
 }
 void MusicMod_OnStageName(const char* stage, const char* via)
 {
+    // Natural/stage coverage: observe stage transitions without requiring music mods.
+    extern void A2gNat_OnStageHint(const char*, const char*);
+    A2gNat_OnStageHint(stage, via);
     if (!s_debug && !s_active) return;
     if (stage && stage[0])
         LOG_INFO("[MUSIC] stage context '{}' via {}", stage, via ? via : "?");

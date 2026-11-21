@@ -54,6 +54,9 @@ void A2gNat_OnSample(uint32_t destKey, uint64_t genId, uint32_t createPresent, u
 void A2gNat_OnInvalidate(uint32_t destKey, uint64_t genId, bool hadSample);
 void A2gNat_OnPresent();
 void A2gNat_OnGuestFrame();
+// Stage / disc hints for gameplay coverage (no behaviour change).
+void A2gNat_OnStageHint(const char* stage, const char* via);
+void A2gNat_OnDiscPathHint(const char* path);
 void A2gNat_GetCounters(A2gNatCounters& out);
 uint32_t A2gNat_GetEdgeCount();
 bool A2gNat_GetEdge(uint32_t index, A2gNatEdge& out);

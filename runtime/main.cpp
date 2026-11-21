@@ -122,6 +122,7 @@ static void PrintUsage()
         "                          progress lines. Exit 0 = intact, 1 = missing/damaged.\n"
         "  --verify-data-quick     Same as --verify-data but size + main.dol only (fast).\n"
         "  --nand DIR              Host NAND / save directory for this run\n"
+        "                          (also SCR_TEST_NAND_DIR; isolated from normal userdata)\n"
         "  --mods DIR              Mods directory override\n"
         "  --nobox                 Suppress message boxes / dialogs\n"
         "  --verbose               Extra log detail\n"
@@ -513,11 +514,27 @@ int main(int argc, char** argv)
     s_dataDir = dataDir;
     s_isoPath = isoPath;
     // Isolated host NAND for saves. Prefer ../userdata (repo layout when exe is in out/),
-    // else <exe>/nand. Override with --nand. See ios/nand_paths.h.
+    // else <exe>/nand. Override with --nand or SCR_TEST_NAND_DIR (test fixtures).
+    // See ios/nand_paths.h. Never point test runs at the user's normal userdata.
+    if (nandDir.empty())
+    {
+        if (const char* td = std::getenv("SCR_TEST_NAND_DIR"))
+            if (td[0])
+                nandDir = td;
+    }
     if (nandDir.empty())
         s_nand = nand_paths::DefaultRoot().string();
     else
         s_nand = nandDir;
+    {
+        std::error_code ec;
+        const bool isolated = !nandDir.empty();
+        LOG_INFO("NAND root: {} ({})", s_nand,
+                 isolated ? "ISOLATED test override — normal userdata untouched"
+                          : "default / user path");
+        if (isolated)
+            std::filesystem::create_directories(s_nand, ec);
+    }
     if (g_config.autoBackupSavesOnLaunch && nandDir.empty())
     {
         std::filesystem::path dest;

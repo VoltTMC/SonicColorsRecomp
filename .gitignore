@@ -71,6 +71,8 @@ config.ini
 *.user
 mem2_dump.bin
 out/ui_shots/
+out/test_nand/
+out/test_nand_*/
 
 # Python
 __pycache__/
