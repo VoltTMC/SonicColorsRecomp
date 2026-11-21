@@ -1,5 +1,22 @@
 # Progress log
 
+## 2026-11-21 — Uncapped audio: pump AI/AX during re-present wait
+
+**Cause:** `PaceUncappedHost` busy-re-presented without `Sched_RunDue` / `ppc_check_irq`. 30/60 modes rely on VI-spin IRQ checks to push AI DMA and run guest AX mid-frame; skipping that starved the mixer → hundreds of `g_audioRepeats`/s and broken audio while present stayed high.
+
+**Fix:** Each pace-loop iteration runs `Sched_RunDue` + `Irq_Update` + `ppc_check_irq` (same path as VI spins), then optional `Renderer_RepeatLastXfb`. Sim stays 60 Hz; present stays uncapped.
+
+Measured boot-path status (scale=3):
+
+| Mode | Sim | Present | Underruns (avg) | AI repeats (avg) | Rate |
+|------|----:|--------:|----------------:|-----------------:|-----:|
+| 30 | ~30 | ~30 | ~0 | **0** | ~32 kHz |
+| 60 | ~60 | ~60 | ~0 | **0** | ~32 kHz |
+| Uncapped (before) | ~60 | ~800 | variable | **200–750** | dips |
+| Uncapped (after) | ~60 | ~850–900 | ~0 | **~0–6** | ~32 kHz |
+
+Logs: `out/phase11_audio_{30,60,uncapped}.log`.
+
 ## 2026-11-21 — Uncapped: 60 Hz sim + unlocked re-present (no gameplay speedup)
 
 **Regression after aacec3a:** Skipping VI barriers unlocked ~400–540 present Hz, but the guest loop also ran that fast. Wall-clock overwrite of `lbl_808F2D98` was insufficient — many systems advance once per `FrameLoopWait` (see decomp `fn_800115BC` + FRAME_RATE audit).

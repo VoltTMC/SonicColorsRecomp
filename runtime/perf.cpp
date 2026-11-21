@@ -3,13 +3,18 @@
 #include "platform/platform.h"
 #include "game_addrs.h"
 #include "kernel/memory.h"
+#include "kernel/scheduler.h"
+#include "kernel/threads.h"
+#include "cpu/ppc_context.h"
 #include "audio/music_mod.h"
 
 #include <atomic>
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+
 extern "C" uint32_t g_cfgFrameRate;
+extern "C" volatile uint32_t g_ppcIrqPending;
 // Recompiled SDK helper: publishes VI wait interval + derived delta (SDA globals).
 // Must match PPC_GEN_FUNC (__restrict) — MSVC/clang-cl ABI mangles restrict into the symbol.
 namespace ppc { PPC_GEN_FUNC(fn_803E19B0); }
@@ -31,11 +36,11 @@ int Perf_HostFpsCap() { return s_hostFpsCap.load(std::memory_order_relaxed); }
 // may re-present the last XFB until the next sim slot. host_fps_cap limits present rate
 // only (0 = no software present cap beyond a 1 ms floor to avoid a Present livelock).
 //
-// Why not wall-clock dt alone: lbl_808F2D98 (SDA float) is seconds = N/60 for systems that
-// integrate with dt, but many guest paths still advance once per FrameLoopWait (counters,
-// collide-activate, scripted steps). Running the guest loop at hundreds of Hz therefore
-// accelerates those systems even if the float is correct — see FRAME_RATE.md.
-static void PaceUncappedHost()
+// Critical: 30/60 modes keep audio alive during VI spins via PPC_CHECK_IRQ → Sched_RunDue
+// (AI DMA push) and guest AID/AX handlers (fresh mix). Skipping VI waits without pumping
+// that path starves AI DMA for ~15 ms/frame → repeats/underruns/"broken" audio. Mirror the
+// VI-spin audio pump here while still allowing uncapped re-presents.
+static void PaceUncappedHost(PPCContext& ctx, uint8_t* base)
 {
     if (g_cfgFrameRate != 0) return;
     const uint64_t freq = Platform_PerfFrequency();
@@ -57,6 +62,13 @@ static void PaceUncappedHost()
 
     while (now < s_nextSimDeadline)
     {
+        // Same cadence as Sched_IdleWait / VI EQ-spin: deliver due HW events (AI DMA)
+        // then run guest IRQs so AX can refill the AI buffer mid-wait.
+        Sched_RunDue();
+        Irq_Update();
+        if (g_ppcIrqPending)
+            ppc_check_irq(ctx, base);
+
         const bool canPresent = !s_lastRepeatPresent
             || (now - s_lastRepeatPresent) >= presentPeriod;
         if (canPresent)
@@ -67,13 +79,11 @@ static void PaceUncappedHost()
         }
         else
         {
+            // Short sleep so AI DMA deadlines still wake us (~2 ms like Sched_IdleWait).
             const uint64_t waitTicks = presentPeriod - (now - s_lastRepeatPresent);
-            const uint32_t ms = (uint32_t)(waitTicks * 1000ull / freq);
+            uint32_t ms = (uint32_t)(waitTicks * 1000ull / freq);
+            if (ms > 2) ms = 2;
             if (ms > 0) Platform_SleepMs(ms);
-            else
-            {
-                while (Platform_PerfCounter() - s_lastRepeatPresent < presentPeriod) {}
-            }
         }
         now = Platform_PerfCounter();
     }
@@ -133,7 +143,8 @@ PPC_OVERRIDE(FrameLoopWait)
     PPC_ORIGINAL(FrameLoopWait);
     s_uncappedFrameWait = false;
     MusicMod_Tick();
-    PaceUncappedHost();
+    if (w == 0)
+        PaceUncappedHost(ctx, base);
     Perf_OnGuestFrameEnd();
 }
 

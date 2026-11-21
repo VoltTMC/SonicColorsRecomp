@@ -48,10 +48,17 @@ each FrameLoopWait (uncapped):
 | Simulation (`FrameLoopWait` / guest update) | Locked to **60 Hz** wall clock |
 | Unique XFB copies | ~60 Hz (one per sim step) |
 | Presented FPS | Can exceed 60 via re-presents |
+| Audio (AI DMA / AX) | Pumped during the pace wait via `Sched_RunDue` + `ppc_check_irq` (same as VI spins) |
 | `host_fps_cap` | Caps **re-present** rate (0 ≈ up to ~1000 Hz floor, not a 60 Hz cap) |
 | VSync | Unchanged; independent of frame-rate mode |
 
-`--perf` reports `sim` Hz vs `present` Hz (`repeat` = re-presents). Healthy uncapped: **sim ≈ 60**, **present > 60**.
+`--perf` reports `sim` Hz vs `present` Hz (`repeat` = re-presents). Healthy uncapped: **sim ≈ 60**, **present > 60**, status-line **audio repeats ≈ 0** (not hundreds).
+
+### Audio vs rendering
+
+30/60 modes keep AI DMA and AX alive during VI waits (`PPC_CHECK_IRQ` → `Sched_RunDue` pushes AI buffers; guest AID handlers refill via AX). Skipping those waits without an equivalent pump starved audio for most of each 16.7 ms slot → identical AI blocks (`g_audioRepeats`), underruns, and broken playback.
+
+`PaceUncappedHost` therefore runs `Sched_RunDue` / `Irq_Update` / `ppc_check_irq` every iteration of the re-present loop so audio timing stays on the emulated AI sample clock, independent of present FPS.
 
 ### What uncapped is not
 
