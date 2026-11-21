@@ -33,14 +33,17 @@ static std::atomic<uint64_t> s_repeatN{ 0 };
 void Perf_SetHostFpsCap(int cap) { s_hostFpsCap.store(std::clamp(cap, 0, 1000), std::memory_order_relaxed); }
 int Perf_HostFpsCap() { return s_hostFpsCap.load(std::memory_order_relaxed); }
 
-// Uncapped: fixed-timestep sim at 60 Hz (same as wait=1 / --60fps), while the renderer
-// may re-present the last XFB until the next sim slot. host_fps_cap limits present rate
-// only (0 = no software present cap beyond a 1 ms floor to avoid a Present livelock).
+// Uncapped: fixed-timestep sim at 60 Hz (same as wait=1 / --60fps).
 //
-// Critical: 30/60 modes keep audio alive during VI spins via PPC_CHECK_IRQ → Sched_RunDue
-// (AI DMA push) and guest AID/AX handlers (fresh mix). Skipping VI waits without pumping
-// that path starves AI DMA for ~15 ms/frame → repeats/underruns/"broken" audio. Mirror the
-// VI-spin audio pump here while still allowing uncapped re-presents.
+// VSync off: latest-frame Present at display_refresh_hz (or host_fps_cap) — not a 1000 Hz
+// spam of an unchanged XFB. Guest still produces ~60 unique XFBs/s.
+//
+// VSync on: do NOT re-Present here. The unique-XFB path already called Present(1), which
+// blocks to the *host* refresh edge. Re-Present(1) would burn another full refresh on the
+// guest thread and starve AI/AX. The swapchain holds the image across subsequent refreshes
+// (e.g. one 60 Hz XFB occupies two 120 Hz refreshes). Pace this window with IRQ pumps only.
+//
+// Audio: pump Sched_RunDue / ppc_check_irq like VI spins so AI DMA/AX stay fed mid-wait.
 static void PaceUncappedHost(PPCContext& ctx, uint8_t* base)
 {
     if (g_cfgFrameRate != 0) return;
@@ -49,18 +52,21 @@ static void PaceUncappedHost(PPCContext& ctx, uint8_t* base)
 
     constexpr uint32_t kSimHz = 60;
     const uint64_t simPeriod = freq / kSimHz;
+    const bool vsync = Video_VsyncEnabled();
     const int presentCap = s_hostFpsCap.load(std::memory_order_relaxed);
-    // Present pacing: VSync → match host display refresh (not guest VI); explicit
-    // host_fps_cap; else ~1000 Hz software floor (not a hidden 60 Hz cap).
-    uint64_t presentPeriod = freq / 1000ull;
-    if (g_videoConfig.vsync)
+
+    // Target Present cadence when VSync is off (never a hidden guest-VI 60 Hz cap):
+    //   host_fps_cap > 0  → that rate
+    //   else              → host display refresh (fallback 120 if unknown)
+    float targetHz = 0.0f;
+    if (presentCap > 0)
+        targetHz = (float)presentCap;
+    else
     {
-        const float hz = Video_DisplayRefreshHz();
-        if (hz >= 30.0f)
-            presentPeriod = freq / (uint64_t)(hz + 0.5f);
+        targetHz = Video_DisplayRefreshHz();
+        if (targetHz < 30.0f) targetHz = 120.0f;
     }
-    else if (presentCap > 0)
-        presentPeriod = freq / (uint64_t)presentCap;
+    const uint64_t presentPeriod = freq / (uint64_t)(targetHz + 0.5f);
 
     uint64_t now = Platform_PerfCounter();
     if (!s_nextSimDeadline)
@@ -71,34 +77,42 @@ static void PaceUncappedHost(PPCContext& ctx, uint8_t* base)
 
     while (now < s_nextSimDeadline)
     {
-        // Same cadence as Sched_IdleWait / VI EQ-spin: deliver due HW events (AI DMA)
-        // then run guest IRQs so AX can refill the AI buffer mid-wait.
         Sched_RunDue();
         Irq_Update();
         if (g_ppcIrqPending)
             ppc_check_irq(ctx, base);
 
-        const bool canPresent = !s_lastRepeatPresent
-            || (now - s_lastRepeatPresent) >= presentPeriod;
-        if (canPresent)
+        if (vsync)
         {
-            Renderer_RepeatLastXfb();
-            s_lastRepeatPresent = Platform_PerfCounter();
-            s_repeatN.fetch_add(1, std::memory_order_relaxed);
+            // Hold until next sim; Present(1) already happened for this XFB.
+            uint32_t ms = (uint32_t)((s_nextSimDeadline - now) * 1000ull / freq);
+            if (ms > 2) ms = 2;
+            if (ms > 0) Platform_SleepMs(ms);
+            else Platform_SleepMs(0);
         }
         else
         {
-            // Short sleep so AI DMA deadlines still wake us (~2 ms like Sched_IdleWait).
-            const uint64_t waitTicks = presentPeriod - (now - s_lastRepeatPresent);
-            uint32_t ms = (uint32_t)(waitTicks * 1000ull / freq);
-            if (ms > 2) ms = 2;
-            if (ms > 0) Platform_SleepMs(ms);
+            const bool canPresent = !s_lastRepeatPresent
+                || (now - s_lastRepeatPresent) >= presentPeriod;
+            if (canPresent)
+            {
+                // Latest completed XFB only — no new guest render between sim steps.
+                Renderer_RepeatLastXfb();
+                s_lastRepeatPresent = Platform_PerfCounter();
+                s_repeatN.fetch_add(1, std::memory_order_relaxed);
+            }
+            else
+            {
+                const uint64_t waitTicks = presentPeriod - (now - s_lastRepeatPresent);
+                uint32_t ms = (uint32_t)(waitTicks * 1000ull / freq);
+                if (ms > 2) ms = 2;
+                if (ms > 0) Platform_SleepMs(ms);
+            }
         }
         now = Platform_PerfCounter();
     }
 
     s_nextSimDeadline += simPeriod;
-    // Hitch clamp: do not try to "catch up" multiple guest sims here (one wait = one step).
     if (now > s_nextSimDeadline + simPeriod * 2)
         s_nextSimDeadline = now + simPeriod;
 }
@@ -270,6 +284,9 @@ void Perf_OnPresentEnd()
     if (!t_present0) return;
     const uint64_t dt = Now() - t_present0;
     t_present0 = 0;
+    // Coordinate uncapped latest-frame pacing with guest XFB Presents so total
+    // present_calls track display_refresh_hz (not display_hz + sim_hz).
+    s_lastRepeatPresent = Now();
     s_lastPresentNs.store(dt, std::memory_order_relaxed);
     uint64_t prev = s_presentSmoothNs.load(std::memory_order_relaxed);
     const uint64_t next = prev ? (prev * 7 + dt) / 8 : dt;
@@ -355,8 +372,8 @@ void Perf_LogStatus(double secs)
     double viMsTot = viNs * nsToMs;
     double viMsPerGuest = guestN ? viMsTot / guestN : 0;
 
-    LOG_INFO("perf: sim {:.1f} Hz ({:.2f} ms in-wait + {:.2f} ms gap), xfb {:.1f} Hz, "
-             "present {:.1f} Hz (repeat {:.1f}, {:.2f} ms), display {:.0f} Hz, vsync={}, "
+    LOG_INFO("perf: simulation_hz {:.1f} ({:.2f} ms in-wait + {:.2f} ms gap), unique_xfb {:.1f}, "
+             "present_calls {:.1f} (repeat {:.1f}, {:.2f} ms), display_refresh_hz {:.0f}, vsync={}, "
              "VI-wait {:.2f} ms/sim ({} spins), VI-post skip/run {}/{}, GX-sync {:.2f} ms x{}",
              guestHz, guestMs, gapMs, xfbHz, presentHz, repeatHz, presentMs,
              Video_DisplayRefreshHz(), g_videoConfig.vsync ? "on" : "off",

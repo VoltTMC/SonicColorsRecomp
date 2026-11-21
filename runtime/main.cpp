@@ -130,6 +130,7 @@ static void PrintUsage()
         "  --frame-rate 30|60|0    Pacing (0 = uncapped). Also --60fps\n"
         "                          60 = true 60 Hz guest + spring cooldown gate.\n"
         "  --guest-60              Force wait=1 (implied by --60fps)\n"
+        "  --vsync / --no-vsync    Override config VSync for this run\n"
         "  --show-fps              Show on-screen FPS overlay for this run\n"
         "  --show-hints            Show Jump/Slash/Pause input hints for this run\n"
         "  --spring-cd-gate        Force spring gate on (implied by --60fps);\n"
@@ -260,6 +261,7 @@ int main(int argc, char** argv)
     std::string nandDir;   // --nand: separate save data (test runs)
     // command line overrides for this run only (never written to config.ini)
     bool fps60 = false, singleCore = false, skipLauncher = false, showFps = false, showHints = false;
+    int vsyncOverride = -1;   // -1 = config; 0 = --no-vsync; 1 = --vsync
     bool prepare = false, saveDiagnostics = false, verifyData = false, verifyDataQuick = false;
     int scaleOverride = 0;
     int fpsOverride = -1;   // --frame-rate 30|60|0; --60fps sets 60
@@ -317,6 +319,8 @@ int main(int argc, char** argv)
             int v = atoi(argv[++i]);
             fpsOverride = (v <= 0) ? 0 : (v >= 60 ? 60 : 30);
         }
+        else if (a == "--vsync") vsyncOverride = 1;
+        else if (a == "--no-vsync") vsyncOverride = 0;
         else if (a == "--profile" && i + 2 < argc) { profStart = atoi(argv[++i]); profDur = atoi(argv[++i]); }
         else if (a == "--dump-audio") { extern FILE* g_audioDump; g_audioDump = fopen("audio_dump.raw", "wb"); }
         else if (a == "--shots-start" && i + 1 < argc) { extern uint32_t g_screenshotStart; g_screenshotStart = (uint32_t)atoi(argv[++i]); }
@@ -454,7 +458,7 @@ int main(int argc, char** argv)
     g_videoConfig.windowWidth = g_config.windowWidth;
     g_videoConfig.windowHeight = g_config.windowHeight;
     g_videoConfig.fullscreen = g_config.fullscreen;
-    g_videoConfig.vsync = g_config.vsync;
+    g_videoConfig.vsync = vsyncOverride >= 0 ? (vsyncOverride != 0) : g_config.vsync;
     g_videoConfig.widescreen = g_config.widescreen;
     g_videoConfig.integerScale = g_config.integerScale;
     {

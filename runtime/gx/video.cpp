@@ -189,8 +189,8 @@ bool Video_Init()
     CreateBackbufferRTV();
     {
         const float hz = Window_DisplayRefreshHz();
-        LOG_INFO("present: vsync={} tearing={} display_refresh={:.0f} Hz (guest VI is independent)",
-                 g_videoConfig.vsync, s_allowTearing, hz);
+        LOG_INFO("present: vsync={} tearing={} (cap={}) display_refresh={:.0f} Hz (guest VI is independent)",
+                 g_videoConfig.vsync, s_allowTearing && !g_videoConfig.vsync, s_allowTearing, hz);
     }
 
     ID3DBlob* vs = Compile(kBlitHLSL, "vs", "vs_5_0");

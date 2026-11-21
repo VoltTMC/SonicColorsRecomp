@@ -257,10 +257,11 @@ void VideoTab(SettingsHost host)
         Changed(host, true);
     {
         const int caps[] = { 0, 60, 120, 144, 165, 240 };
-        const char* capNames[] = { "Off (unlimited)", "60", "120", "144", "165", "240" };
+        const char* capNames[] = { "Off (display Hz)", "60", "120", "144", "165", "240" };
         if (Combo(host, "Uncapped present FPS limit", c.hostFpsCap, caps, capNames, 6, false,
-                  "Only when Frame rate is Uncapped: caps how often the last frame is re-presented. "
-                  "Simulation stays at 60 Hz. Off ≈ host-limited presents. 30/60 modes ignore this."))
+                  "Only when Frame rate is Uncapped: max Present calls/sec of the latest XFB. "
+                  "Off = match the host display refresh (not a 1000 Hz spam). Sim stays 60 Hz. "
+                  "present_calls ≠ unique game frames. 30/60 modes ignore this."))
         {
             Perf_SetHostFpsCap(c.hostFpsCap);
             Changed(host, false);

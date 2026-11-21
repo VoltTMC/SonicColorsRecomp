@@ -1,5 +1,26 @@
 # Progress log
 
+## 2026-11-21 — High-refresh presentation: honest metrics + paced Present
+
+**Problem:** Uncapped mode reported ~500–700 “FPS” from `Present()` spam of an unchanged XFB while `unique_xfb` stayed ~60. That figure is not unique game frames.
+
+**Fix:**
+- Pace uncapped `Renderer_RepeatLastXfb` to `display_refresh_hz` (or `host_fps_cap`) when VSync is off; stop ~1000 Hz Present spam.
+- VSync on: unique-XFB `Present(1)` only (FIFO / host refresh); pace loop pumps AI/AX without re-Present(1) (avoids starving audio). Compositor holds each image across refreshes.
+- Status / overlay / `--perf`: `simulation_hz`, `unique_xfb`, `present_calls`, `display_refresh_hz`, `guest_vi_hz`, `vsync`.
+- CLI `--vsync` / `--no-vsync`. Docs: no safe unique &gt;60 Hz without redesign/interpolation.
+
+Boot-path `--perf` scale=3 on 120 Hz (vkd3d FIFO when vsync on):
+
+| Mode | sim | unique_xfb | present_calls | display | audio repeats |
+|------|----:|-----------:|--------------:|--------:|--------------:|
+| uncapped `--no-vsync` | ~60 | ~60 | **~120** | 120 | ~0 |
+| uncapped `--vsync` | ~60 | ~60 | **~60** | 120 | ~0 |
+| `--60fps` | ~60 | ~60 | ~60 | 120 | ~0 |
+| `--frame-rate 30` | ~30 | ~30 | ~30 | 120 | ~0 |
+
+Logs: `out/phase13_*.log`. `regression_smoke` OK. See `docs/FRAME_RATE.md`.
+
 ## 2026-11-21 — Split sim / xfb / present / display / VI metrics
 
 Status + FPS overlay no longer treat `g_framesPresented` (Present calls, including uncapped re-presents) as “the” FPS. Report `sim`, `xfb`, `present`, `guest_vi`, host `display` Hz, and VSync/tearing. DXGI `ALLOW_TEARING` when VSync is off (if supported). VSync sync interval follows the host refresh, not emulated VI. See `docs/FRAME_RATE.md`.

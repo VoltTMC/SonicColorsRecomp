@@ -83,8 +83,11 @@ static void WatchdogThread()
             const uint64_t xfb = Perf_XfbFrameIndex();
             const uint64_t present = Perf_PresentFrameIndex();
             const float dispHz = Video_DisplayRefreshHz();
-            LOG_INFO("status: target {} | sim {:.1f} | xfb {:.1f} | present {:.1f} | "
-                     "guest_vi {:.2f} | display {:.0f} Hz | vsync {}{} | "
+            // present_calls = swapchain Present() invocations (may re-show the same XFB).
+            // unique_xfb = guest framebuffer copies (unique game images available).
+            // display_refresh_hz = physical monitor mode — not equal to present_calls.
+            LOG_INFO("status: target {} | simulation_hz {:.1f} | unique_xfb {:.1f} | present_calls {:.1f} | "
+                     "guest_vi_hz {:.2f} | display_refresh_hz {:.0f} | vsync {}{} | "
                      "audio peak {} underruns {} drops {} repeats {} rate {:.0f} Hz",
                      tgt,
                      (sim - lastSim) / secs,

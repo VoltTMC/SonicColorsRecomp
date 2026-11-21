@@ -255,18 +255,17 @@ void Overlay_Render(float w, float h)
                                  ImGuiWindowFlags_NoInputs;
         if (ImGui::Begin("##scr_fps", nullptr, flags))
         {
-            // present_fps = swapchain Present calls (may include uncapped re-presents).
-            // xfb_fps = unique guest framebuffer copies. display_refresh = host mode.
-            ImGui::Text("sim %.0f  ·  xfb %.0f  ·  present %.0f", s_simHz, s_xfbHz, s_presentHz);
+            // unique_xfb = new guest images; present_calls may re-show the same XFB.
+            ImGui::Text("sim %.0f  ·  unique_xfb %.0f  ·  present_calls %.0f", s_simHz, s_xfbHz, s_presentHz);
             if (dispHz > 0.0f)
-                ImGui::Text("display %.0f Hz  ·  VSync %s%s", dispHz,
+                ImGui::Text("display_refresh %.0f Hz  ·  VSync %s%s", dispHz,
                             Video_VsyncEnabled() ? "on" : "off",
                             Video_AllowTearing() ? " (tear)" : "");
             else
-                ImGui::Text("display ?  ·  VSync %s%s",
+                ImGui::Text("display_refresh ?  ·  VSync %s%s",
                             Video_VsyncEnabled() ? "on" : "off",
                             Video_AllowTearing() ? " (tear)" : "");
-            ImGui::Text("guest VI %.0f Hz  ·  present %.1f ms  ·  draws/xfb %u",
+            ImGui::Text("guest_vi %.0f Hz  ·  Present %.1f ms  ·  draws/xfb %u",
                         s_viHz, Perf_PresentMsSmooth(), Perf_LastXfbDraws());
             {
                 const float gpuMs = Perf_GpuMsSmooth();
