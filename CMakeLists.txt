@@ -393,6 +393,14 @@ if(LINUX OR WIN32)
     set(SDL_TESTS OFF CACHE BOOL "" FORCE)
     set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
+    # SDL's check_symbol_exists accepts an implicit declaration of the standard
+    # addchdir spelling on glibc where <spawn.h> exposes only the _np form. SDL
+    # then compiles that header-dependent call with implicit declarations
+    # treated as errors. Force its documented _np fallback on Linux.
+    if(LINUX)
+        set(HAVE_POSIX_SPAWN_FILE_ACTIONS_ADDCHDIR "" CACHE INTERNAL
+            "Use posix_spawn_file_actions_addchdir_np on Linux" FORCE)
+    endif()
     # Windows gamepad build: skip unused video/audio host backends where practical.
     if(WIN32)
         set(SDL_RENDER_D3D OFF CACHE BOOL "" FORCE)
