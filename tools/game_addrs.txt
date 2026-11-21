@@ -12,7 +12,10 @@ OSRestoreInterrupts          func 8033FE50
 OSReport                     func 8033BFB0
 OSPanic                      func 8033C040
 OSFatal                      func 8033E2A0
-VIGetRetraceCount            func 80354530  # was fn_80354530; lwz r3, SDA; blr
+VIGetRetraceCount            func 80354530  # was fn_80354530; lwz r3, SDA; blr (= SDA retrace ctr)
+# FrameLoopWait post-EQ-spin VI barriers (still ~60 Hz after EQ bypass — see docs/FRAME_RATE.md)
+VIFlushAndWait               func 80354320  # drain pending VI regs (IRQ-paced)
+VIWaitNextRetrace            func 80353360  # spin until retrace counter bumps
 OSExceptionTable             data 808F38EC
 # Frame pacing (fn_800126EC): steady-state addi r0,2 before VIGetRetraceCount wait loop
 FrameRateWait                code 80012774

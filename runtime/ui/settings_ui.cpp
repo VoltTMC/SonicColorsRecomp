@@ -251,7 +251,7 @@ void VideoTab(SettingsHost host)
     const char* fpsNames[] = { "30 (original)", "60", "Uncapped" };
     if (Combo(host, "Frame rate", c.frameRate, fps, fpsNames, 3, true,
               "30 = native wait=2. 60 = true 60 Hz guest (wait=1) with spring cooldown gate. "
-              "0 = uncapped VI wait."))
+              "0 = uncapped (no VI wait; wall-clock dt). Optional host FPS cap below."))
         Changed(host, true);
     {
         const int caps[] = { 0, 60, 120, 144, 165, 240 };

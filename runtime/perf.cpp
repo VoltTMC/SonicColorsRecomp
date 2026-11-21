@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 
 extern "C" uint32_t g_cfgFrameRate;
 // Recompiled SDK helper: publishes VI wait interval + derived delta (SDA globals).
@@ -72,16 +73,49 @@ extern "C" bool Perf_Guest60Forced() { return Guest60Forced(); }
 // Guest frame-loop helper (fn_800126EC): one call ≈ one paced game update.
 // Republish wait every frame so obj+0xC / PAL force-1 stay in sync with WaitFields().
 //
-// Uncapped (--frame-rate 0): keep a 1-field float dt via E19B0(1), and mark the
-// VI EQ spin so VIGetRetraceCount returns a value that ends it immediately.
-// Guest then runs as fast as the host allows (fast-forward sim @ fixed dt);
-// present stays coupled ~1:1 with guest updates.
+// Uncapped (--frame-rate 0):
+//   - Mark VI EQ spin + post-spin flush/retrace waits so they return immediately.
+//   - Publish integer wait=1 for guest paths that read field counts, then overwrite
+//     the float dt at SDA 0x808F2D98 with wall-clock elapsed seconds so simulation
+//     keeps real-time speed while guest∶present can exceed 60 Hz.
+//   - Optional host_fps_cap still paces after the wait (see PaceUncappedHost).
+static uint64_t s_lastUncappedDt = 0;
+
+static void PublishUncappedWallDt(PPCContext& ctx, uint8_t* base)
+{
+    const uint64_t freq = Platform_PerfFrequency();
+    const uint64_t now = Platform_PerfCounter();
+    float dtSec = 1.0f / 60.0f;
+    if (freq && s_lastUncappedDt)
+    {
+        dtSec = (float)((double)(now - s_lastUncappedDt) / (double)freq);
+        // Spiral-of-death / hitch clamp; floor avoids zero-dt stalls.
+        if (dtSec < 1.0f / 300.0f) dtSec = 1.0f / 300.0f;
+        if (dtSec > 1.0f / 15.0f) dtSec = 1.0f / 15.0f;
+    }
+    s_lastUncappedDt = now;
+
+    const uint32_t s0 = ctx.r[0], s3 = ctx.r[3], s4 = ctx.r[4], s5 = ctx.r[5], s6 = ctx.r[6];
+    ctx.r[3] = 1u;   // integer field count for E19E4 / obj paths
+    ppc::fn_803E19B0(ctx, base);
+    ctx.r[0] = s0; ctx.r[3] = s3; ctx.r[4] = s4; ctx.r[5] = s5; ctx.r[6] = s6;
+
+    // E19B0 wrote N/60; replace with wall-clock seconds (BE float via Write32).
+    uint32_t bits = 0;
+    static_assert(sizeof(bits) == sizeof(dtSec));
+    std::memcpy(&bits, &dtSec, sizeof(bits));
+    Write32(0x808F2D98u, bits);
+}
+
 PPC_OVERRIDE(FrameLoopWait)
 {
     const uint32_t w = WaitFields();
     const uint32_t dt = Perf_DtFields();
     const uint32_t obj = ctx.r[3];
     if (obj) Write32(obj + 8, w == 0 ? 1u : w);
+    if (w == 0)
+        PublishUncappedWallDt(ctx, base);
+    else
     {
         const uint32_t s0 = ctx.r[0], s3 = ctx.r[3], s4 = ctx.r[4], s5 = ctx.r[5], s6 = ctx.r[6];
         ctx.r[3] = dt == 0 ? 1u : dt;
@@ -104,6 +138,7 @@ static std::atomic<uint64_t> s_guestN{ 0 }, s_presentN{ 0 }, s_xfbN{ 0 };
 static std::atomic<uint64_t> s_guestNs{ 0 }, s_presentNs{ 0 }, s_gxSyncNs{ 0 }, s_viWaitNs{ 0 };
 static std::atomic<uint64_t> s_gapNs{ 0 };   // wall time between FrameLoopWait exit → next enter
 static std::atomic<uint64_t> s_gxSyncCount{ 0 }, s_viSpinIters{ 0 };
+static std::atomic<uint64_t> s_viPostSkip{ 0 }, s_viPostRun{ 0 };  // post-EQ VI barriers
 static std::atomic<uint64_t> s_lastPresentNs{ 0 };
 static std::atomic<uint64_t> s_presentSmoothNs{ 0 };
 static std::atomic<uint32_t> s_lastXfbDraws{ 0 };
@@ -164,6 +199,13 @@ void Perf_OnViSpinSample(bool spinning)
         t_viSpinning = false;
         t_viSpin0 = 0;
     }
+}
+
+void Perf_OnViPostWaitSample(bool skipped)
+{
+    if (!s_on) return;
+    if (skipped) s_viPostSkip.fetch_add(1, std::memory_order_relaxed);
+    else s_viPostRun.fetch_add(1, std::memory_order_relaxed);
 }
 
 void Perf_OnGxSyncBegin()
@@ -258,6 +300,8 @@ void Perf_LogStatus(double secs)
     uint64_t gapNs = s_gapNs.exchange(0);
     uint64_t gxCnt = s_gxSyncCount.exchange(0);
     uint64_t viIters = s_viSpinIters.exchange(0);
+    uint64_t viPostSkip = s_viPostSkip.exchange(0);
+    uint64_t viPostRun = s_viPostRun.exchange(0);
 
     double guestHz = guestN * inv;
     double presentHz = presentN * inv;
@@ -271,6 +315,7 @@ void Perf_LogStatus(double secs)
     double viMsPerGuest = guestN ? viMsTot / guestN : 0;
 
     LOG_INFO("perf: guest {:.1f} Hz ({:.2f} ms in-wait + {:.2f} ms gap), xfb {:.1f} Hz, present {:.1f} Hz ({:.2f} ms), "
-             "VI-wait {:.2f} ms/guest ({} spins), GX-sync {:.2f} ms x{}",
-             guestHz, guestMs, gapMs, xfbHz, presentHz, presentMs, viMsPerGuest, viIters, gxMs, gxCnt);
+             "VI-wait {:.2f} ms/guest ({} spins), VI-post skip/run {}/{}, GX-sync {:.2f} ms x{}",
+             guestHz, guestMs, gapMs, xfbHz, presentHz, presentMs, viMsPerGuest, viIters,
+             viPostSkip, viPostRun, gxMs, gxCnt);
 }

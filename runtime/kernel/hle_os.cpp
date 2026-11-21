@@ -156,3 +156,30 @@ PPC_OVERRIDE(VIGetRetraceCount)
             Sched_IdleWait();
     }
 }
+
+// FrameLoopWait after the EQ spin: drain pending VI register writes (IRQ-paced on
+// hardware). Under --frame-rate 0 this was the remaining ~60 Hz lock together with
+// VIWaitNextRetrace — host XFB present does not need VI scanout latch timing.
+PPC_OVERRIDE(VIFlushAndWait)
+{
+    if (Perf_UncappedFrameWaitActive())
+    {
+        Perf_OnViPostWaitSample(true);
+        return;
+    }
+    Perf_OnViPostWaitSample(false);
+    PPC_ORIGINAL(VIFlushAndWait);
+}
+
+// FrameLoopWait tail: busy-wait until SDA retrace counter (same as VIGetRetraceCount)
+// increments. Skipped when uncapped so guest∶present can exceed 60 Hz.
+PPC_OVERRIDE(VIWaitNextRetrace)
+{
+    if (Perf_UncappedFrameWaitActive())
+    {
+        Perf_OnViPostWaitSample(true);
+        return;
+    }
+    Perf_OnViPostWaitSample(false);
+    PPC_ORIGINAL(VIWaitNextRetrace);
+}

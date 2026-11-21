@@ -1,5 +1,11 @@
 # Progress log
 
+## 2026-11-21 — Uncapped mode: remove secondary 60 Hz VI barriers
+
+**Root cause:** After bypassing `FrameLoopWait`'s `VIGetRetraceCount` EQ spin, the guest still blocked on `fn_80354320` (VI flush drain) and `fn_80353360` (wait for retrace-counter bump). Both sync to emulated 60 Hz VI — explaining `--perf` with **0 EQ spins** but a hard ~16.7 ms guest∶XFB∶present period.
+
+**Fix:** Override those as `VIFlushAndWait` / `VIWaitNextRetrace`; no-op while uncapped. Publish wall-clock float `dt` at SDA `0x808F2D98` (integer wait stays 1). VSync unchanged. See `docs/FRAME_RATE.md`.
+
 ## 2026-11-20 — Release v0.3.7 (hotfix)
 
 - Music original preview (vgmstream-cli), managed Windows Music deps persistence/Check tools, and Music tab performance since 0.3.6.

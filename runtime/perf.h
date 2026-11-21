@@ -23,6 +23,8 @@ uint64_t Perf_GuestFrameIndex();
 void Perf_SetHostFpsCap(int cap);
 int Perf_HostFpsCap();
 void Perf_OnViSpinSample(bool spinning);   // called from VIGetRetraceCount override
+// FrameLoopWait post-EQ VI barriers (flush / next-retrace); skipped=true when uncapped bypasses.
+void Perf_OnViPostWaitSample(bool skipped);
 void Perf_OnGxSyncBegin();
 void Perf_OnGxSyncEnd();
 void Perf_OnPresentBegin();
