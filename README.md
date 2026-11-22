@@ -1,6 +1,6 @@
 # SonicColorsRecomp
 
-[WHILE THIS RECOMP IS AI ASSISTED (especially on the github presentation) YOU CAN BE ASSURED ALL CODE RELATED TO THIS PROJECT IS THOUROUGHLY CHECKED OVER BY A HUMAN, NO AI SLOP ALLOWED 🫡]
+## [WHILE THIS RECOMP IS AI ASSISTED (especially on the github presentation) YOU CAN BE ASSURED ALL CODE RELATED TO THIS PROJECT IS THOUROUGHLY CHECKED OVER BY A HUMAN, NO AI SLOP ALLOWED 🫡]
 
 Native **Linux and Windows** static recompilation of **Sonic Colors (Wii)** — PAL `SNCP8P` revision 00.
 
