@@ -11,9 +11,12 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdio>
 #include <d3dcompiler.h>
+#include <dxgi.h>
 #include <dxgi1_2.h>
 #include <dxgi1_5.h>
+#include <vector>
 
 VideoConfig g_videoConfig;
 ID3D11Device* g_device = nullptr;
@@ -121,6 +124,77 @@ static void CreateBackbufferRTV()
     bb->Release();
 }
 
+static std::string GpuAdapterId(const LUID& luid)
+{
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "luid:%ld:%lu", (long)luid.HighPart, (unsigned long)luid.LowPart);
+    return buf;
+}
+
+static bool ParseGpuAdapterId(const std::string& id, LUID& out)
+{
+    long high = 0;
+    unsigned long low = 0;
+    if (std::sscanf(id.c_str(), "luid:%ld:%lu", &high, &low) != 2) return false;
+    out.HighPart = (LONG)high;
+    out.LowPart = (DWORD)low;
+    return true;
+}
+
+std::vector<VideoGpuAdapter> Video_ListGpuAdapters()
+{
+    std::vector<VideoGpuAdapter> out;
+    IDXGIFactory1* factory = nullptr;
+    if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), (void**)&factory)) || !factory) return out;
+    for (UINT i = 0;; i++)
+    {
+        IDXGIAdapter1* adapter = nullptr;
+        if (factory->EnumAdapters1(i, &adapter) == DXGI_ERROR_NOT_FOUND) break;
+        DXGI_ADAPTER_DESC1 desc{};
+        if (SUCCEEDED(adapter->GetDesc1(&desc)))
+        {
+            if ((desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0)
+                out.push_back({ Platform_Utf8(desc.Description), GpuAdapterId(desc.AdapterLuid) });
+        }
+        adapter->Release();
+    }
+    factory->Release();
+    return out;
+}
+
+static IDXGIAdapter1* SelectAdapter()
+{
+    IDXGIFactory1* factory = nullptr;
+    if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), (void**)&factory)) || !factory) return nullptr;
+    LUID want{};
+    const bool wantSpecific = ParseGpuAdapterId(g_config.gpuAdapter, want);
+    IDXGIAdapter1* chosen = nullptr;
+    for (UINT i = 0;; i++)
+    {
+        IDXGIAdapter1* adapter = nullptr;
+        if (factory->EnumAdapters1(i, &adapter) == DXGI_ERROR_NOT_FOUND) break;
+        DXGI_ADAPTER_DESC1 desc{};
+        if (FAILED(adapter->GetDesc1(&desc)))
+        {
+            adapter->Release();
+            continue;
+        }
+        if (wantSpecific && desc.AdapterLuid.HighPart == want.HighPart && desc.AdapterLuid.LowPart == want.LowPart)
+        {
+            chosen = adapter;
+            break;
+        }
+        if (!chosen && (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0)
+            chosen = adapter;
+        else
+            adapter->Release();
+    }
+    factory->Release();
+    if (wantSpecific && !chosen)
+        LOG_WARN("Configured GPU adapter {} not found; using automatic adapter", g_config.gpuAdapter);
+    return chosen;
+}
+
 bool Video_Init()
 {
     Platform_LogHost();
@@ -133,11 +207,14 @@ bool Video_Init()
 #ifdef _DEBUG
     flags |= D3D11_CREATE_DEVICE_DEBUG;
 #endif
+    IDXGIAdapter1* selected = SelectAdapter();
+    D3D_DRIVER_TYPE driverType = selected ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE;
     D3D_FEATURE_LEVEL fl = D3D_FEATURE_LEVEL_11_0;
-    HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, flags, &fl, 1, D3D11_SDK_VERSION, &g_device, nullptr, &g_ctx);
+    HRESULT hr = D3D11CreateDevice(selected, driverType, nullptr, flags, &fl, 1, D3D11_SDK_VERSION, &g_device, nullptr, &g_ctx);
     if (FAILED(hr))
     {
         LOG_ERROR("D3D11CreateDevice failed {:08x}", (uint32_t)hr);
+        if (selected) selected->Release();
         return false;
     }
     IDXGIDevice* dxgiDev = nullptr;
@@ -149,6 +226,7 @@ bool Video_Init()
     DXGI_ADAPTER_DESC ad;
     adapter->GetDesc(&ad);
     LOG_INFO("D3D11 adapter: {} (feature level {:x})", Platform_Utf8(ad.Description), (uint32_t)g_device->GetFeatureLevel());
+    if (selected) selected->Release();
 
     IDXGIFactory5* factory5 = nullptr;
     if (SUCCEEDED(factory->QueryInterface(__uuidof(IDXGIFactory5), (void**)&factory5)))

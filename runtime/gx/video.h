@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdint>
 #include <d3d11.h>
+#include <string>
+#include <vector>
 
 struct VideoConfig
 {
@@ -13,11 +15,18 @@ struct VideoConfig
     bool fullscreen = false;
 };
 
+struct VideoGpuAdapter
+{
+    std::string name;   // display name
+    std::string id;     // stable config value ("luid:HIGH:LOW")
+};
+
 extern VideoConfig g_videoConfig;
 extern ID3D11Device* g_device;
 extern ID3D11DeviceContext* g_ctx;
 
 bool Video_Init();
+std::vector<VideoGpuAdapter> Video_ListGpuAdapters();
 // Presents the given texture region (an XFB copy) to the window.
 void Video_Present(ID3D11ShaderResourceView* srv, float u0, float v0, float u1, float v1);
 // Applied on the window thread (settings changed while the game runs)

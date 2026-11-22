@@ -24,6 +24,7 @@ struct Config
     int anisotropy = 1;          // forced anisotropic filtering (1 = as the game sets it)
     bool asyncShaders = true;    // compile new shaders in the background (no hitches)
     bool gpuThread = true;       // GX processing/rendering on its own thread
+    std::string gpuAdapter;      // DXGI adapter LUID ("luid:HIGH:LOW") or empty = automatic
     bool texturePack = true;     // load Dolphin-format custom textures if present
     std::string texturePackDir;  // empty: <exe>/textures, game/textures, Dolphin's Load/Textures
     // [System]

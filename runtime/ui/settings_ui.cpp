@@ -275,6 +275,50 @@ void VideoTab(SettingsHost host)
     const char* anisNames[] = { "Off (as the game sets it)", "2x", "4x", "8x", "16x" };
     if (Combo(host, "Anisotropic filtering", c.anisotropy, anis, anisNames, 5, false, "Sharper textures at grazing angles."))
         Changed(host, false);
+    {
+        static std::vector<VideoGpuAdapter> adapters;
+        static bool loaded = false;
+        if (ImGui::IsWindowAppearing() || !loaded)
+        {
+            adapters = Video_ListGpuAdapters();
+            loaded = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Refresh##gpuadapters"))
+        {
+            adapters = Video_ListGpuAdapters();
+            loaded = true;
+        }
+        std::string preview = "Automatic (OS default)";
+        for (auto& a : adapters)
+            if (!c.gpuAdapter.empty() && a.id == c.gpuAdapter) { preview = a.name; break; }
+        if (!c.gpuAdapter.empty() && preview == "Automatic (OS default)")
+            preview = "Configured (not detected)";
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 20);
+        if (ImGui::BeginCombo("Graphics device", preview.c_str()))
+        {
+            const bool autoSel = c.gpuAdapter.empty();
+            if (ImGui::Selectable("Automatic (OS default)", autoSel))
+            {
+                c.gpuAdapter.clear();
+                Changed(host, true);
+            }
+            if (autoSel) ImGui::SetItemDefaultFocus();
+            for (auto& a : adapters)
+            {
+                const bool sel = c.gpuAdapter == a.id;
+                if (ImGui::Selectable(a.name.c_str(), sel))
+                {
+                    c.gpuAdapter = a.id;
+                    Changed(host, true);
+                }
+                if (sel) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        Help("Select which GPU/D3D11 adapter the game uses. Applied on next game start/restart. "
+             "Linux dxvk usually follows the Vulkan device selected by your driver/Vulkan ICD environment.");
+    }
     Check(host, "Compile shaders in the background", c.asyncShaders, false,
           "Avoids hitches when new effects appear; an object may then show up a frame late.");
     Check(host, "Graphics on a second CPU core", c.gpuThread, true, "Like Dolphin's dual core mode. Leave on unless debugging.");

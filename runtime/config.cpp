@@ -64,6 +64,8 @@ std::string Config_Text(const Config& c)
     s += std::format("anisotropy = {}\n", c.anisotropy);
     s += "; process graphics on a second CPU core (like Dolphin's dual core)\n";
     s += std::format("gpu_thread = {}\n", Bool(c.gpuThread));
+    s += "; D3D11 adapter LUID (luid:HIGH:LOW). Empty = automatic / OS default.\n";
+    s += std::format("gpu_adapter = {}\n", c.gpuAdapter);
     s += "; compile new shaders in the background: no hitches, objects may appear a frame late\n";
     s += std::format("async_shaders = {}\n", Bool(c.asyncShaders));
     s += "; Dolphin-format HD texture packs: <dir>/<game ID>/**/tex1_*.png|dds. Empty dir searches\n";
@@ -493,6 +495,7 @@ std::string Config_VideoProfileText(const Config& c)
     s += std::format("integer_scale = {}\n", Bool(c.integerScale));
     s += std::format("anisotropy = {}\n", c.anisotropy);
     s += std::format("gpu_thread = {}\n", Bool(c.gpuThread));
+    s += std::format("gpu_adapter = {}\n", c.gpuAdapter);
     s += std::format("async_shaders = {}\n", Bool(c.asyncShaders));
     s += std::format("texture_pack = {}\n", Bool(c.texturePack));
     return s;
@@ -535,6 +538,7 @@ bool Config_ApplyVideoProfileText(const std::string& text, Config& c)
         else if (key == "integer_scale") c.integerScale = ParseBool(val);
         else if (key == "anisotropy") c.anisotropy = std::clamp(atoi(val.c_str()), 1, 16);
         else if (key == "gpu_thread") c.gpuThread = ParseBool(val);
+        else if (key == "gpu_adapter") c.gpuAdapter = val;
         else if (key == "async_shaders") c.asyncShaders = ParseBool(val);
         else if (key == "texture_pack") c.texturePack = ParseBool(val);
     }
@@ -687,6 +691,7 @@ void Config_Load(const std::string& path)
             else if (key == "integer_scale") c.integerScale = ParseBool(val);
             else if (key == "texture_pack") c.texturePack = ParseBool(val);
             else if (key == "gpu_thread") c.gpuThread = ParseBool(val);
+            else if (key == "gpu_adapter") c.gpuAdapter = val;
             else if (key == "async_shaders") c.asyncShaders = ParseBool(val);
             else if (key == "anisotropy") c.anisotropy = std::clamp(atoi(val.c_str()), 1, 16);
             else if (key == "texture_pack_dir") c.texturePackDir = val;

@@ -800,12 +800,16 @@ bool Launcher_Run(std::string& dataDir, const std::string& isoPath, const fs::pa
     ImGui_ImplDX11_Shutdown();
     UiBackend_Shutdown();
     ImGui::DestroyContext(imgui);
-    if (s_rtv) s_rtv->Release();
-    s_swap->Release();
-    s_ctx->Release();
-    s_dev->Release();
-    s_rtv = nullptr;
+    if (s_ctx)
+    {
+        s_ctx->ClearState();
+        s_ctx->Flush();
+    }
+    if (s_rtv) { s_rtv->Release(); s_rtv = nullptr; }
     UiWindow_Destroy();
+    if (s_swap) { s_swap->Release(); s_swap = nullptr; }
+    if (s_ctx) { s_ctx->Release(); s_ctx = nullptr; }
+    if (s_dev) { s_dev->Release(); s_dev = nullptr; }
     if (play) dataDir = st.data.string();
     LOG_INFO("launcher: {}", play ? "play" : "quit");
     return play;
