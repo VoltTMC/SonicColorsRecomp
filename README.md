@@ -8,6 +8,14 @@ You must own the game. No disc image or assets are shipped in this repository or
 
 [![Get it on RecompLauncher](https://recomplauncher.com/badge/get-it-on-recomplauncher.svg)](https://recomplauncher.com)
 
+## Known Issues
+
+Degraded performance the longer you play
+Degraded performance in general
+Playing at higher than 30fps introduces some physics issues in certain stages
+Stomping repeatedly in certain portions of specific stages causes a black screen (can be temporarily fixed by restarting the stage)
+Some laser diamonds can put the player in an infinite loop when laser is used on them (example, end of Tropical resort act 5)
+
 ## How to play
 
 1. Own **Sonic Colors (Wii) Europe / PAL** — disc ID `SNCP8P` (ISO, RVZ, WIA, WBFS, or GCZ).
