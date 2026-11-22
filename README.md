@@ -10,11 +10,13 @@ You must own the game. No disc image or assets are shipped in this repository or
 
 ## Known Issues
 
-| Degraded performance the longer you play |
-| Degraded performance in general |
-| Playing at higher than 30fps introduces some physics issues in certain stages |
-| Stomping repeatedly in certain portions of specific stages causes a black screen (can be temporarily fixed by restarting the stage) |
-| Some laser diamonds can put the player in an infinite loop when laser is used on them (example, end of Tropical resort act 5) |
+| Issue | State |
+|---|---|
+| Degraded performance the longer you play | fix in progress |
+| Degraded performance in general | fix in progress |
+| Playing at higher than 30fps introduces some physics issues in certain stages | fix in progress |
+| Stomping repeatedly in certain portions of specific stages causes a black screen (can be temporarily fixed by restarting the stage) | fix not started |
+| Some laser diamonds can put the player in an infinite loop when laser is used on them (example, end of Tropical resort act 5) | fix not started |
 
 ## How to play
 
