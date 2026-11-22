@@ -1128,7 +1128,9 @@ static ID3D11SamplerState* GetSampler(uint32_t mode0, uint32_t mode1, bool hasMi
     d.Filter = (D3D11_FILTER)f;
     uint32_t aniso = 1u << ((mode0 >> 19) & 3);
     aniso = std::max<uint32_t>(aniso, (uint32_t)g_config.anisotropy);   // user override
-    if (aniso > 1 && minLinear && magLinear)
+    // Anisotropy only buys anything when mipmapping is active; forcing 16x on
+    // non-mipped bilinear samples is pure fill-rate cost (especially at scale 3).
+    if (aniso > 1 && useMips && minLinear && magLinear)
     {
         d.Filter = D3D11_FILTER_ANISOTROPIC;
         d.MaxAnisotropy = std::min(16u, aniso);
@@ -2660,11 +2662,9 @@ static void DoEFBCopy()
     if (s_replayIsolation)
         Flush();
     g_ctx->OMSetRenderTargets(0, nullptr, nullptr);
-    ID3D11Texture2D* srcColor = (s_replayIsolation && s_scratchColor) ? s_scratchColor : s_efbColor;
-    ID3D11Texture2D* srcDepth = (s_replayIsolation && s_scratchDepth) ? s_scratchDepth : s_efbDepth;
-    g_ctx->CopyResource(s_efbColorCopy, srcColor);
-    g_ctx->CopyResource(s_efbDepthCopy, srcDepth);
-
+    // Full-EFB snapshots are only needed when this copy samples EFB (non-XFB).
+    // Doing them here made every XFB present copy ~24 MiB at scale 3 (color+depth),
+    // then copy the color region again below. Move them into the sampling branch.
     float u0 = (float)sx / EFB_W, v0 = (float)sy / EFB_H, u1 = (float)(sx + sw) / EFB_W, v1 = (float)(sy + sh) / EFB_H;
 
     if (Capturing())
@@ -2847,6 +2847,10 @@ static void DoEFBCopy()
         cb.iparams[1] = intensity && fmt < 4 ? 1 : 0;
         cb.iparams[2] = depthSrc ? 1 : 0;
         cb.iparams[3] = half ? 1 : 0;
+        ID3D11Texture2D* srcColor = (s_replayIsolation && s_scratchColor) ? s_scratchColor : s_efbColor;
+        ID3D11Texture2D* srcDepth = (s_replayIsolation && s_scratchDepth) ? s_scratchDepth : s_efbDepth;
+        g_ctx->CopyResource(s_efbColorCopy, srcColor);
+        g_ctx->CopyResource(s_efbDepthCopy, srcDepth);
         ID3D11ShaderResourceView* srvs[2] = { s_efbColorCopySRV, s_efbDepthCopySRV };
         g_ctx->PSSetShaderResources(0, 2, srvs);
         g_ctx->PSSetSamplers(0, 1, half ? &s_linearClamp : &s_linearClamp);

@@ -1,6 +1,7 @@
 // Controllers (SDL3 gamepads — Xbox via XInput backend, DualShock/DualSense via HIDAPI),
 // keyboard and mouse on Windows / Wine.
 #include "../input.h"
+#include "../platform.h"
 #include "../sdl_gamepad.h"
 #include "../../input/gamepad.h"
 #include "../../log.h"
@@ -38,7 +39,16 @@ bool Pad_Read(int index, PadState& out)
 void Input_PollHotplug()
 {
     EnsureSdlGamepad();
-    if (s_sdlReady) SdlGamepad_PumpHotplug();
+    if (!s_sdlReady) return;
+    // Gamepad_Poll() is called several times per emulated frame (pad, Wiimote, motion).
+    // SDL_PumpEvents() is not free: on Windows it also services HIDAPI joystick backends.
+    // Hotplug only needs a few Hz — the old XInput backend remapped devices at 4 Hz — so
+    // do not pump the entire SDL event queue on every virtual controller read.
+    static uint64_t s_lastPumpMs = 0;
+    const uint64_t now = Platform_TickMs();
+    if (s_lastPumpMs && now - s_lastPumpMs < 250) return;
+    s_lastPumpMs = now;
+    SdlGamepad_PumpHotplug();
 }
 
 void Pad_SetRumble(int index, uint16_t low, uint16_t high)

@@ -215,7 +215,10 @@ void Overlay_Render(float w, float h)
 
     ImGui_ImplDX11_NewFrame();
     UiBackend_NewFrame();
-    Ui_FeedGamepadFromPads();
+    // The settings overlay is the only ImGui surface that navigates with a gamepad.
+    // The FPS/hints/toast HUD is read-only; feeding SDL pad state every Present would
+    // add needless per-frame driver calls while gameplay is running.
+    if (s_open) Ui_FeedGamepadFromPads();
     ImGui::GetIO().DisplaySize = ImVec2(w, h);   // the bound target (an off-screen one for screenshots)
     // scale with the window: designed for 720p, then user ui_scale
     const float userScale = std::clamp(g_config.uiScale, 0.75f, 1.50f);
