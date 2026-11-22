@@ -420,9 +420,11 @@ void Perf_LogStatus(double secs)
 
     LOG_INFO("perf: simulation_hz {:.1f} ({:.2f} ms in-wait + {:.2f} ms gap), unique_xfb {:.1f}, "
              "unique_frames_presented {:.1f}, present_calls {:.1f} (repeat {:.1f}, {:.2f} ms), "
-             "display_refresh_hz {:.0f}, vsync={}, VI-wait {:.2f} ms/sim ({} spins), "
-             "VI-post skip/run {}/{}, GX-sync {:.2f} ms x{}",
+             "display_refresh_hz {:.0f}, vsync={}, VI-wait {:.2f} ms/sim ({} spins/interval), "
+             "VI-post skip/run {}/{}, GX-sync {:.2f} ms x{}, GPU blit {:.2f} ms, "
+             "draws/xfb {}, RSS {} MiB",
              guestHz, guestMs, gapMs, xfbHz, uniquePresHz, presentHz, repeatHz, presentMs,
              Video_DisplayRefreshHz(), g_videoConfig.vsync ? "on" : "off",
-             viMsPerGuest, viIters, viPostSkip, viPostRun, gxMs, gxCnt);
+             viMsPerGuest, viIters, viPostSkip, viPostRun, gxMs, gxCnt,
+             Perf_GpuMsSmooth(), Perf_LastXfbDraws(), Platform_ProcessRssMb());
 }

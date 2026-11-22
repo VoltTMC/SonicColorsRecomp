@@ -90,6 +90,7 @@ static void WatchdogThread()
             LOG_INFO("status: target {} | simulation_hz {:.1f} | unique_xfb {:.1f} | "
                      "unique_frames_presented {:.1f} | present_calls {:.1f} | "
                      "guest_vi_hz {:.2f} | display_refresh_hz {:.0f} | vsync {}{} | "
+                     "present {:.2f} ms | GPU blit {:.2f} ms | draws/xfb {} | RSS {} MiB | "
                      "audio peak {} underruns {} drops {} repeats {} rate {:.0f} Hz",
                      tgt,
                      (sim - lastSim) / secs,
@@ -100,6 +101,8 @@ static void WatchdogThread()
                      dispHz,
                      g_videoConfig.vsync ? "on" : "off",
                      Video_AllowTearing() ? "+tear" : "",
+                     Perf_PresentMsSmooth(), Perf_GpuMsSmooth(), Perf_LastXfbDraws(),
+                     Platform_ProcessRssMb(),
                      g_audioPeak, g_audioUnderruns, g_audioDrops, g_audioRepeats,
                      (g_audioFrames - lastAudio) / secs);
             extern void Perf_LogStatus(double);
