@@ -18,6 +18,13 @@ run() {
 run scr_nand_fs_test "$OUT/scr_nand_fs_test"
 run scr_nand_backup_test "$OUT/scr_nand_backup_test"
 run scr_config_test "$OUT/scr_config_test"
+if [[ -x "$OUT/scr_shader_cache_test" ]]; then
+  run scr_shader_cache_test "$OUT/scr_shader_cache_test"
+else
+  echo "building scr_shader_cache_test..."
+  cmake --build --preset linux-clang --target scr_shader_cache_test -j"$(nproc 2>/dev/null || echo 4)"
+  run scr_shader_cache_test "$OUT/scr_shader_cache_test"
+fi
 if [[ -x "$OUT/scr_a3b_camera_math_test" ]]; then
   run scr_a3b_camera_math_test "$OUT/scr_a3b_camera_math_test"
 else

@@ -38,6 +38,7 @@ The launcher installs from **your own** disc image (ISO / RVZ / WIA / WBFS). Do 
 
 Useful flags: `--help`, `--version`, `--portable`, `--check-updates`, `--download-update`, `--save-diagnostics`, `--list-gamepads`, `--verify-data`, `--prepare --game <disc>`.
 If the game goes black after a graphics driver update, try System → Clear shader cache.
+Offline shader prep (A3w): packages can ship portable DXBC via `--precompile-shaders`; see [`docs/A3W_OFFLINE_SHADER_PRECOMPILATION.md`](docs/A3W_OFFLINE_SHADER_PRECOMPILATION.md). Device Vulkan/DXVK pipeline caches are **not** universal.
 
 ## Status (2026-11-20)
 
@@ -52,7 +53,7 @@ If the game goes black after a graphics driver update, try System → Clear shad
 | Known deferred | H7 black-world after stomp; AP1 opening spiral at 60 Hz; H8 in-game music listen |
 | Full-game matrix | **Not** claimed — many stages / abilities `NT` |
 
-Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · Progress: [`docs/PROGRESS.md`](docs/PROGRESS.md) · Compatibility: [`docs/GAME_COMPATIBILITY.md`](docs/GAME_COMPATIBILITY.md) · Frame rate: [`docs/FRAME_RATE.md`](docs/FRAME_RATE.md) · Performance: [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) · Parity: [`docs/WINDOWS_FEATURE_PARITY.md`](docs/WINDOWS_FEATURE_PARITY.md) · Music: [`docs/MUSIC_MODDING.md`](docs/MUSIC_MODDING.md) · Roadmap: [`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md)
+Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · Progress: [`docs/PROGRESS.md`](docs/PROGRESS.md) · Compatibility: [`docs/GAME_COMPATIBILITY.md`](docs/GAME_COMPATIBILITY.md) · Frame rate: [`docs/FRAME_RATE.md`](docs/FRAME_RATE.md) · Performance: [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) · Shaders: [`docs/A3W_OFFLINE_SHADER_PRECOMPILATION.md`](docs/A3W_OFFLINE_SHADER_PRECOMPILATION.md) · Parity: [`docs/WINDOWS_FEATURE_PARITY.md`](docs/WINDOWS_FEATURE_PARITY.md) · Music: [`docs/MUSIC_MODDING.md`](docs/MUSIC_MODDING.md) · Roadmap: [`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md)
 
 ## Foundation
 

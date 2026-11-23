@@ -1,5 +1,23 @@
 # Progress log
 
+## 2026-11-23 — A3w: offline shader precompilation (portable DXBC)
+
+**Goal:** Bench A3v; extend BlackKnight shadercache (not a parallel system) with versioned manifest, collection, offline compile, runtime stats, honest portable-vs-device claims.
+
+**Shipped:** `shader_cache.{h,cpp}`; `manifest.json` schema; `SCR_SHADER_COLLECT`/`_AREA`; `--shader-cache-report`; collect merge + `a3w_collect_area.sh`; preload/create/compile/state hit stats; `scr_shader_cache_test`; `docs/A3W_OFFLINE_SHADER_PRECOMPILATION.md`.
+
+**Achieved offline:** (1) GX key→HLSL inputs via keys (2) HLSL→DXBC `--precompile-shaders`. **Startup:** D3D11 `Create*Shader` preload for known keys. **Not shipped:** universal Vulkan/DXVK PSOs (device/driver). **Fallback:** missing cache still boots.
+
+**Evidence (RTX 3080):** Full cache preload 330 VS + 6793 PS → `cmp=0/0` mem-miss 0; empty cache title path `cmp=5/8` with misses. Offline incremental precompile ~0.05 s (0 new). See `docs/A3W_OFFLINE_SHADER_PRECOMPILATION.md`.
+
+**A3v:** remains **BENCHED** / default off (`735531f` retained). Independent of A3w.
+
+## 2026-11-23 — A3v BENCHED; A3w offline shader precompilation started
+
+**A3v status:** **BENCHED** (do not expand player compositing / 60+60 work this milestone). Commit `735531f` retained; `SCR_A3U_PLAYER_COMPOSITE` remains default **off**. Achieved: mid CPU ~1.6–1.8 ms, soft unique_mid ~4–10/s @60 Hz sim; interleaved occlusion sample-held; 60+60 not achieved. See `docs/A3V_PRODUCTION_PLAYER_COMPOSITE.md`.
+
+**A3w goal:** Move GX HLSL generation/compilation and related D3D11 state prep out of active gameplay using the existing BlackKnight-derived shadercache (`vs_keys`/`ps_keys` + DXBC `.cso`, `--precompile-shaders`). Independent of A3v.
+
 ## 2026-11-23 — A3v: production player composite / occlusion / cadence (PARTIAL)
 
 **Goal:** Reusable player plan, classify post-player occlusion, fix soft-budget 6–8/s without IGNORE_BUDGET; keep sim ~60.

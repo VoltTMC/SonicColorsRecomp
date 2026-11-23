@@ -113,8 +113,10 @@ foreach ($k in "vs_keys.bin", "ps_keys.bin") {
 if ($haveKeys) {
     & $exe --precompile-shaders $dstCache
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "shader precompilation failed (package still usable; first run may compile shaders)"
+        Write-Warning "shader precompilation failed (package still usable; first run may hitch while compiling)"
     }
+    $man = Join-Path $root "out\shadercache\manifest.json"
+    if (Test-Path $man) { Copy-Item -Force $man (Join-Path $dstCache "manifest.json") }
 } else {
     Write-Host "no shader keys found — skipping precompile (first play may hitch while compiling)"
 }

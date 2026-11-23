@@ -455,4 +455,11 @@ void Perf_LogStatus(double secs)
              Video_DisplayRefreshHz(), g_videoConfig.vsync ? "on" : "off",
              viMsPerGuest, viIters, viPostSkip, viPostRun, gxMs, gxCnt,
              Perf_GpuMsSmooth(), Perf_LastXfbDraws(), Platform_ProcessRssMb());
+    {
+        extern void ShaderCache_OverlayLine(char* buf, size_t bufSize);
+        char sc[192];
+        ShaderCache_OverlayLine(sc, sizeof(sc));
+        if (sc[0])
+            LOG_INFO("perf: {}", sc);
+    }
 }

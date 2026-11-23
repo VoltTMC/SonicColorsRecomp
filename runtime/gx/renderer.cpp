@@ -2,6 +2,7 @@
 #include "gx_state.h"
 #include "dxbc_fixup.h"
 #include "shadergen.h"
+#include "shader_cache.h"
 #include "texture_decode.h"
 #include "vertex_loader.h"
 #include "hires.h"
@@ -170,17 +171,21 @@ static ID3DBlob* CompileHLSL(const std::string& src, const char* target)
         {
             fclose(f);
             FixDeclarationOrder(blob);
+            scr_shader_cache_detail::NoteBlobDisk(true);
             return blob;
         }
         if (blob) { blob->Release(); blob = nullptr; }
         fclose(f);
     }
+    scr_shader_cache_detail::NoteBlobDisk(false);
     HRESULT hr = D3DCompile(src.data(), src.size(), nullptr, nullptr, nullptr, "main", target,
                             D3DCOMPILE_OPTIMIZATION_LEVEL2 | D3DCOMPILE_IEEE_STRICTNESS, 0, &blob, &err);
+    const bool vs = target[0] == 'v';
     if (FAILED(hr))
     {
         LogShaderFailure(target, hr, err, src);
         if (err) err->Release();
+        scr_shader_cache_detail::NoteCompile(vs, false);
         return nullptr;
     }
     if (err) err->Release();
@@ -190,6 +195,7 @@ static ID3DBlob* CompileHLSL(const std::string& src, const char* target)
         fwrite(blob->GetBufferPointer(), 1, blob->GetBufferSize(), f);
         fclose(f);
     }
+    scr_shader_cache_detail::NoteCompile(vs, true);
     return blob;
 }
 
@@ -763,6 +769,22 @@ static void RememberKey(const char* file, const K& k)
 {
     std::filesystem::path p = ShaderCacheDir() / file;
     if (FILE* f = _wfopen(p.c_str(), L"ab")) { fwrite(&k, sizeof(K), 1, f); fclose(f); }
+    const bool vs = std::strstr(file, "vs_") != nullptr;
+    scr_shader_cache_detail::NoteKey(vs);
+    // A3w collection: also append under collect/<area>_*.bin for coverage merges.
+    if (ShaderCache_CollectEnabled())
+    {
+        std::error_code ec;
+        const auto colDir = ShaderCacheDir() / "collect";
+        std::filesystem::create_directories(colDir, ec);
+        const char* area = ShaderCache_CollectArea();
+        const auto col = colDir / std::format("{}_{}", area && area[0] ? area : "default", file);
+        if (FILE* f = _wfopen(col.c_str(), L"ab"))
+        {
+            fwrite(&k, sizeof(K), 1, f);
+            fclose(f);
+        }
+    }
 }
 
 template <typename S>
@@ -770,16 +792,19 @@ static S* CreateFromBlob(ID3DBlob* b)
 {
     S* sh = nullptr;
     HRESULT hr;
-    if constexpr (std::is_same_v<S, ID3D11VertexShader>) hr = g_device->CreateVertexShader(b->GetBufferPointer(), b->GetBufferSize(), nullptr, &sh);
+    constexpr bool vs = std::is_same_v<S, ID3D11VertexShader>;
+    if constexpr (vs) hr = g_device->CreateVertexShader(b->GetBufferPointer(), b->GetBufferSize(), nullptr, &sh);
     else hr = g_device->CreatePixelShader(b->GetBufferPointer(), b->GetBufferSize(), nullptr, &sh);
     if (FAILED(hr))
     {
+        scr_shader_cache_detail::NoteCreate(vs, false);
         static std::atomic<int> n{ 0 };
         if (n++ < 20)
-            LOG_ERROR("Create{}Shader failed {:08x} ({} bytes of bytecode)", std::is_same_v<S, ID3D11VertexShader> ? "Vertex" : "Pixel",
+            LOG_ERROR("Create{}Shader failed {:08x} ({} bytes of bytecode)", vs ? "Vertex" : "Pixel",
                       (uint32_t)hr, b->GetBufferSize());
         return nullptr;
     }
+    scr_shader_cache_detail::NoteCreate(vs, true);
     return sh;
 }
 
@@ -843,11 +868,65 @@ static void QueueCompile(bool vs, std::string src, const K& k)
 {
     CompileJob j{ vs, std::move(src), std::vector<uint8_t>((const uint8_t*)&k, (const uint8_t*)&k + sizeof(K)) };
     s_compilePending++;
+    scr_shader_cache_detail::NoteQueued(vs);
     {
         std::lock_guard lk(s_compileMutex);
         s_compileJobs.push_back(std::move(j));
     }
     s_compileCv.notify_one();
+}
+
+static void WriteCacheManifest(uint32_t vsKeys, uint32_t psKeys)
+{
+    ShaderCacheManifest m{};
+    m.schemaVersion = kScrShaderCacheSchema;
+    std::snprintf(m.gameId, sizeof(m.gameId), "%s", kScrShaderGameId);
+    std::snprintf(m.gameRev, sizeof(m.gameRev), "%s", kScrShaderGameRev);
+    std::snprintf(m.generatorId, sizeof(m.generatorId), "%s", kScrShaderGeneratorId);
+    std::snprintf(m.api, sizeof(m.api), "d3d11");
+    std::snprintf(m.vsTarget, sizeof(m.vsTarget), "vs_5_0");
+    std::snprintf(m.psTarget, sizeof(m.psTarget), "ps_5_0");
+    m.vsKeyBytes = (uint32_t)sizeof(VSKey);
+    m.psKeyBytes = (uint32_t)sizeof(PSKey);
+    m.vsKeyCount = vsKeys;
+    m.psKeyCount = psKeys;
+    m.portableDxbc = 1;
+    m.deviceSpecificPipelines = 0;
+    uint32_t cso = 0;
+    std::error_code ec;
+    for (auto& e : std::filesystem::directory_iterator(ShaderCacheDir(), ec))
+        if (e.is_regular_file() && e.path().extension() == ".cso") cso++;
+    m.csoCount = cso;
+    if (ShaderCache_WriteManifest(ShaderCacheDir().string(), m))
+        LOG_INFO("shader cache: wrote manifest.json (schema={} gen={} vsKeys={} psKeys={} cso={})",
+                 m.schemaVersion, m.generatorId, m.vsKeyCount, m.psKeyCount, m.csoCount);
+}
+
+static void CheckCacheManifestOnStartup()
+{
+    ShaderCacheManifest m{};
+    const std::string dir = ShaderCacheDir().string();
+    if (!ShaderCache_ReadManifest(dir, m))
+    {
+        // Also try shipped cache.
+        if (!ShippedShaderCacheDir().empty())
+            (void)ShaderCache_ReadManifest(ShippedShaderCacheDir().string(), m);
+    }
+    if (m.schemaVersion == 0 || m.generatorId[0] == '\0')
+    {
+        // Missing or stub manifest — not an error; runtime compile remains available.
+        scr_shader_cache_detail::NoteManifest(false, false);
+        return;
+    }
+    const bool ok =
+        ShaderCache_ManifestCompatible(m, (uint32_t)sizeof(VSKey), (uint32_t)sizeof(PSKey));
+    scr_shader_cache_detail::NoteManifest(ok, !ok);
+    if (!ok)
+        LOG_WARN("shader cache: manifest incompatible (schema={} gen={} vsKeyB={} psKeyB={}); "
+                 "falling back to per-blob source-hash load + runtime compile",
+                 m.schemaVersion, m.generatorId, m.vsKeyBytes, m.psKeyBytes);
+    else
+        LOG_INFO("shader cache: manifest OK ({} DXBC files recorded)", m.csoCount);
 }
 
 // Creates every shader recorded in shadercache/*_keys.bin. Keys whose blob is missing
@@ -895,9 +974,14 @@ static int PreloadKind(const char* file, std::unordered_map<K, S*, KeyHash<K>>& 
 
 static void PreloadShaders()
 {
+    CheckCacheManifestOnStartup();
     int nv = PreloadKind("vs_keys.bin", s_vsCache, &GenerateVertexShader, "vs_5_0");
     int np = PreloadKind("ps_keys.bin", s_psCache, &GeneratePixelShader, "ps_5_0");
+    scr_shader_cache_detail::NotePreload((uint32_t)nv, (uint32_t)np);
+    scr_shader_cache_detail::NoteInMemory((uint32_t)s_vsCache.size(), (uint32_t)s_psCache.size());
     if (nv || np) LOG_INFO("shader cache: preloaded {} vertex and {} pixel shaders", nv, np);
+    // Refresh portable manifest after key dedupe rewrite (device PSOs still not shipped).
+    WriteCacheManifest((uint32_t)s_vsCache.size(), (uint32_t)s_psCache.size());
 }
 
 // --precompile-shaders <dir>: compiles every key in <dir>/*_keys.bin that has no blob yet,
@@ -953,6 +1037,15 @@ int Renderer_PrecompileShaders(const std::string& dir)
     int failed = PrecompileKind<VSKey>("vs_keys.bin", &GenerateVertexShader, "vs_5_0", compiled) +
                  PrecompileKind<PSKey>("ps_keys.bin", &GeneratePixelShader, "ps_5_0", compiled);
     LOG_INFO("shader cache {}: {} shaders compiled, {} failed", ShaderCacheDir().string(), compiled, failed);
+    auto countFile = [](const char* name, size_t keyBytes) -> uint32_t {
+        FILE* f = _wfopen((ShaderCacheDir() / name).c_str(), L"rb");
+        if (!f) return 0;
+        fseek(f, 0, SEEK_END);
+        long n = ftell(f);
+        fclose(f);
+        return (n > 0 && keyBytes) ? (uint32_t)(n / (long)keyBytes) : 0;
+    };
+    WriteCacheManifest(countFile("vs_keys.bin", sizeof(VSKey)), countFile("ps_keys.bin", sizeof(PSKey)));
     return failed;
 }
 
@@ -960,8 +1053,16 @@ template <typename K, typename S>
 static S* GetShader(const K& k, std::unordered_map<K, S*, KeyHash<K>>& cache, std::string (*gen)(const K&), const char* target,
                     const char* keyFile)
 {
+    constexpr bool vs = std::is_same_v<S, ID3D11VertexShader>;
     auto it = cache.find(k);
-    if (it != cache.end()) return it->second;   // nullptr while compiling (or failed)
+    if (it != cache.end())
+    {
+        if constexpr (vs) scr_shader_cache_detail::NoteVsMem(true);
+        else scr_shader_cache_detail::NotePsMem(true);
+        return it->second;   // nullptr while compiling (or failed)
+    }
+    if constexpr (vs) scr_shader_cache_detail::NoteVsMem(false);
+    else scr_shader_cache_detail::NotePsMem(false);
     std::string src = gen(k);
     RememberKey(keyFile, k);
     if (ID3DBlob* b = LoadCachedBlob(src, target))
@@ -983,7 +1084,7 @@ static S* GetShader(const K& k, std::unordered_map<K, S*, KeyHash<K>>& cache, st
         return sh;
     }
     cache[k] = nullptr;   // pending
-    QueueCompile(std::is_same_v<S, ID3D11VertexShader>, std::move(src), k);
+    QueueCompile(vs, std::move(src), k);
     return nullptr;
 }
 
@@ -992,7 +1093,11 @@ static ID3D11VertexShader* GetVS(const VSKey& k)
     // consecutive draws usually share state: check the previous key before hashing
     static VSKey lastKey;
     static ID3D11VertexShader* lastVS = nullptr;
-    if (lastVS && memcmp(&k, &lastKey, sizeof(k)) == 0) return lastVS;
+    if (lastVS && memcmp(&k, &lastKey, sizeof(k)) == 0)
+    {
+        scr_shader_cache_detail::NoteVsMem(true);
+        return lastVS;
+    }
     CollectCompiledShaders();
     ID3D11VertexShader* vs = GetShader(k, s_vsCache, &GenerateVertexShader, "vs_5_0", "vs_keys.bin");
     if (vs) { lastKey = k; lastVS = vs; }
@@ -1003,7 +1108,11 @@ static ID3D11PixelShader* GetPS(const PSKey& k)
 {
     static PSKey lastKey;
     static ID3D11PixelShader* lastPS = nullptr;
-    if (lastPS && memcmp(&k, &lastKey, sizeof(k)) == 0) return lastPS;
+    if (lastPS && memcmp(&k, &lastKey, sizeof(k)) == 0)
+    {
+        scr_shader_cache_detail::NotePsMem(true);
+        return lastPS;
+    }
     CollectCompiledShaders();
     ID3D11PixelShader* ps = GetShader(k, s_psCache, &GeneratePixelShader, "ps_5_0", "ps_keys.bin");
     if (ps) { lastKey = k; lastPS = ps; }
@@ -1022,7 +1131,12 @@ static ID3D11BlendState* GetBlendState()
     bool hasAlpha = fmt == 1;   // RGBA6_Z24
     uint64_t key = (uint64_t)(bm & 0xFFFF) | ((uint64_t)hasAlpha << 16);
     auto it = s_blendCache.find(key);
-    if (it != s_blendCache.end()) return it->second;
+    if (it != s_blendCache.end())
+    {
+        scr_shader_cache_detail::NoteBlend(true);
+        return it->second;
+    }
+    scr_shader_cache_detail::NoteBlend(false);
 
     D3D11_BLEND_DESC d{};
     auto& rt = d.RenderTarget[0];
@@ -1166,7 +1280,12 @@ static ID3D11DepthStencilState* GetDepthState()
     uint32_t zm = BP(0x40) & 0x1F;
     if (g_dbgNoDepth) zm &= ~1u;
     auto it = s_depthCache.find(zm);
-    if (it != s_depthCache.end()) return it->second;
+    if (it != s_depthCache.end())
+    {
+        scr_shader_cache_detail::NoteDepth(true);
+        return it->second;
+    }
+    scr_shader_cache_detail::NoteDepth(false);
     D3D11_DEPTH_STENCIL_DESC d{};
     static const D3D11_COMPARISON_FUNC funcs[8] = {
         D3D11_COMPARISON_NEVER, D3D11_COMPARISON_LESS, D3D11_COMPARISON_EQUAL, D3D11_COMPARISON_LESS_EQUAL,
@@ -1193,7 +1312,12 @@ static ID3D11DepthStencilState* GetDepthState()
 static ID3D11RasterizerState* GetRasterState(uint32_t cull)
 {
     auto it = s_rasterCache.find(cull);
-    if (it != s_rasterCache.end()) return it->second;
+    if (it != s_rasterCache.end())
+    {
+        scr_shader_cache_detail::NoteRaster(true);
+        return it->second;
+    }
+    scr_shader_cache_detail::NoteRaster(false);
     D3D11_RASTERIZER_DESC d{};
     d.FillMode = D3D11_FILL_SOLID;
     // GX: 1 = cull back (clockwise front), 2 = cull front

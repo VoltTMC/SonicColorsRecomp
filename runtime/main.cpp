@@ -149,6 +149,12 @@ static void PrintUsage()
         "  --music-debug           Log music-mod decisions\n"
         "  --music-force-stage ID  Force stage id for music cues (e.g. stg110)\n"
         "\n"
+        "Shaders (A3w):\n"
+        "  --precompile-shaders DIR  Offline HLSL→DXBC for keys in DIR (packaging)\n"
+        "  --shader-cache-report DIR Report key/.cso/manifest coverage for DIR\n"
+        "  SCR_SHADER_COLLECT=1      Append area-tagged keys under shadercache/collect/\n"
+        "  SCR_SHADER_COLLECT_AREA=  Optional area tag (title, menu, tr1, …)\n"
+        "\n"
         "Config and saves live under the user/data directory; F1 opens in-game settings,\n"
         "F11 toggles fullscreen. F12 saves a screenshot. See docs/ for music modding and compatibility notes.\n",
         exe);
@@ -163,6 +169,11 @@ int main(int argc, char** argv)
     {
         extern int Renderer_PrecompileShaders(const std::string& dir);
         return Renderer_PrecompileShaders(argv[2]) ? 1 : 0;
+    }
+    if (argc == 3 && std::string(argv[1]) == "--shader-cache-report")
+    {
+        extern int ShaderCache_ReportDir(const std::string& dir);
+        return ShaderCache_ReportDir(argv[2]);
     }
     for (int i = 1; i < argc; i++)
     {

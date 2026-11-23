@@ -96,9 +96,9 @@ chmod +x "$appdir/AppRun" "$bin/$APP"
 
 # shader cache (optional — empty keys are fine for first-run compile)
 if [ -n "$cache" ]; then
-    cp "$cache"/*.cso "$cache"/*_keys.bin "$bin/shadercache/" 2>/dev/null || true
+    cp "$cache"/*.cso "$cache"/*_keys.bin "$cache"/manifest.json "$bin/shadercache/" 2>/dev/null || true
 elif [ -d "$root/data/shadercache" ]; then
-    cp "$root"/data/shadercache/*_keys.bin "$bin/shadercache/" 2>/dev/null || true
+    cp "$root"/data/shadercache/*_keys.bin "$root"/data/shadercache/manifest.json "$bin/shadercache/" 2>/dev/null || true
     if compgen -G "$bin/shadercache/*_keys.bin" > /dev/null; then
         "$bin/$APP" --precompile-shaders "$bin/shadercache" || true
     fi

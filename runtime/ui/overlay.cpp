@@ -30,6 +30,7 @@
 #include "../debug/pose_interp.h"
 #include "../debug/decoupled_present.h"
 #include "../debug/a3u_player_composite.h"
+#include "../gx/shader_cache.h"
 #include "../input/input_latency.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
@@ -42,6 +43,7 @@
 #include <atomic>
 #include <cctype>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -305,6 +307,16 @@ void Overlay_Render(float w, float h)
                     ImGui::Text("GPU blit ~%.2f ms", gpuMs);
             }
             ImGui::Text("%llu MB  ·  aud underrun %d", (unsigned long long)s_rssMb, g_audioUnderruns);
+            {
+                const char* scEnv = std::getenv("SCR_SHADER_CACHE_STATS");
+                if (scEnv && scEnv[0] && scEnv[0] != '0')
+                {
+                    char sc[192];
+                    ShaderCache_OverlayLine(sc, sizeof(sc));
+                    if (sc[0])
+                        ImGui::TextUnformatted(sc);
+                }
+            }
             if (A1_XfCaptureEnabled())
             {
                 char a1[128];
