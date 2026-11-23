@@ -8,6 +8,7 @@
 #include "a3h_skeleton_palette.h"
 #include "a3i_model_ownership.h"
 #include "a3j_model_palette.h"
+#include "a3k_owner_transform.h"
 #include "../gx/vertex_loader.h"
 #include "../gx/gx_state.h"
 #include "../log.h"
@@ -526,6 +527,9 @@ void A3a_OnXfbCopy()
         A3iFrameSnap a3i{};
         const A3iFrameSnap* a3iPtr = A3i_GetLatest(a3i) ? &a3i : nullptr;
         A3j_OnFrame(s_curr, posePtr, a3hPtr, a3iPtr);
+        A3jFrameSnap a3j{};
+        const A3jFrameSnap* a3jPtr = A3j_GetLatest(a3j) ? &a3j : nullptr;
+        A3k_OnFrame(s_curr, a3jPtr);
     }
     DumpFrameLocked();
     ResetBuild();

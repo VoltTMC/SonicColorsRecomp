@@ -56,6 +56,10 @@ ScnMdlSimpleCalcWorld        func 805B87D0
 # A3j: ViewA/B/C (805AE820/805AE340/805AE000) and G3dProc are NOT hooked —
 #   PPC_OVERRIDE late-faults (guest EA 818000a8). Provenance via CalcWorld this
 #   fields (+0xF4 ViewPos, +0xF8 ViewNrm, +0xFC ViewEnv) + A3h palette join.
+# A3k: CModelImplNWBase create — stores ScnMdl* at ModelImpl+0x1C (out-param *r3).
+#   Public wrap 803C6920 → 803C6D4C. No G3dProc override.
+CModelImplCreateWrap         func 803C6920
+CModelImplCreate             func 803C6D4C
 # MSL sprintf — Music Mods watches scripts/%s_mission.lua (and friends) for live stage loads
 sprintf                      func 80379820
 

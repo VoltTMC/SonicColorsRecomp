@@ -1,5 +1,15 @@
 # Progress log
 
+## 2026-11-23 — A3k: ownership lifecycle + ViewPos = V̂·World
+
+**Goal:** Persistent body→ScnMdl path (or prove call-time sufficient); prove/disprove `CModelImpl+0x1C`; close body/root/world/view/GX composition without forcing `M=V·W` with A1b \(V\).
+
+**Result:** Call-time ownership **PASS** for `809882e0`. `CModelImpl+0x1C` **PASS** as factory field; **REJECTED** for live TR1 player (creates never hold that ScnMdl). Visual root = `ScnMdl+0x3C` (≠ `body+0x0C`). **`ViewPos[i] = V̂·World[i]`** with \(V̂=\mathrm{ViewPos}[0]\cdot\mathrm{World}[0]^{-1}\), residual ≈0.002 (8/8 nodes). A1b XF pos0 as \(V\) rejected.
+
+**Perf:** flags-off ~60 Hz; A3k instr ~60 Hz TR1. A2e/A2f MATCH; `regression_smoke` OK; MinGW links; Win GPU **UNVERIFIED**.
+
+**Docs:** `docs/A3K_PLAYER_OWNERSHIP_AND_TRANSFORM_COMPOSITION.md`. Interp gate: ownership/transform/temporal PASS; capture packaging PARTIAL — separate readiness milestone OK; **no interp in A3k**.
+
 ## 2026-11-23 — A3j: player model ownership + dual-palette provenance
 
 **Goal:** Close body/component→ScnMdl ownership, resolve high-hit palette groups A (`8098afe0`) and B (`80992ee0`/`80995320`), and bound root composition. No interpolation.

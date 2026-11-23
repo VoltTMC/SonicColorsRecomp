@@ -1071,9 +1071,29 @@ Opt-in. Observes via existing CalcWorld hook only (no View/G3dProc override). Jo
 | Group A `8098afe0`/`8098d420` | PASS | ViewPos slots of `809882e0` |
 | Group B `80992ee0`/`80995320` | PASS | ViewEnv slots of **same** ScnMdl |
 | Call-time player↔ScnMdl | PASS | Stored body pointer still UNRESOLVED |
-| `M = V·W` | UNRESOLVED | |
+| `M = V·W` | UNRESOLVED | closed in A3k via \(\hat{V}\) |
 | Flags-off ~60 Hz | PASS | dense ~30 Hz |
-| Interp readiness | **No** | |
+| Interp readiness | **No** | superseded by A3k gate |
+
+### Approach A3k — ownership lifecycle + root/view composition (2026-11-23)
+
+Opt-in. Create-wrap registry (`803C6920`); CalcWorld `this+0x3C` root; `ViewPos=V̂·World`. **No interpolation.** Full report: `docs/A3K_PLAYER_OWNERSHIP_AND_TRANSFORM_COMPOSITION.md`.
+
+| Switch | Role |
+|--------|------|
+| `SCR_A3K_OWNER_LIFETIME=1` | ModelImpl create + reverse search |
+| `SCR_A3K_BODY_TRANSFORM=1` | body `+0x0C` / `+0x168` |
+| `SCR_A3K_MODEL_ROOT=1` | ScnMdl `+0x3C` |
+| `SCR_A3K_WORLD_VIEW_COMPOSE=1` | World/ViewPos/V̂ residuals |
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Call-time ownership `809882e0` | PASS | Sufficient for pose ID |
+| `CModelImpl+0x1C` | PASS factory / REJECTED for player ScnMdl | |
+| Visual root | PASS | `ScnMdl+0x3C`; ≠ body `+0x0C` |
+| `ViewPos = V̂·World` | PASS | residual ≈0.002; A1b \(V\) rejected |
+| Flags-off ~60 Hz | PASS | instr ~60 Hz TR1 |
+| Interp readiness | ownership/transform/temporal PASS; capture PARTIAL | |
 
 ### Approach A3a — draw-level transform attribution + scratch substitution (2026-11-21)
 

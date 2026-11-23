@@ -1,6 +1,7 @@
 // Approach A3i — live Sonic ScnMdl ownership + world/view calculation provenance.
 #include "a3i_model_ownership.h"
 #include "a3j_model_palette.h"
+#include "a3k_owner_transform.h"
 #include "a1b_pose_capture.h"
 #include "../game_addrs.h"
 #include "../kernel/memory.h"
@@ -755,5 +756,7 @@ PPC_OVERRIDE(ScnMdlSimpleCalcWorld)
         A3i_OnCalcWorld(th, param);
     if (A3j_AnyEnabled())
         A3j_OnCalcWorld(th, param);
+    if (A3k_AnyEnabled())
+        A3k_OnCalcWorld(th, param);
     PPC_ORIGINAL(ScnMdlSimpleCalcWorld);
 }

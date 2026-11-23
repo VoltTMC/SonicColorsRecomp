@@ -24,6 +24,7 @@
 #include "../debug/a3h_skeleton_palette.h"
 #include "../debug/a3i_model_ownership.h"
 #include "../debug/a3j_model_palette.h"
+#include "../debug/a3k_owner_transform.h"
 #include "../input/input_latency.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
@@ -410,6 +411,13 @@ void Overlay_Render(float w, float h)
                 A3j_OverlayLine(a3j, sizeof(a3j));
                 if (a3j[0])
                     ImGui::TextUnformatted(a3j);
+            }
+            if (A3k_AnyEnabled())
+            {
+                char a3k[192];
+                A3k_OverlayLine(a3k, sizeof(a3k));
+                if (a3k[0])
+                    ImGui::TextUnformatted(a3k);
             }
             if (A2b_FifoCaptureEnabled() || A2c_ScratchReplayEnabled())
             {
