@@ -242,6 +242,7 @@ Opt-in immutable snapshots at completed sim-frame boundaries for future host int
 | A3c.1 | Endpoint reference semantics + depth classification | Labeled A–D/Mid; depthClass | **Done (experiment)** |
 | A3d | Full-scene archive coverage audit | Category matrix + obs/cap/complete | **Done (audit)** |
 | A3e | Dense-frame archive scalability + player palette | Raised caps + soft-arm; palette stable; A3e-dense MATCH | **Done (experiment)** |
+| A3f | Player draw ownership + skeletal-palette provenance | Guest chain + eye-near skeletal PROVEN; 66308a11 REJECTED | **Done (experiment)** |
 | A3 | Interpolated second XFB without guest update | `unique_xfb` >60 behind debug flag | Later |
 | A4 | Quality gate; promote to uncapped | Honest unique>60 in production | Later |
 
@@ -905,6 +906,48 @@ Opt-in only. Raises A2b/A3a heap budgets for busy TR1, soft-arms capture to avoi
 **Limits:** Peak observed draws under dense soft-arm still below prior ~31k uncapped peaks (soft-arm + host cost); body/shell EA often unset without A1b latch; denser-than-cap scenes still Incomplete (honest). Native Windows GPU **UNVERIFIED**.
 
 **Not claimed:** full ~31k-draw busy completeness; skeletal interpolation; second XFB; unique FPS.
+
+### Approach A3f — player draw ownership + skeletal-palette provenance (2026-11-21)
+
+Opt-in only. Establishes an evidence-backed link from the guest player instance to draw-time XF bone matrices. **No interpolation, no second XFB, no unique-FPS claim.**
+
+| Switch | Role |
+|--------|------|
+| `SCR_A3F_PLAYER_TRACE=1` | Staged ownership report (candidate / guest / body / draw / space / …) |
+| `SCR_A3F_PALETTE_CAPTURE=1` | 64-deep draw-time palette ring (`structKey` + body EA) |
+| `SCR_A3F_DUMP=1` | Denser bounded logs |
+| (+ `SCR_A3A_DRAW_ATTR`, A1b auto-on) | Draw PNMTXIDX + shell→body identity |
+
+#### Ownership chain
+
+```
+PlayerGetPos / PlayerGetWorldMtxPtr / BoostPluginTick(r4)
+  → shell → +0x28 → +0x84 → body
+  → BodyGetWorldMtx (fn_80053718): refresh body+0x0C if dirty; pos at +0x168
+  → GX draw: per-vertex PNMTXIDX → XF 3×4 model×view at draw time
+  → A3f: prefer posMtxDir + mtxN≥2 nearest to V·playerPos (eye space)
+```
+
+#### Evidence (RTX 3080, `tools/run_nvidia_clean.sh` + `a2g_tr1_enter.txt`)
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Device | PASS | NVIDIA GeForce RTX 3080 |
+| Guest player shell/body | PASS | `80b58b00` / `90f9c6c0`; `BodyGetWorldMtx` refreshes >0 |
+| Candidate `66308a11` | **REJECTED** | Pre-gameplay only; not eye-nearest skeletal in `stg110` |
+| Draw→player ownership | PASS | bestDist≈0.4–1.0; body EA + refresh + multi-row direct |
+| Matrix rows / PNMTXIDX | PASS | e.g. 0/3/6/9/12 (stride-3 bone indices); used by verts |
+| Coordinate space | PASS | `modelViewBone` (GX model×view); not world `+0x0C` |
+| Palette complete (per draw) | PASS | All PNMTXIDX of that draw stored; **not** full Sonic skeleton |
+| Consecutive correspondence | PASS/PARTIAL | `structKey`+body (`identityKey` churns with geomSig) |
+| Animation coverage | PASS | walk/jump/boost/camera via input script |
+| Flags-off / A3f+A3a title | PASS | ~60 Hz; underruns≈0 after settle |
+| A2f exact MATCH | PASS | preserved |
+| Native Windows GPU | UNVERIFIED | |
+
+Log: `out/phase31_a3f_tr1_dense_nv.log`. Use dense A3a caps for busy TR1 or player meshes may miss the 1536 store.
+
+**Not claimed:** complete character skeletal palette; single stable mesh ID for all Sonic draws; interpolation.
 
 ### Approach A3a — draw-level transform attribution + scratch substitution (2026-11-21)
 

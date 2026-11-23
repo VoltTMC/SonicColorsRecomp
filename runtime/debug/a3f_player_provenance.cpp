@@ -115,11 +115,30 @@ const char* StageName(int i)
     return (i >= 0 && i < A3fStage_Count) ? k[i] : "?";
 }
 
-int FindTargetOrBest(const A3aFrameSnap& cur, const A1bPoseSnap* ply, float* outDist)
+uint32_t StructKey(const A3aDrawRec& d)
+{
+    // Stable under animation: exclude geomSig / matrix contents.
+    uint32_t h = d.vcdLo ^ (d.vcdHi * 0x9E3779B9u);
+    h ^= d.arrayBase0 * 0x85EBCA6Bu;
+    h ^= d.arrayStride0;
+    h ^= ((uint32_t)d.prim << 24) | ((uint32_t)d.vat << 16) | ((uint32_t)d.vtxCount & 0xFFFFu);
+    h ^= (uint32_t)d.posMtxDirect << 8;
+    for (uint16_t i = 0; i < d.mtxCount; i++)
+        h ^= ((uint32_t)d.mtx[i].rowIdx + 1u) * (0x1000193u + i * 97u);
+    return h ? h : 1u;
+}
+
+// Prefer eye-nearest *skeletal* draw (posMtxDirect + mtxCount≥2). Single-matrix
+// near hits are often root/env sharing the player eye location — not a palette.
+int FindTargetOrBest(const A3aFrameSnap& cur, const A1bPoseSnap* ply, float* outDist,
+                     float* outTargetDist)
 {
     int bestTarget = -1;
     int bestNear = -1;
+    int bestSkinned = -1;
     float bestDist = 1e9f;
+    float bestSkinnedDist = 1e9f;
+    float targetDist = 1e9f;
     const bool haveEye = ply && ply->playerValid && ply->viewMtxValid;
     float eye[3]{};
     if (haveEye) MulViewPos(ply->viewMtx, ply->playerPos, eye);
@@ -127,24 +146,46 @@ int FindTargetOrBest(const A3aFrameSnap& cur, const A1bPoseSnap* ply, float* out
     for (uint32_t i = 0; i < cur.drawStored; i++)
     {
         const A3aDrawRec& d = cur.draws[i];
-        if (!(d.flags & 1) && !(d.posMtxDirect && d.mtxCount >= 2)) continue;
-        if (d.identityKey == kA3fTargetIdentity)
-            bestTarget = (int)i;
-        if (!haveEye) continue;
-        for (uint16_t k = 0; k < d.mtxCount; k++)
+        const bool skinned = d.posMtxDirect && d.mtxCount >= 2;
+        if (!(d.flags & 1) && !skinned) continue;
+        float dMin = 1e9f;
+        if (haveEye)
         {
-            const float t[3] = { d.mtx[k].m[3], d.mtx[k].m[7], d.mtx[k].m[11] };
-            const float dist = Dist3(t, eye);
-            if (dist < bestDist)
+            for (uint16_t k = 0; k < d.mtxCount; k++)
             {
-                bestDist = dist;
+                const float t[3] = { d.mtx[k].m[3], d.mtx[k].m[7], d.mtx[k].m[11] };
+                const float dist = Dist3(t, eye);
+                if (dist < dMin) dMin = dist;
+            }
+            if (dMin < bestDist)
+            {
+                bestDist = dMin;
                 bestNear = (int)i;
             }
+            if (skinned && dMin < bestSkinnedDist)
+            {
+                bestSkinnedDist = dMin;
+                bestSkinned = (int)i;
+            }
+        }
+        else if (skinned && bestSkinned < 0)
+            bestSkinned = (int)i;
+        if (d.identityKey == kA3fTargetIdentity)
+        {
+            bestTarget = (int)i;
+            targetDist = dMin;
         }
     }
-    if (outDist) *outDist = bestDist;
-    if (bestTarget >= 0) return bestTarget;
-    return bestNear;
+    // Accept skinned if within 8 units of absolute nearest (or nearest overall).
+    const int pick =
+        (haveEye && bestSkinned >= 0 && bestSkinnedDist <= bestDist + 8.f) ? bestSkinned
+        : (haveEye && bestNear >= 0)                                         ? bestNear
+        : (bestSkinned >= 0)                                                 ? bestSkinned
+        : bestTarget;
+    if (outDist)
+        *outDist = (pick == bestSkinned && bestSkinned >= 0) ? bestSkinnedDist : bestDist;
+    if (outTargetDist) *outTargetDist = targetDist;
+    return pick;
 }
 
 void ClassifyMtx(A3fMtxProv& mp, bool haveEye, const float eye[3], bool haveView)
@@ -167,7 +208,8 @@ void PushRing(const A3fPaletteRec& rec)
     {
         const uint32_t prevIdx = (s_ringWrite + kA3fRingSize - 1) % kA3fRingSize;
         A3fPaletteRec& prev = s_ring[prevIdx];
-        const bool same = prev.identityKey == rec.identityKey &&
+        const bool same = prev.structKey != 0 && rec.structKey != 0 &&
+                          prev.structKey == rec.structKey &&
                           (!prev.playerBodyEa || !rec.playerBodyEa ||
                            prev.playerBodyEa == rec.playerBodyEa);
         prev.sameInstanceNext = same ? 1 : 0;
@@ -256,7 +298,9 @@ void A3f_OnFrame(const A3aFrameSnap& cur, const A3aFrameSnap* /*prev*/)
         rep.stage[A3fStage_RenderComponentIdentified] = A3fStatus_Fail;
 
     float nearDist = 1e9f;
-    const int idx = FindTargetOrBest(cur, havePly ? &ply : nullptr, &nearDist);
+    float targetDist = 1e9f;
+    const int idx =
+        FindTargetOrBest(cur, havePly ? &ply : nullptr, &nearDist, &targetDist);
     uint32_t skinned = 0;
     for (uint32_t i = 0; i < cur.drawStored; i++)
         if ((cur.draws[i].flags & 1) || (cur.draws[i].posMtxDirect && cur.draws[i].mtxCount >= 2))
@@ -273,9 +317,16 @@ void A3f_OnFrame(const A3aFrameSnap& cur, const A3aFrameSnap* /*prev*/)
     else
     {
         const A3aDrawRec& d = cur.draws[(uint32_t)idx];
+        const uint32_t structKey = StructKey(d);
         rep.candidateKey = d.identityKey;
-        rep.stage[A3fStage_CandidateFound] =
-            (d.identityKey == kA3fTargetIdentity) ? A3fStatus_Pass : A3fStatus_Partial;
+        // Candidate stage: PASS if we have an eye-nearest skinned draw with player,
+        // or the historical target when player is unknown.
+        if (havePly && nearDist < 80.f)
+            rep.stage[A3fStage_CandidateFound] = A3fStatus_Pass;
+        else if (d.identityKey == kA3fTargetIdentity)
+            rep.stage[A3fStage_CandidateFound] = A3fStatus_Partial;
+        else
+            rep.stage[A3fStage_CandidateFound] = A3fStatus_Partial;
 
         // Shared geometry / array peers (shared resources ≠ shared instance)
         for (uint32_t i = 0; i < cur.drawStored; i++)
@@ -287,8 +338,13 @@ void A3f_OnFrame(const A3aFrameSnap& cur, const A3aFrameSnap* /*prev*/)
         }
 
         rep.stage[A3fStage_DrawSubmissionAssociated] = A3fStatus_Pass;
-        rep.stage[A3fStage_MatrixRowsIdentified] =
-            (d.mtxCount > 0 && d.posMtxDirect) ? A3fStatus_Pass : A3fStatus_Fail;
+        // PASS = multi-row direct PNMTXIDX palette; PARTIAL = single/indirect row only.
+        if (d.posMtxDirect && d.mtxCount >= 2)
+            rep.stage[A3fStage_MatrixRowsIdentified] = A3fStatus_Pass;
+        else if (d.mtxCount > 0)
+            rep.stage[A3fStage_MatrixRowsIdentified] = A3fStatus_Partial;
+        else
+            rep.stage[A3fStage_MatrixRowsIdentified] = A3fStatus_Fail;
 
         float eye[3]{};
         bool haveEye = false;
@@ -305,6 +361,7 @@ void A3f_OnFrame(const A3aFrameSnap& cur, const A3aFrameSnap* /*prev*/)
         prec.playerShellEa = havePly ? ply.playerShellEa : 0;
         prec.playerBodyEa = havePly ? ply.playerBodyEa : 0;
         prec.identityKey = d.identityKey;
+        prec.structKey = structKey;
         prec.geomSig = d.geomSig;
         prec.arrayBase0 = d.arrayBase0;
         prec.arrayStride0 = d.arrayStride0;
@@ -312,11 +369,12 @@ void A3f_OnFrame(const A3aFrameSnap& cur, const A3aFrameSnap* /*prev*/)
         prec.bodyRefreshCount = rep.bodyRefreshCount;
         prec.vtxCount = d.vtxCount;
         prec.mtxCount = d.mtxCount;
-        prec.mtxUsedTotal = d.mtxCount;  // A3a store; full-scan note in docs if capped
+        prec.mtxUsedTotal = d.mtxCount;
         prec.prim = d.prim;
         prec.vat = d.vat;
         prec.inDL = d.inDL;
         prec.posMtxDirect = d.posMtxDirect;
+        prec.target6630DistOk = (targetDist < 80.f) ? 1 : 0;
         if (havePly)
         {
             prec.playerPos[0] = ply.playerPos[0];
@@ -339,7 +397,7 @@ void A3f_OnFrame(const A3aFrameSnap& cur, const A3aFrameSnap* /*prev*/)
             mp.contentHash = d.mtx[i].contentHash;
             std::memcpy(mp.m, d.mtx[i].m, sizeof(mp.m));
             mp.usedByVtx = 1;
-            mp.vtxRefs = 1;  // at least one (A3a sampled)
+            mp.vtxRefs = 1;
             ClassifyMtx(mp, haveEye, eye, havePly && ply.viewMtxValid);
             if (mp.distToPlayerEye < best) best = mp.distToPlayerEye;
             for (uint16_t j = 0; j < i; j++)
@@ -353,33 +411,53 @@ void A3f_OnFrame(const A3aFrameSnap& cur, const A3aFrameSnap* /*prev*/)
         prec.mtxCount = d.mtxCount < kA3fMaxMtx ? d.mtxCount : (uint16_t)kA3fMaxMtx;
         prec.bestDist = best;
         prec.clusterRadius = maxPair;
-        // Palette complete for THIS draw if store covers all PNMTXIDX A3a found
-        // (A3a samples ≤64 verts / ≤8 rows — for vtx=42 mtxN=4 that is exhaustive).
         prec.paletteComplete =
             (d.vtxCount <= 64 && d.mtxCount <= kA3aMaxMtxPerDraw && d.mtxCount > 0) ? 1 : 0;
         prec.spaceVerified = (haveEye && best < 80.f) ? 1 : 0;
 
-        // Ownership: require guest player + eye proximity of bone cluster + body EA.
-        // Geometry identity alone is insufficient (sharedGeomPeers may be >0).
-        if (havePly && haveEye && best < 25.f && d.identityKey == kA3fTargetIdentity)
+        // Ownership (draw → player): guest shell/body + BodyGetWorldMtx refresh +
+        // eye-space bone T proximity + multi-row direct PNMTXIDX. Do NOT prove via
+        // geomSig / 66308a11 alone.
+        const bool skeletal = d.posMtxDirect && d.mtxCount >= 2;
+        const bool ownOk = havePly && haveEye && best < 25.f && rep.playerBodyEa != 0 &&
+                           rep.bodyRefreshCount > 0 && skeletal;
+        if (ownOk)
         {
             rep.stage[A3fStage_DrawOwnershipVerified] = A3fStatus_Pass;
             rep.verdict = A3fCand_ProvenPlayer;
             prec.ownership = A3fStatus_Pass;
             prec.candVerdict = A3fCand_ProvenPlayer;
+            if (d.identityKey == kA3fTargetIdentity)
+            {
+                // Historical target coincidentally near — still OK, but rare in TR1.
+            }
+            else if (targetDist < 80.f)
+            {
+                if (!rep.missing[0])
+                    rep.missing = "proven nearest skeletal; 66308a11 also within 80";
+            }
+            else
+            {
+                if (!rep.missing[0])
+                    rep.missing = "66308a11 REJECTED as player draw (nearest skeletal differs)";
+            }
         }
-        else if (havePly && haveEye && best < 80.f)
+        else if (havePly && haveEye && best < 25.f && rep.playerBodyEa != 0 && !skeletal)
         {
             rep.stage[A3fStage_DrawOwnershipVerified] = A3fStatus_Partial;
-            rep.verdict = (d.identityKey == kA3fTargetIdentity) ? A3fCand_Partial
-                                                                : A3fCand_Partial;
+            rep.verdict = A3fCand_Partial;
             prec.ownership = A3fStatus_Partial;
             prec.candVerdict = A3fCand_Partial;
             if (!rep.missing[0])
-                rep.missing = (d.identityKey == kA3fTargetIdentity)
-                                  ? "eye proximity weak or body refresh missing"
-                                  : "nearest skinned draw is not target 66308a11";
-            if (best >= 25.f) rep.rejectNearMiss++;
+                rep.missing = "near player but not multi-row direct PNMTXIDX (no palette)";
+        }
+        else if (d.identityKey == kA3fTargetIdentity && havePly && haveEye && best >= 80.f)
+        {
+            rep.stage[A3fStage_DrawOwnershipVerified] = A3fStatus_Fail;
+            rep.verdict = A3fCand_Rejected;
+            prec.ownership = A3fStatus_Fail;
+            prec.candVerdict = A3fCand_Rejected;
+            rep.missing = "66308a11 bone Ts far from player eye — not player-owned";
         }
         else if (d.identityKey == kA3fTargetIdentity && !havePly)
         {
@@ -388,15 +466,19 @@ void A3f_OnFrame(const A3aFrameSnap& cur, const A3aFrameSnap* /*prev*/)
             prec.ownership = A3fStatus_Partial;
             prec.candVerdict = A3fCand_Partial;
             if (!rep.missing[0])
-                rep.missing = "target candidate present but guest player unresolved";
+                rep.missing = "66308a11 pre-gameplay only — guest player unresolved";
         }
-        else if (havePly && haveEye && best >= 80.f && d.identityKey == kA3fTargetIdentity)
+        else if (havePly && haveEye && best < 80.f)
         {
-            rep.stage[A3fStage_DrawOwnershipVerified] = A3fStatus_Fail;
-            rep.verdict = A3fCand_Rejected;
-            prec.ownership = A3fStatus_Fail;
-            prec.candVerdict = A3fCand_Rejected;
-            rep.missing = "66308a11 bone Ts far from player eye — not player-owned";
+            rep.stage[A3fStage_DrawOwnershipVerified] = A3fStatus_Partial;
+            rep.verdict = A3fCand_Partial;
+            prec.ownership = A3fStatus_Partial;
+            prec.candVerdict = A3fCand_Partial;
+            if (!rep.missing[0])
+                rep.missing = (rep.bodyRefreshCount == 0)
+                                  ? "near eye but BodyGetWorldMtx refresh=0"
+                                  : "eye proximity weak (>=25) or incomplete chain";
+            if (best >= 25.f) rep.rejectNearMiss++;
         }
         else
         {
@@ -405,19 +487,26 @@ void A3f_OnFrame(const A3aFrameSnap& cur, const A3aFrameSnap* /*prev*/)
             prec.ownership = A3fStatus_Unverified;
         }
 
+        // Separate A3e-target disposition when player known and target absent/far.
+        if (havePly && haveEye && targetDist >= 80.f && ownOk)
+        {
+            // Nearest proven; historical candidate not the player draw.
+        }
+
         rep.stage[A3fStage_MatrixSpaceVerified] =
             prec.spaceVerified ? A3fStatus_Pass
                                : (haveEye ? A3fStatus_Fail : A3fStatus_Partial);
 
         if (PalOn())
         {
-            // Consecutive correspondence vs previous ring entry
             if (s_ringCount > 0)
             {
                 const uint32_t prevIdx = (s_ringWrite + kA3fRingSize - 1) % kA3fRingSize;
                 const A3fPaletteRec& prev = s_ring[prevIdx];
+                // Prefer structKey + body EA (survives anim); identityKey alone churns.
                 const bool same =
-                    prev.identityKey == prec.identityKey &&
+                    prev.structKey != 0 && prec.structKey != 0 &&
+                    prev.structKey == prec.structKey &&
                     (!prev.playerBodyEa || !prec.playerBodyEa ||
                      prev.playerBodyEa == prec.playerBodyEa);
                 prec.sameInstancePrev = same ? 1 : 0;
@@ -430,7 +519,6 @@ void A3f_OnFrame(const A3aFrameSnap& cur, const A3aFrameSnap* /*prev*/)
                 rep.stage[A3fStage_ConsecutiveCorrespondence] = A3fStatus_Partial;
             }
 
-            prec.paletteComplete = prec.paletteComplete;
             rep.stage[A3fStage_PaletteCaptured] = A3fStatus_Pass;
             rep.stage[A3fStage_PaletteComplete] =
                 prec.paletteComplete ? A3fStatus_Pass : A3fStatus_Partial;
@@ -475,11 +563,13 @@ void A3f_OnFrame(const A3aFrameSnap& cur, const A3aFrameSnap* /*prev*/)
         {
             const uint32_t idxR = (s_ringWrite + kA3fRingSize - 1) % kA3fRingSize;
             const A3fPaletteRec& p = s_ring[idxR];
-            LOG_INFO("A3f palette: xfb={} id={:08x} body={:08x} vtx={} mtxN={}/{} complete={} "
-                     "space={} own={} bestDist={:.2f} cluster={:.2f} samePrev={} rows={}",
-                     p.xfbIndex, p.identityKey, p.playerBodyEa, p.vtxCount, p.mtxCount,
-                     p.mtxUsedTotal, p.paletteComplete, p.spaceVerified, StatusName(p.ownership),
-                     p.bestDist, p.clusterRadius, p.sameInstancePrev, p.mtxCount);
+            LOG_INFO("A3f palette: xfb={} id={:08x} struct={:08x} body={:08x} vtx={} "
+                     "mtxN={}/{} complete={} space={} own={} bestDist={:.2f} cluster={:.2f} "
+                     "samePrev={} tgtNear={} rows={}",
+                     p.xfbIndex, p.identityKey, p.structKey, p.playerBodyEa, p.vtxCount,
+                     p.mtxCount, p.mtxUsedTotal, p.paletteComplete, p.spaceVerified,
+                     StatusName(p.ownership), p.bestDist, p.clusterRadius, p.sameInstancePrev,
+                     p.target6630DistOk, p.mtxCount);
             for (uint16_t i = 0; i < p.mtxCount; i++)
             {
                 LOG_INFO("A3f mtx[{}] row={} kind={} hash={:08x} T=({:.2f},{:.2f},{:.2f}) "

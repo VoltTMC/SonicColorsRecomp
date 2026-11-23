@@ -76,10 +76,12 @@ struct A3fPaletteRec
     uint64_t seq = 0;
     uint32_t playerShellEa = 0;
     uint32_t playerBodyEa = 0;
-    uint32_t identityKey = 0;
+    uint32_t identityKey = 0;     // A3a key (includes geomSig — unstable under anim)
+    uint32_t structKey = 0;       // A3f: format/array/rows only (no geomSig)
     uint32_t geomSig = 0;
     uint32_t arrayBase0 = 0;
     uint32_t arrayStride0 = 0;
+    uint32_t target6630DistOk = 0;  // 1 if target seen this frame with eye dist < 80
     uint32_t drawSeq = 0;
     uint32_t bodyRefreshCount = 0;  // BodyGetWorldMtx hits for player body this XFB
     uint16_t vtxCount = 0;

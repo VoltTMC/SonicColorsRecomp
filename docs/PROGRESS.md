@@ -1,5 +1,22 @@
 # Progress log
 
+## 2026-11-21 — A3f: player draw ownership + skeletal-palette provenance
+
+**Goal:** Prove (or reject) draw-time association between the guest player instance and A3a skinned candidates; classify PNMTXIDX matrices; capture consecutive palettes. No interpolation / second XFB / unique-FPS.
+
+**Shipped:** `a3f_player_provenance.*` (`SCR_A3F_PLAYER_TRACE`, `SCR_A3F_PALETTE_CAPTURE`, `SCR_A3F_DUMP`); staged PASS/PARTIAL/FAIL/UNVERIFIED/N/A report; BodyGetWorldMtx fan-out from A1c; A1b shell hooks auto-enable under A3f; `structKey` (no geomSig) for consecutive identity; overlay line.
+
+**Ownership chain (TR1 gameplay, RTX 3080):**
+`PlayerGetPos` / `PlayerGetWorldMtxPtr` / `BoostPluginTick` r4 → shell `80b58b00` → `+0x28` → `+0x84` → body `90f9c6c0` → `BodyGetWorldMtx` (`fn_80053718`) refreshes `body+0x0C` (T often 0) + pos `body+0x168` → A3a draw-time XF model×view bones nearest to `V·playerPos`.
+
+**Candidate `66308a11`:** **REJECTED** as the player draw (pre-gameplay only; `tgtNear=0` in `stg110`). A3e stability was draw identity without guest ownership.
+
+**Proven palette:** multi-row `posMtxDir=1` near-eye meshes (bestDist≈0.4–1.0); PNMTXIDX rows e.g. 0/3/6/9/12; kind=`modelViewBone`; complete **per draw** (not full skeleton). Multiple `structKey`s under one body. Log: `out/phase31_a3f_tr1_dense_nv.log` (+ `a2g_tr1_enter.txt`).
+
+**Perf:** flags-off ~60 Hz; A3f+A3a title ~60 Hz; dense+A3f busy TR1 diag-bound. A2f MATCH; `regression_smoke` OK; MinGW links; Win GPU **UNVERIFIED**.
+
+**Next:** Multi-draw player palette aggregation / bone hierarchy; stratified A3a keep — still before second XFB.
+
 ## 2026-11-21 — A3e: dense-frame archive scalability + player palette
 
 **Goal:** Complete busy TR1 A2b/A3a archives without silent truncation; stable player skeletal palette across consecutive frames (no interp). Preserve A2/A3 exact-match; guest/audio timing; no second XFB / unique-FPS.
