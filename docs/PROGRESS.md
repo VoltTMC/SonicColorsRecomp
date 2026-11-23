@@ -1,5 +1,17 @@
 # Progress log
 
+## 2026-11-23 — A3h: guest skeleton hierarchy + GX palette provenance
+
+**Goal:** Evidence-driven mapping from player draws → nw4r `ScnMdlSimple` / `ResNode` parents → indexed-XF palette rows. Fix A3g 128-contributor truncation. No interpolation / second XFB / unique-FPS.
+
+**Shipped:** `a3h_skeleton_palette.*` (`SCR_A3H_SKELETON_TRACE`, `SCR_A3H_PALETTE_MAP`, `SCR_A3H_HIERARCHY_DUMP`); FIFO `A3h_OnIndexedXf`; A3g caps draws=768/obs=2048; canonical-only guest reads (fixes CameraManagerTick-attributed SIGSEGV); report `docs/A3H_SKELETON_PALETTE_PROVENANCE.md`.
+
+**Evidence (RTX 3080, `phase33_a3h_tr1_nv21.log`):** inst `27a5990d`; A3g **646/768+ovf0** (was 128+≈518); idxLoads ≤2594/4096+ovf0; ResNode parents **PASS** on resolved ScnMdls (e.g. 6-mtx/7-node trees); indexed XF→guest EA/mtxID **PASS** (mapped=1869); player Sonic ScnMdl ownership **PARTIAL**; `M≠V·W` **UNRESOLVED**.
+
+**Perf:** flags-off ~60 Hz; dense A3h+A3a+A3g busy ~6–8 Hz (diag). A2f-efbfb + A2e-multitex MATCH; `regression_smoke` OK; MinGW links; Win GPU **UNVERIFIED**.
+
+**Next:** Hook `ScnMdlSmpl_G3DPROC_CALC_WORLD`/`CALC_VIEW` (or Colors equiv.) for player `this`; close high-hit palette→ViewPos ownership — still before interpolation.
+
 ## 2026-11-23 — A3g: player multi-draw pose aggregation + hierarchy reconstruction
 
 **Goal:** Aggregate A3f’s per-draw player matrices into a coherent per-frame pose; reconstruct hierarchy as far as evidence allows; assess interp readiness. No interpolation / second XFB / unique-FPS.

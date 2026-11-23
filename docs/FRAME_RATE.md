@@ -244,6 +244,7 @@ Opt-in immutable snapshots at completed sim-frame boundaries for future host int
 | A3e | Dense-frame archive scalability + player palette | Raised caps + soft-arm; palette stable; A3e-dense MATCH | **Done (experiment)** |
 | A3f | Player draw ownership + skeletal-palette provenance | Guest chain + eye-near skeletal PROVEN; 66308a11 REJECTED | **Done (experiment)** |
 | A3g | Multi-draw pose aggregation + hierarchy reconstruction | Nearest eye-near draws → pose; view/body known; bone parents unresolved | **Done (experiment)** |
+| A3h | Guest skeleton hierarchy + GX palette provenance | nw4r ResNode parents; indexed XF→EA; A3g 646/768; player ScnMdl PARTIAL | **Done (experiment)** |
 | A3 | Interpolated second XFB without guest update | `unique_xfb` >60 behind debug flag | Later |
 | A4 | Quality gate; promote to uncapped | Honest unique>60 in production | Later |
 
@@ -956,7 +957,7 @@ Opt-in. Aggregates **all** eye-near multi-row direct PNMTX draws for the verifie
 
 | Switch | Role |
 |--------|------|
-| `SCR_A3G_POSE_AGGREGATE=1` | Multi-draw aggregation ring (128 draws / 384 obs caps) |
+| `SCR_A3G_POSE_AGGREGATE=1` | Multi-draw aggregation ring (**768** draws / **2048** obs as of A3h) |
 | `SCR_A3G_HIERARCHY_TRACE=1` | View invert → modelApprox; View×BodyWorld root probe |
 | `SCR_A3G_POSE_DUMP=1` | Denser bounded logs |
 | (+ A3a / A1b / dense A3a) | Draw store + shell→body identity |
@@ -1007,6 +1008,29 @@ GX convention: 3×4 row-major, column vectors; draw-time M is **model×view**.
 | Native Windows GPU | UNVERIFIED | |
 
 **Not claimed:** complete Sonic skeleton; interpolation-ready full pose; zero overflow on densest frames.
+
+### Approach A3h — guest skeleton hierarchy + GX palette provenance (2026-11-23)
+
+Opt-in. Connects A3g observations to **nw4r::g3d** `ScnMdlSimple` / `ResNode.toParentNode` and indexed-XF guest EAs. **No interpolation.** Full report: `docs/A3H_SKELETON_PALETTE_PROVENANCE.md`.
+
+| Switch | Role |
+|--------|------|
+| `SCR_A3H_SKELETON_TRACE=1` | ScnMdlSimple + ResNode parent capture |
+| `SCR_A3H_PALETTE_MAP=1` | Indexed XF → guest EA / mtxID / row maps |
+| `SCR_A3H_HIERARCHY_DUMP=1` | Denser bounded logs |
+
+| Item | Status | Notes (`phase33_a3h_tr1_nv21.log`) |
+|------|--------|-------------------------------------|
+| ResNode parents (resolved ScnMdls) | PASS | `toParentNode` @ +0x5C; node stride 0xD0 |
+| Player Sonic ScnMdl ownership | PARTIAL | High-hit pals often backref-miss; primary often 6/7-node |
+| Indexed XF → guest EA/mtxID | PASS | mapped obs up to 1869/XFB |
+| A3g completeness | PASS | **646/768+ovf0** (was 128+≈518) |
+| `M = V·W` root | UNRESOLVED | unchanged from A3g |
+| Flags-off ~60 Hz | PASS | dense diag ~6–8 Hz |
+| A2e/A2f MATCH | PASS | |
+| Native Windows GPU | UNVERIFIED | |
+
+**Host bug fixed:** `GuestOk` must not authorize `Read32` on non-canonical EAs (e.g. `0x4011fc14`); was misreported as `CameraManagerTick` SIGSEGV.
 
 ### Approach A3a — draw-level transform attribution + scratch substitution (2026-11-21)
 

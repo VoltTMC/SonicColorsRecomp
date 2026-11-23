@@ -5,6 +5,7 @@
 #include "a3e_player_palette.h"
 #include "a3f_player_provenance.h"
 #include "a3g_pose_aggregate.h"
+#include "a3h_skeleton_palette.h"
 #include "../gx/vertex_loader.h"
 #include "../gx/gx_state.h"
 #include "../log.h"
@@ -513,6 +514,7 @@ void A3a_OnXfbCopy()
     A3e_PlayerPalette_OnFrame(s_curr, s_havePrev ? &s_prev : nullptr);
     A3f_OnFrame(s_curr, s_havePrev ? &s_prev : nullptr);
     A3g_OnFrame(s_curr, s_havePrev ? &s_prev : nullptr);
+    A3h_OnFrame(s_curr, nullptr);  // pulls A3g latest internally when needed
     DumpFrameLocked();
     ResetBuild();
 }

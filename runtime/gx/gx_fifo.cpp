@@ -2,6 +2,7 @@
 #include "gx_state.h"
 #include "../debug/a2b_fifo_archive.h"
 #include "../debug/a2c_scratch_replay.h"
+#include "../debug/a3h_skeleton_palette.h"
 #include "../hw/hw.h"
 #include "../kernel/memory.h"
 #include "../log.h"
@@ -238,13 +239,15 @@ static void LoadIndexedXF(int array, uint32_t word)
     uint32_t addr = word & 0xFFF;
     uint32_t base = g_gx.cp[CP_ARRAY_BASE + array];
     uint32_t stride = g_gx.cp[CP_ARRAY_STRIDE + array];
-    const uint8_t* src = PhysPtr(base + index * stride);
+    const uint32_t guestEa = base + index * stride;
+    const uint8_t* src = PhysPtr(guestEa);
     Render_Flush();
     if (A2b_FifoCaptureEnabled() && !Render_ReplayIsolationActive())
-        A2b_OnIndexedXf(base + index * stride, size * 4);
+        A2b_OnIndexedXf(guestEa, size * 4);
     for (uint32_t i = 0; i < size; i++)
         g_gx.xfmem[(addr + i) & 0xFFF] = BE32(src + 4 * i);
     Render_OnXF(addr, size, true);
+    A3h_OnIndexedXf(guestEa, base, index, stride, addr, size);
 }
 
 static bool s_peSuppress = false;

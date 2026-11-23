@@ -25,6 +25,7 @@ uint32_t s_ringCount = 0;
 uint32_t s_ringWrite = 0;
 uint64_t s_seq = 0;
 uint32_t s_dumps = 0;
+A3gPoseSnap* s_lastBuild = nullptr;
 
 bool EnvFlag(const char* name)
 {
@@ -184,7 +185,8 @@ void PushRing(const A3gPoseSnap& snap)
                           prev.playerInstanceKey == snap.playerInstanceKey;
         prev.sameInstanceNext = same ? 1 : 0;
     }
-    s_ring[s_ringWrite] = snap;
+    // Explicit memcpy — avoid compiler stack temps for ~300 KiB assignment.
+    std::memcpy(&s_ring[s_ringWrite], &snap, sizeof(A3gPoseSnap));
     s_ringWrite = (s_ringWrite + 1) % kA3gRingSize;
     if (s_ringCount < kA3gRingSize) s_ringCount++;
 }
@@ -214,7 +216,11 @@ void A3g_OnFrame(const A3aFrameSnap& cur, const A3aFrameSnap* /*prev*/)
     A1bPoseSnap ply{};
     const bool havePly = A1b_GetCurrent(ply) && ply.playerValid;
 
-    A3gPoseSnap snap{};
+    // Snap is hundreds of KiB after A3h cap raise — never build it on the stack.
+    static A3gPoseSnap s_build{};
+    A3gPoseSnap& snap = s_build;
+    s_lastBuild = &s_build;
+    snap = A3gPoseSnap{};
     snap.simFrameId = cur.simFrameId;
     snap.xfbIndex = cur.xfbIndex;
     snap.seq = ++s_seq;
@@ -275,7 +281,7 @@ void A3g_OnFrame(const A3aFrameSnap& cur, const A3aFrameSnap* /*prev*/)
         uint32_t idx;
         float dist;
     };
-    Cand cands[512];
+    Cand cands[1024];
     uint32_t candN = 0;
     uint32_t candTotal = 0;
     for (uint32_t i = 0; i < cur.drawStored; i++)
@@ -284,7 +290,7 @@ void A3g_OnFrame(const A3aFrameSnap& cur, const A3aFrameSnap* /*prev*/)
         float dist = 1e9f;
         if (!IsPlayerDraw(d, haveEye, eye, &dist)) continue;
         candTotal++;
-        if (candN < 512)
+        if (candN < 1024)
         {
             cands[candN].idx = i;
             cands[candN].dist = dist;
@@ -322,7 +328,7 @@ void A3g_OnFrame(const A3aFrameSnap& cur, const A3aFrameSnap* /*prev*/)
         dr.inDL = d.inDL;
         dr.posMtxDirect = d.posMtxDirect;
         dr.bestDist = cands[ci].dist;
-        dr.obsBegin = (uint8_t)std::min<uint32_t>(snap.obsCount, 255);
+        dr.obsBegin = snap.obsCount;
 
         for (uint16_t k = 0; k < d.mtxCount && k < kA3aMaxMtxPerDraw; k++)
         {
@@ -549,8 +555,36 @@ bool A3g_GetLatest(A3gPoseSnap& out)
     std::lock_guard lk(s_mu);
     if (s_ringCount == 0) return false;
     const uint32_t idx = (s_ringWrite + kA3gRingSize - 1) % kA3gRingSize;
-    out = s_ring[idx];
+    std::memcpy(&out, &s_ring[idx], sizeof(A3gPoseSnap));
     return true;
+}
+
+bool A3g_GetLatestIdentity(uint32_t* outInst, uint32_t* outShell, uint32_t* outBody,
+                           uint16_t* outObsCount)
+{
+    // Prefer the in-flight build (same XFB as A3h_OnFrame) before the ring copy.
+    if (s_lastBuild && s_lastBuild->playerValid)
+    {
+        if (outInst) *outInst = s_lastBuild->playerInstanceKey;
+        if (outShell) *outShell = s_lastBuild->playerShellEa;
+        if (outBody) *outBody = s_lastBuild->playerBodyEa;
+        if (outObsCount) *outObsCount = s_lastBuild->obsCount;
+        return true;
+    }
+    std::lock_guard lk(s_mu);
+    if (s_ringCount == 0) return false;
+    const uint32_t idx = (s_ringWrite + kA3gRingSize - 1) % kA3gRingSize;
+    const A3gPoseSnap& s = s_ring[idx];
+    if (outInst) *outInst = s.playerInstanceKey;
+    if (outShell) *outShell = s.playerShellEa;
+    if (outBody) *outBody = s.playerBodyEa;
+    if (outObsCount) *outObsCount = s.obsCount;
+    return s.playerValid != 0;
+}
+
+const A3gPoseSnap* A3g_PeekLastBuild()
+{
+    return s_lastBuild;
 }
 
 uint32_t A3g_RingCount()

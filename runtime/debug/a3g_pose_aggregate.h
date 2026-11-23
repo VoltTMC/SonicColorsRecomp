@@ -12,11 +12,12 @@
 // Requires SCR_A3A_DRAW_ATTR; auto-enables A1b identity (via A3f NeedsPlayerIdentity pattern).
 // No interpolation. Disabled → zero cost.
 
-// Busy TR1 often has hundreds of eye-near skeletal pieces; keep bounded but
-// large enough that overflow is the exception, not the steady state.
-constexpr int kA3gMaxDraws = 128;
-constexpr int kA3gMaxObs = 384;
-constexpr int kA3gRingSize = 24;
+// Busy TR1 observes ~600–700 eye-near skeletal pieces. A3g kept nearest-128
+// (≈518 overflow). A3h raises caps so the full contributor set fits with margin;
+// any remaining overflow is still counted explicitly.
+constexpr int kA3gMaxDraws = 768;
+constexpr int kA3gMaxObs = 2048;
+constexpr int kA3gRingSize = 8;  // large snaps; keep ring modest
 // View-space distance from V·playerPos. Player mesh pieces cluster ~0.3–5;
 // 12 keeps the character without sweeping the whole near field (80 pulled 600+ draws).
 constexpr float kA3gEyeNear = 12.f;
@@ -61,8 +62,8 @@ struct A3gDrawRef
     uint8_t inDL = 0;
     uint8_t posMtxDirect = 0;
     float bestDist = 1e9f;
-    uint8_t obsBegin = 0;
-    uint8_t obsCount = 0;
+    uint16_t obsBegin = 0;
+    uint16_t obsCount = 0;
 };
 
 struct A3gMtxObs
@@ -135,6 +136,11 @@ bool A3g_NeedsPlayerIdentity();
 void A3g_OnFrame(const A3aFrameSnap& cur, const A3aFrameSnap* prev);
 
 bool A3g_GetLatest(A3gPoseSnap& out);
+// Lightweight identity for A3h (avoids copying the full multi-hundred-KiB snap).
+bool A3g_GetLatestIdentity(uint32_t* outInst, uint32_t* outShell, uint32_t* outBody,
+                           uint16_t* outObsCount);
+// Same-thread peek at the snap A3g_OnFrame just built (valid until next A3g_OnFrame).
+const A3gPoseSnap* A3g_PeekLastBuild();
 uint32_t A3g_RingCount();
 bool A3g_GetAt(uint32_t idxFromNewest, A3gPoseSnap& out);
 

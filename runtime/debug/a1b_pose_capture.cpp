@@ -58,12 +58,15 @@ bool EnvOn()
             const char* p = std::getenv("SCR_A3F_PALETTE_CAPTURE");
             const char* g = std::getenv("SCR_A3G_POSE_AGGREGATE");
             const char* h = std::getenv("SCR_A3G_HIERARCHY_TRACE");
+            const char* h1 = std::getenv("SCR_A3H_SKELETON_TRACE");
+            const char* h2 = std::getenv("SCR_A3H_PALETTE_MAP");
             if ((t && t[0] && t[0] != '0') || (p && p[0] && p[0] != '0') ||
-                (g && g[0] && g[0] != '0') || (h && h[0] && h[0] != '0'))
+                (g && g[0] && g[0] != '0') || (h && h[0] && h[0] != '0') ||
+                (h1 && h1[0] && h1[0] != '0') || (h2 && h2[0] && h2[0] != '0'))
                 c = 1;
         }
         if (c)
-            LOG_INFO("A1b: pose capture enabled (SCR_A1B_POSE_CAPTURE or A3f/A3g identity); "
+            LOG_INFO("A1b: pose capture enabled (SCR_A1B_POSE_CAPTURE or A3f/A3g/A3h identity); "
                      "no extra unique XFB");
     }
     return c != 0;
