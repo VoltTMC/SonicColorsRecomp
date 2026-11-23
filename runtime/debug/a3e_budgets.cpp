@@ -35,7 +35,13 @@ bool DenseOn()
     if (v < 0)
     {
         const char* e = std::getenv("SCR_A3E_DENSE");
-        v = (e && e[0] && e[0] != '0') ? 1 : 0;
+        const char* prod = std::getenv("SCR_A2B_PROD");
+        const char* dec = std::getenv("SCR_DECOUPLED_PRESENT");
+        // A3p: production/decoupled auto-raises dense caps for complete TR1 archives.
+        v = ((e && e[0] && e[0] != '0') || (prod && prod[0] && prod[0] != '0') ||
+             (dec && dec[0] && dec[0] != '0'))
+                ? 1
+                : 0;
         s_dense.store(v, std::memory_order_relaxed);
         if (v)
         {
@@ -44,7 +50,9 @@ bool DenseOn()
             s_armDraws.store(armDraws, std::memory_order_relaxed);
             if (armDraws > 0)
                 s_armed.store(0, std::memory_order_relaxed);
-            LOG_INFO("A3e: dense archive budgets enabled (SCR_A3E_DENSE); {}", A3e_BudgetSummary());
+            LOG_INFO("A3e: dense archive budgets enabled{}; {}",
+                     (e && e[0] && e[0] != '0') ? " (SCR_A3E_DENSE)" : " (A3p prod/decoupled)",
+                     A3e_BudgetSummary());
             if (armDraws > 0)
                 LOG_INFO("A3e: A2b soft-arm until observed draws>={} (SCR_A3E_ARM_ON_DRAWS); "
                          "stage enter also arms",

@@ -66,12 +66,45 @@ uint32_t HashBytes(const uint8_t* p, size_t n)
 // Walk FIFO vertex stream like VertexLoader to derive indexed array ranges.
 void CaptureIndexedArrays(int vat, uint32_t count, const uint8_t* stream, uint32_t streamBytes)
 {
+    const uint64_t t0 = Platform_PerfCounter();
     VertexLayout layout{};
     GX_ComputeLayout(vat, layout);
     if (!count || layout.size == 0) return;
 
     static const uint8_t kCompSize[8] = { 1, 1, 2, 2, 4, 0, 0, 0 };
     static const uint8_t kColorSize[8] = { 2, 3, 4, 2, 3, 4, 0, 0 };
+    // Cap below MEM hole risk and keep Apply/Restore stacks smaller; covering
+    // dedupe still collapses per-slot work after the first draw.
+    constexpr uint32_t kMaxSpan = 64u << 10;
+
+    // A3p prod: capture a worst-case span from the index width (u8→256, u16→65536
+    // elems × stride), capped at kMaxSpan. Superset of any legal index range up to
+    // the cap — no O(vertices) walk. Non-prod keeps precise min/max index ranges.
+    if (A2b_ProdMode())
+    {
+        auto captureSlot = [&](uint8_t atype, int arr) {
+            if (atype < 2) return;
+            const uint32_t base = g_gx.cp[CP_ARRAY_BASE + arr];
+            const uint32_t stride = g_gx.cp[CP_ARRAY_STRIDE + arr];
+            if (!base || stride == 0) return;
+            if (A2b_VertexSlotSaturated((uint32_t)arr)) return;
+            const uint64_t maxElems = (atype == 2) ? 256ull : 65536ull;
+            uint64_t bytes = maxElems * (uint64_t)stride;
+            if (bytes == 0) return;
+            if (bytes > kMaxSpan) bytes = kMaxSpan;
+            A2b_OnVertexArray(base, (uint32_t)bytes, stride, (uint32_t)arr);
+        };
+        if (layout.pos) captureSlot(layout.pos, 0);
+        if (layout.nrm && layout.nrm != 1) captureSlot(layout.nrm, 1);
+        for (int i = 0; i < 2; i++)
+            if (layout.col[i]) captureSlot(layout.col[i], 2 + i);
+        for (int i = 0; i < 8; i++)
+            if (layout.tex[i]) captureSlot(layout.tex[i], 4 + i);
+        A2b_ProfAddIndexedArrNs(Platform_PerfCounter() - t0);
+        (void)stream;
+        (void)streamBytes;
+        return;
+    }
 
     struct Range { bool used = false; uint32_t minI = ~0u, maxI = 0; };
     Range ranges[12]{};
@@ -165,6 +198,7 @@ void CaptureIndexedArrays(int vat, uint32_t count, const uint8_t* stream, uint32
         // Prefer copying from index 0 through max (GPU arrays often densely packed).
         A2b_OnVertexArray(base, (uint32_t)bytes, stride, (uint32_t)a);
     }
+    A2b_ProfAddIndexedArrNs(Platform_PerfCounter() - t0);
 }
 
 uint32_t ClassifyFamily(uint32_t passBytes, uint32_t draws, uint32_t deps, uint32_t efbCopySampled,
@@ -192,8 +226,10 @@ uint32_t ClassifyFamily(uint32_t passBytes, uint32_t draws, uint32_t deps, uint3
         return A2cFamily_A3cEnv;
     // A3e: dense complete gameplay (beyond A2e/A3c bands). Explicit family so
     // selection budgets can rise without mis-labeling as Other.
+    // A3p prod covering dedupe can drop unique deps below 8 while draws stay dense.
+    const uint32_t depMin = A2b_ProdMode() ? 1u : 8u;
     if (A3e_DenseEnabled() && passBytes >= 7000 && passBytes <= (1024u << 10) && draws >= 150 &&
-        draws <= 16384 && deps >= 8)
+        draws <= 16384 && deps >= depMin)
         return A2cFamily_A3eDense;
     return A2cFamily_Other;
 }
@@ -233,7 +269,8 @@ void EvaluatePass(const A2bArchivePacket& pkt, A2cPassReport& out)
     if (passEnd == 0 || (passEnd < pkt.cmd.size() && pkt.cmd[passEnd] != 0x61))
         passEnd = (uint32_t)pkt.cmd.size();
     out.passBytes = passEnd;
-    out.passHash = passEnd ? HashBytes(pkt.cmd.data(), passEnd) : 0;
+    // A3p prod: skip O(pass) hash — family classify uses passBytes/draws/deps only.
+    out.passHash = (!A2b_ProdMode() && passEnd) ? HashBytes(pkt.cmd.data(), passEnd) : 0;
     out.efbIncomingValid = pkt.efbIncomingValid;
     out.efbInColorHash = pkt.efbInColorHash;
     out.efbInDepthHash = pkt.efbInDepthHash;
@@ -251,7 +288,9 @@ void EvaluatePass(const A2bArchivePacket& pkt, A2cPassReport& out)
     ok(A2cReady_SubsComplete, pkt.summary.skippedSubmissions == 0 &&
                                   !(pkt.summary.flags & A2bFrame_OverflowSubs));
     ok(A2cReady_GxStartPresent, pkt.gxStartValid);
-    ok(A2cReady_EfbIncoming, pkt.efbIncomingValid && Render_EfbIncomingValid(pkt.efbIncomingSlot));
+    // A3p prod: EFB incoming is preferred but mid can fall back to cleared scratch.
+    const bool efbInOk = pkt.efbIncomingValid && Render_EfbIncomingValid(pkt.efbIncomingSlot);
+    ok(A2cReady_EfbIncoming, efbInOk || A2b_ProdMode());
     ok(A2cReady_NoOverflow, !(pkt.summary.flags & A2bFrame_Incomplete) ||
                                 pkt.summary.requiredUnresolved == 0);
 
@@ -388,7 +427,17 @@ bool ApplyResourcesToGuest(const A2bArchivePacket& pkt, std::vector<RamSave>& sa
                 memcpy(tmem + r.guestEa, pkt.resData.data() + r.dataOffset, r.copiedSize);
             continue;
         }
-        uint32_t phys = r.guestEa & 0x1FFFFFFF;
+        const uint32_t phys = r.guestEa & 0x3FFFFFFFu;
+        if (phys < MEM1_SIZE)
+        {
+            if (phys + r.copiedSize > MEM1_SIZE) continue;
+        }
+        else if (phys >= 0x10000000u && phys < 0x10000000u + MEM2_SIZE)
+        {
+            if (phys + r.copiedSize > 0x10000000u + MEM2_SIZE) continue;
+        }
+        else
+            continue;
         RamSave sv;
         sv.phys = phys;
         sv.bytes.assign(PhysPtr(phys), PhysPtr(phys) + r.copiedSize);
@@ -400,8 +449,12 @@ bool ApplyResourcesToGuest(const A2bArchivePacket& pkt, std::vector<RamSave>& sa
 
 void RestoreGuest(const std::vector<RamSave>& saves)
 {
-    for (const RamSave& sv : saves)
+    // Reverse order so overlapping Apply saves unwind correctly (last write first).
+    for (size_t i = saves.size(); i > 0; i--)
+    {
+        const RamSave& sv = saves[i - 1];
         memcpy(PhysPtr(sv.phys), sv.bytes.data(), sv.bytes.size());
+    }
 }
 
 void RunScratchReplay(A2bArchivePacket& pkt, const A2cPassReport& pass, A2cReplayResult& rr)
@@ -1195,7 +1248,9 @@ bool A2c_ScratchReplayEnabled() { return ReplayEnv(); }
 
 bool A2c_ClosureCaptureEnabled()
 {
-    return A2b_FifoCaptureEnabled();
+    // A3p: vertex/array/texture closure only while capture is armed. Soft-arm
+    // draw counting uses A2b_NoteDraw via A2b_FifoCaptureEnabled separately.
+    return A2b_CaptureActive();
 }
 
 void A2c_OnDraw(int vat, uint32_t count, const uint8_t* vtxStream, uint32_t streamBytes)
@@ -1268,6 +1323,27 @@ static void PollPendingComparesLocked()
 
 void A2c_OnArchivedFrame()
 {
+    // A3p lean path: when scratch MATCH replay is off, evaluate from meta clone
+    // (cmd + resource records, no resData) and skip diagnostic RunScratchReplay.
+    if (!ReplayEnv())
+    {
+        A2bArchivePacket meta{};
+        if (!A2b_CloneCurrentMeta(meta)) return;
+        A2cPassReport report{};
+        EvaluatePass(meta, report);
+        {
+            std::lock_guard lk(s_mu);
+            s_pass = report;
+            s_havePass = true;
+            if (report.family < kFamilySlots)
+            {
+                s_familyPass[report.family] = report;
+                s_haveFamilyPass[report.family] = true;
+            }
+        }
+        return;
+    }
+
     A2bArchivePacket pkt;
     if (!A2b_CloneCurrentPacket(pkt)) return;
 
@@ -1552,26 +1628,40 @@ bool A2c_DecoupledMidPresent(float alpha, uint32_t* outColorHash, uint32_t* outD
         return false;
     }
 
-    A2cPassReport pass{};
-    bool have = A2c_GetFamilyPassReport(A2cFamily_A3eDense, pass) && pass.replayReady;
-    if (!have)
-        have = A2c_GetFamilyPassReport(A2cFamily_A3cEnv, pass) && pass.replayReady;
-    if (!have)
-        have = A2c_GetPassReport(pass) && pass.replayReady &&
-               (pass.family == A2cFamily_A3eDense || pass.family == A2cFamily_A3cEnv ||
-                pass.family == A2cFamily_Other);
-    if (!have)
+    // A3p: pin/clone the *current* archive first, then EvaluatePass on that packet so
+    // passBytes/readiness cannot drift from a stale family report.
+    const A2bArchivePacket* pinned = nullptr;
+    A2bArchivePacket owned{};
+    const A2bArchivePacket* pktPtr = nullptr;
+    bool pinnedOk = A2b_PinMidPacket(&pinned);
+    if (pinnedOk && pinned)
+        pktPtr = pinned;
+    else if (A2b_CloneCurrentPacket(owned))
+        pktPtr = &owned;
+    else
     {
         if (detail && detailN)
-            std::snprintf(detail, detailN, "no ready dense/env pass");
+            std::snprintf(detail, detailN, "no mid/current packet");
         return false;
     }
+    const A2bArchivePacket& pkt = *pktPtr;
 
-    A2bArchivePacket pkt{};
-    if (!A2b_CloneCurrentPacket(pkt))
+    A2cPassReport pass{};
+    EvaluatePass(pkt, pass);
+    const bool familyOk = pass.family == A2cFamily_A3eDense || pass.family == A2cFamily_A3cEnv ||
+                          (A2b_ProdMode() && pass.family == A2cFamily_Other && pass.drawCount >= 150);
+    if (!pass.replayReady || !familyOk)
     {
         if (detail && detailN)
-            std::snprintf(detail, detailN, "clone packet failed");
+            std::snprintf(detail, detailN, "no ready dense/env (%s)",
+                          pass.reason[0] ? pass.reason : "unready");
+        if (pinnedOk)
+            A2b_UnpinMidPacket();
+        else if (owned.efbIncomingValid)
+        {
+            Render_EfbIncomingRelease(owned.efbIncomingSlot);
+            owned.efbIncomingValid = false;
+        }
         return false;
     }
 
@@ -1579,8 +1669,12 @@ bool A2c_DecoupledMidPresent(float alpha, uint32_t* outColorHash, uint32_t* outD
     std::vector<uint8_t> tmemSaved(Render_TmemPtr(), Render_TmemPtr() + Render_TmemSize());
     int32_t tevSaved[4][4];
     memcpy(tevSaved, g_tevKonst, sizeof(tevSaved));
+    // A3p prod: mid runs on the guest thread during PaceUncappedHost wait, before the
+    // next sim/render update. Guest RAM still holds the just-archived resources — skip
+    // the multi-MB Apply/Restore. Diagnostic MATCH replay keeps the full apply path.
     std::vector<RamSave> ramSaves;
-    ApplyResourcesToGuest(pkt, ramSaves);
+    const bool applyRam = !A2b_ProdMode();
+    if (applyRam) ApplyResourcesToGuest(pkt, ramSaves);
 
     bool ok = false;
     uint32_t colorHash = 0;
@@ -1597,19 +1691,26 @@ bool A2c_DecoupledMidPresent(float alpha, uint32_t* outColorHash, uint32_t* outD
         g_gx = gxSaved;
         memcpy(Render_TmemPtr(), tmemSaved.data(), tmemSaved.size());
         memcpy(g_tevKonst, tevSaved, sizeof(tevSaved));
-        RestoreGuest(ramSaves);
-        if (pkt.efbIncomingValid)
+        if (applyRam) RestoreGuest(ramSaves);
+        if (pinnedOk)
+            A2b_UnpinMidPacket();
+        else if (owned.efbIncomingValid)
         {
-            Render_EfbIncomingRelease(pkt.efbIncomingSlot);
-            pkt.efbIncomingValid = false;
-            pkt.efbIncomingSlot = -1;
+            Render_EfbIncomingRelease(owned.efbIncomingSlot);
+            owned.efbIncomingValid = false;
+            owned.efbIncomingSlot = -1;
         }
     };
 
     uint32_t sw = 0, sh = 0;
     g_gx = pkt.gxStart;
     Render_ResetHostDrawState();
-    if (!Render_ScratchBeginFromIncoming(pkt.efbIncomingSlot, &sw, &sh))
+    bool began = false;
+    if (pkt.efbIncomingValid && Render_EfbIncomingValid(pkt.efbIncomingSlot))
+        began = Render_ScratchBeginFromIncoming(pkt.efbIncomingSlot, &sw, &sh);
+    if (!began && A2b_ProdMode())
+        began = Render_ScratchBeginCleared(&sw, &sh);
+    if (!began)
     {
         if (detail && detailN)
             std::snprintf(detail, detailN, "scratch begin failed");

@@ -1171,6 +1171,25 @@ Opt-in. Scheduler in `PaceUncappedHost` (`--frame-rate 0`); time-driven α; mid 
 | Approach A guest redraw | Rejected | Unsafe |
 | Win GPU | UNVERIFIED | |
 
+### Approach A3p — production archive throughput (2026-11-23)
+
+Opt-in lean capture (`SCR_A2B_PROD` / auto with decoupled). Restores ~60 Hz sim with armed dense TR1 archives. Unique mid still scheduling-limited. Report: `docs/A3P_PRODUCTION_ARCHIVE_AND_REPLAY.md`.
+
+| Switch | Role |
+|--------|------|
+| `SCR_A2B_PROD=1` | Lean capture (closure/EFB only when armed; sample-fp cache) |
+| `SCR_A2B_PROFILE=1` | Bounded `A2bProf` stage timers |
+| `SCR_DECOUPLED_PRESENT=1` | Implies prod capture |
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Soft-arm without 35 Hz tax | PASS | Closure+EFB gated on `CaptureActive` |
+| Armed dense capture @ ~60 Hz | PASS | RTX 3080 TR1 |
+| Sustained ~1 unique mid / guest update | **FAIL** | Full-scene replay vs pace wait |
+| Distinct mid hashes when UNIQUE | PASS | Sparse samples |
+| Full-scene mid camera | PARTIAL | `pose=0` on logged UNIQUEs |
+| Win GPU | UNVERIFIED | |
+
 ### Approach A3a — draw-level transform attribution + scratch substitution (2026-11-21)
 
 Opt-in diagnostics only. **No interpolation, no second XFB, no unique-FPS claim.**

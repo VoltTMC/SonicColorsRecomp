@@ -444,9 +444,11 @@ static size_t RunCommands(const uint8_t* p, size_t n, bool inDisplayList)
                 if (left < need) return pos;
                 if (count)
                 {
-                    if (A2c_ClosureCaptureEnabled() && !Render_ReplayIsolationActive())
+                    if (!Render_ReplayIsolationActive() && A2b_FifoCaptureEnabled())
                     {
-                        A2c_OnDraw(vat, count, c + 3, (uint32_t)(need - 3));
+                        // Heavy indexed-array/texture closure only when armed.
+                        if (A2c_ClosureCaptureEnabled())
+                            A2c_OnDraw(vat, count, c + 3, (uint32_t)(need - 3));
                         A2b_NoteDraw();
                     }
                     Render_Draw(prim, vat, count, c + 3, layout);

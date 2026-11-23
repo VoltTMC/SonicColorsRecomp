@@ -458,6 +458,13 @@ void Overlay_Render(float w, float h)
                 if (a2c[0])
                     ImGui::TextUnformatted(a2c);
             }
+            if (A2b_ProfileEnabled())
+            {
+                char ap[220];
+                A2b_OverlayProfile(ap, sizeof(ap));
+                if (ap[0])
+                    ImGui::TextUnformatted(ap);
+            }
             if (A2gNat_Enabled())
             {
                 char nat[160];

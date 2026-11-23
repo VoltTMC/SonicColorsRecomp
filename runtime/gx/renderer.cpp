@@ -1636,7 +1636,7 @@ static bool EnsureEfbInSlot(int slot)
 }
 
 int Render_EfbIncomingCapture(uint32_t* outColorHash, uint32_t* outDepthHash,
-                              uint32_t* outW, uint32_t* outH)
+                              uint32_t* outW, uint32_t* outH, bool hashContents)
 {
     if (!s_ready || !g_ctx || !s_efbColor) return -1;
     Flush();
@@ -1662,8 +1662,17 @@ int Render_EfbIncomingCapture(uint32_t* outColorHash, uint32_t* outDepthHash,
     g_ctx->CopyResource(s.color, s_efbColor);
     g_ctx->CopyResource(s.depth, s_efbDepth);
     // everyPixel=true so incoming hashes are comparable to live/scratch compare hashes.
-    s.colorHash = HashTextureContents(s.color, true);
-    s.depthHash = HashTextureContents(s.depth, true);
+    // A3p prod skips CPU readback hashing — slot GPU copies remain valid for replay seed.
+    if (hashContents)
+    {
+        s.colorHash = HashTextureContents(s.color, true);
+        s.depthHash = HashTextureContents(s.depth, true);
+    }
+    else
+    {
+        s.colorHash = 0;
+        s.depthHash = 0;
+    }
     D3D11_TEXTURE2D_DESC td{};
     s.color->GetDesc(&td);
     s.w = td.Width;

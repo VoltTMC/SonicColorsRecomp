@@ -109,8 +109,10 @@ void Render_ResetHostDrawState();  // flush batches; force XF upload next draw
 // Incoming EFB snapshot slots (GPU CopyResource; independent of live EFB).
 // slot < 0 means invalid. Capture at pass entry = after post-XFB ClearEFB
 // (or immediately after toXFB when the clear bit is off).
+// hashContents=false: GPU CopyResource only (A3p prod). true: also every-pixel
+// CPU hash for A2e/A2f MATCH diagnostics.
 int Render_EfbIncomingCapture(uint32_t* outColorHash, uint32_t* outDepthHash,
-                              uint32_t* outW, uint32_t* outH);
+                              uint32_t* outW, uint32_t* outH, bool hashContents = true);
 void Render_EfbIncomingAddRef(int slot);
 void Render_EfbIncomingRelease(int slot);
 bool Render_EfbIncomingValid(int slot);

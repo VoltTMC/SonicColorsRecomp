@@ -207,10 +207,57 @@ struct A2bArchivePacket
 };
 
 bool A2b_FifoCaptureEnabled();
+// True only while EnvOn and soft-arm/stage has armed dense capture.
+bool A2b_CaptureActive();
+// A3p: production lean capture (also auto-on with SCR_DECOUPLED_PRESENT).
+bool A2b_ProdMode();
+bool A2b_ProfileEnabled();
+
+struct A2bProfileStats
+{
+    uint64_t frames = 0;
+    uint64_t fifoAppendNs = 0;
+    uint64_t fifoAppendBytes = 0;
+    uint64_t fifoAppendCalls = 0;
+    uint64_t resFindNs = 0;
+    uint64_t resCopyNs = 0;
+    uint64_t resHashNs = 0;
+    uint64_t resCacheHits = 0;
+    uint64_t resCacheMiss = 0;
+    uint64_t resCopiedBytes = 0;
+    uint64_t xfbFinalizeNs = 0;
+    uint64_t cmdHashNs = 0;
+    uint64_t midRefreshNs = 0;
+    uint64_t midRefreshBytes = 0;
+    uint64_t midPinBlock = 0;
+    uint64_t efbIncomingNs = 0;
+    uint64_t metaEvalNs = 0;
+    uint64_t indexedArrNs = 0;
+    uint32_t peakCmdBytes = 0;
+    uint32_t peakResBytes = 0;
+    uint32_t peakResCount = 0;
+};
+
+void A2b_GetProfile(A2bProfileStats& out);
+void A2b_OverlayProfile(char* buf, size_t bufSize);
+void A2b_ProfAddIndexedArrNs(uint64_t ns);
+
+// Meta clone: cmd + resource records, empty resData, no EFB addref — for EvaluatePass.
+bool A2b_CloneCurrentMeta(A2bArchivePacket& out);
+// Full mid-ready packet refreshed once per XFB (skipped if still pinned).
+void A2b_RefreshMidPacket();
+bool A2b_PinMidPacket(const A2bArchivePacket** out);
+void A2b_UnpinMidPacket();
+bool A2b_MidPacketValid();
+
 void A2b_OnFifoSubmission(const uint8_t* data, size_t n);
 void A2b_OnDisplayList(uint32_t guestEa, uint32_t size);
 void A2b_OnIndexedXf(uint32_t guestEa, uint32_t byteSize);
 void A2b_OnVertexArray(uint32_t guestEa, uint32_t size, uint32_t stride, uint32_t arrayIndex);
+// True if this frame already holds a covering copied span >= minSize for the identity.
+bool A2b_HasCoveringCopy(uint32_t type, uint32_t guestEa, uint32_t aux, uint32_t minSize);
+// Fast lock-free: CP array slot already captured at the prod max span this frame.
+bool A2b_VertexSlotSaturated(uint32_t arrayIndex);
 void A2b_OnTexture(uint32_t guestEa, uint32_t size, uint32_t fmt, uint32_t w, uint32_t h);
 void A2b_OnTlutRam(uint32_t guestEa, uint32_t size);
 void A2b_OnTmemWindow(uint32_t tmemOff, uint32_t size, const uint8_t* data);

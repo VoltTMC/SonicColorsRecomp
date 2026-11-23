@@ -1,5 +1,15 @@
 # Progress log
 
+## 2026-11-23 — A3p: production-efficient archive + scratch replay
+
+**Goal:** Make FIFO archive capture cheap enough for ~60 Hz sim with complete TR1 archives; enable unique mid scratch when headroom exists. No Approach A redraw.
+
+**Shipped:** Soft-arm without heavy closure; EFB incoming gated + prod hash skip; sample-fp blob cache; covering/sat vertex spans; MEM bounds clamp; lean mid pin (no resData/Apply in prod); mid EvaluatePass on current packet; `docs/A3P_PRODUCTION_ARCHIVE_AND_REPLAY.md`.
+
+**Evidence (RTX 3080):** Capture-only prod ~60 Hz armed dense; baseline ~60. Decoupled: sparse `mid UNIQUE` with distinct hashes; present_calls often ≈ unique_xfb (replay vs wait headroom). `pose=0` on samples → camera consistency PARTIAL.
+
+**Gate:** Capture@60 + complete archives **PASS**; sustained ~1 unique mid/guest update **FAIL**; no 120 FPS claim. Win GPU **UNVERIFIED**.
+
 ## 2026-11-23 — A3o: decoupled presentation + time-driven pose α
 
 **Goal:** Independent 2× presentation scheduler; time-driven α; safe mid render without advancing guest sim.

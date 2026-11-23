@@ -18,20 +18,47 @@
 #include <cstring>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace {
+
+bool EnvFlag(const char* name)
+{
+    const char* e = std::getenv(name);
+    return e && e[0] && e[0] != '0';
+}
+
+bool ProdMode()
+{
+    static int c = -1;
+    if (c < 0)
+    {
+        c = (EnvFlag("SCR_A2B_PROD") || EnvFlag("SCR_DECOUPLED_PRESENT")) ? 1 : 0;
+        if (c)
+            LOG_INFO("A2b: production lean capture (SCR_A2B_PROD/DECOUPLED); {}",
+                     A3e_BudgetSummary());
+    }
+    return c != 0;
+}
+
+bool ProfileOn()
+{
+    static int c = -1;
+    if (c < 0)
+        c = EnvFlag("SCR_A2B_PROFILE") ? 1 : 0;
+    return c != 0;
+}
 
 bool EnvOn()
 {
     static int c = -1;
     if (c < 0)
     {
-        const char* v = std::getenv("SCR_A2B_FIFO_CAPTURE");
-        c = (v && v[0] && v[0] != '0') ? 1 : 0;
-        if (c)
-            LOG_INFO("A2b: FIFO archive enabled (SCR_A2B_FIFO_CAPTURE); no replay / no extra XFB; {}",
-                     A3e_BudgetSummary());
+        // A3p: DECOUPLED/PROD auto-enables capture so mid-replay has an archive.
+        c = (EnvFlag("SCR_A2B_FIFO_CAPTURE") || ProdMode()) ? 1 : 0;
+        if (c && EnvFlag("SCR_A2B_FIFO_CAPTURE"))
+            LOG_INFO("A2b: FIFO archive enabled (SCR_A2B_FIFO_CAPTURE); {}", A3e_BudgetSummary());
     }
     return c != 0;
 }
@@ -40,6 +67,37 @@ bool CaptureActive()
 {
     return EnvOn() && A3e_CaptureArmed();
 }
+
+std::atomic<uint64_t> s_profFifoAppendNs{ 0 }, s_profFifoAppendBytes{ 0 }, s_profFifoAppendCalls{ 0 };
+std::atomic<uint64_t> s_profResFindNs{ 0 }, s_profResCopyNs{ 0 }, s_profResHashNs{ 0 };
+std::atomic<uint64_t> s_profResCacheHits{ 0 }, s_profResCacheMiss{ 0 }, s_profResCopiedBytes{ 0 };
+std::atomic<uint64_t> s_profXfbFinalizeNs{ 0 }, s_profCmdHashNs{ 0 };
+std::atomic<uint64_t> s_profMidRefreshNs{ 0 }, s_profMidRefreshBytes{ 0 }, s_profMidPinBlock{ 0 };
+std::atomic<uint64_t> s_profEfbInNs{ 0 }, s_profMetaEvalNs{ 0 }, s_profIdxArrNs{ 0 };
+std::atomic<uint64_t> s_profFrames{ 0 };
+std::atomic<uint32_t> s_profPeakCmd{ 0 }, s_profPeakResBytes{ 0 }, s_profPeakResCount{ 0 };
+// Soft-arm draw observation when EnvOn but not yet CaptureActive (no A3a required).
+std::atomic<uint32_t> s_obsDraws{ 0 };
+// Bit i set ⇒ CP array slot i already has a kMaxSpan covering copy this frame.
+std::atomic<uint32_t> s_vertSatMask{ 0 };
+constexpr uint32_t kVertSatSpan = 64u << 10;
+
+uint64_t NowNs() { return Platform_PerfCounter(); }
+
+struct ProfScope
+{
+    std::atomic<uint64_t>* acc = nullptr;
+    uint64_t t0 = 0;
+    explicit ProfScope(std::atomic<uint64_t>* a) : acc(a)
+    {
+        if (ProfileOn() && acc) t0 = NowNs();
+    }
+    ~ProfScope()
+    {
+        if (ProfileOn() && acc && t0)
+            acc->fetch_add(NowNs() - t0, std::memory_order_relaxed);
+    }
+};
 
 bool DumpOn()
 {
@@ -52,14 +110,32 @@ bool DumpOn()
     return c != 0;
 }
 
-uint32_t HashBytes(const uint8_t* p, size_t n)
+uint32_t FnvUpdate(uint32_t h, const uint8_t* p, size_t n)
 {
-    uint32_t h = 2166136261u;
     for (size_t i = 0; i < n; i++)
     {
         h ^= p[i];
         h *= 16777619u;
     }
+    return h;
+}
+
+uint32_t HashBytes(const uint8_t* p, size_t n)
+{
+    const uint32_t h = FnvUpdate(2166136261u, p, n);
+    return h ? h : 1u;
+}
+
+// A3p: cheap content identity for blob-cache reuse (head/mid/tail). Full HashBytes
+// remains for non-prod MATCH diagnostics.
+uint32_t SampleFingerprint(const uint8_t* p, uint32_t n)
+{
+    if (!p || n == 0) return 1u;
+    if (n <= 1024u) return HashBytes(p, n);
+    uint32_t h = FnvUpdate(2166136261u, p, 256);
+    h = FnvUpdate(h, p + (n / 2) - 128, 256);
+    h = FnvUpdate(h, p + n - 256, 256);
+    h ^= n * 2654435761u;
     return h ? h : 1u;
 }
 
@@ -79,6 +155,18 @@ bool GuestPtrOk(uint32_t ea)
     if (!ea) return false;
     const uint32_t hi = ea >> 28;
     return hi == 0x8 || hi == 0x9 || hi == 0xC || hi == 0xD;
+}
+
+// Bytes readable from eaCanon without crossing MEM1/MEM2 bounds (0 if invalid).
+uint32_t GuestCopyableBytes(uint32_t eaCanon)
+{
+    eaCanon = CanonGuestEa(eaCanon);
+    if (!GuestPtrOk(eaCanon)) return 0;
+    const uint32_t phys = eaCanon & 0x3FFFFFFFu;
+    if (phys < MEM1_SIZE) return MEM1_SIZE - phys;
+    if (phys >= 0x10000000u && phys < 0x10000000u + MEM2_SIZE)
+        return (0x10000000u + MEM2_SIZE) - phys;
+    return 0;
 }
 
 constexpr uint32_t kA2bMaxCrossEdges = 64;
@@ -137,6 +225,88 @@ bool s_haveCurr = false, s_havePrev = false;
 std::atomic<uint64_t> s_frames{ 0 };
 std::atomic<uint64_t> s_simTag{ 0 };
 
+// A3p: resource index for O(1) dedupe within a frame.
+struct ResKey
+{
+    uint32_t type = 0, ea = 0, size = 0, aux = 0;
+    bool operator==(const ResKey& o) const
+    {
+        return type == o.type && ea == o.ea && size == o.size && aux == o.aux;
+    }
+};
+struct ResKeyHash
+{
+    size_t operator()(const ResKey& k) const
+    {
+        size_t h = k.type;
+        h = h * 1315423911u + k.ea;
+        h = h * 1315423911u + k.size;
+        h = h * 1315423911u + k.aux;
+        return h;
+    }
+};
+std::unordered_map<ResKey, uint32_t, ResKeyHash> s_resIndex;
+
+// Cross-frame immutable blob cache (textures / TLUT / large copies).
+// Keyed by guest identity; sample fingerprint detects mutation/reuse of the EA.
+struct BlobKey
+{
+    uint32_t type = 0, ea = 0, size = 0, aux = 0;
+    bool operator==(const BlobKey& o) const
+    {
+        return type == o.type && ea == o.ea && size == o.size && aux == o.aux;
+    }
+};
+struct BlobKeyHash
+{
+    size_t operator()(const BlobKey& k) const
+    {
+        size_t h = k.type;
+        h = h * 1315423911u + k.ea;
+        h = h * 1315423911u + k.size;
+        h = h * 1315423911u + k.aux;
+        return h;
+    }
+};
+struct BlobEnt
+{
+    std::vector<uint8_t> data;
+    uint32_t sampleFp = 0;
+    uint32_t lastXfb = 0;
+};
+std::unordered_map<BlobKey, BlobEnt, BlobKeyHash> s_blobCache;
+constexpr size_t kBlobCacheMaxEntries = 1024;
+constexpr uint32_t kBlobCacheMinBytes = 2048; // cache medium+ blobs
+
+// Within-frame covering index (type+ea+aux) so growing VertexArray spans reuse.
+struct CoverKey
+{
+    uint32_t type = 0, ea = 0, aux = 0;
+    bool operator==(const CoverKey& o) const
+    {
+        return type == o.type && ea == o.ea && aux == o.aux;
+    }
+};
+struct CoverKeyHash
+{
+    size_t operator()(const CoverKey& k) const
+    {
+        size_t h = k.type;
+        h = h * 1315423911u + k.ea;
+        h = h * 1315423911u + k.aux;
+        return h;
+    }
+};
+std::unordered_map<CoverKey, uint32_t, CoverKeyHash> s_resCover;
+
+// Mid-replay pinned packet (A3p).
+A2bArchivePacket s_midPkt{};
+bool s_midValid = false;
+bool s_midDirty = false;  // A3p: lazy clone on first Pin after XFB
+std::atomic<int> s_midPin{ 0 };
+uint32_t s_peakCmdReserve = 256u * 1024u;
+uint32_t s_peakResReserve = 1u << 20;
+
 void ReleaseEfbSlot(FrameBuild& f)
 {
     if (f.efbIncomingSlot >= 0)
@@ -154,7 +324,13 @@ void ResetBuild(FrameBuild& f)
     f.cmd.clear();
     f.resData.clear();
     f.tmemStart.clear();
-    f.cmd.reserve(256 * 1024);
+    f.cmd.reserve(s_peakCmdReserve);
+    f.resData.reserve(s_peakResReserve);
+    s_resIndex.clear();
+    s_resIndex.reserve(1024);
+    s_resCover.clear();
+    s_resCover.reserve(1024);
+    s_vertSatMask.store(0, std::memory_order_relaxed);
 }
 
 void SnapGxLite(A2bGxStateSnap& g)
@@ -236,7 +412,13 @@ void FillSummary(const FrameBuild& f, A2bFrameSummary& out)
     out.flags = f.flags;
     out.capResources = A2b_CapMaxResources();
     out.capResBytes = A2b_CapMaxResBytes();
-    out.commandHash = f.cmd.empty() ? 0 : HashBytes(f.cmd.data(), f.cmd.size());
+    if (!ProdMode())
+    {
+        ProfScope ps(&s_profCmdHashNs);
+        out.commandHash = f.cmd.empty() ? 0 : HashBytes(f.cmd.data(), f.cmd.size());
+    }
+    else
+        out.commandHash = 0;
     out.gxStartValid = f.gxStartValid;
     out.efbIncomingValid = f.efbIncomingValid;
     out.efbIncomingSlot = f.efbIncomingSlot;
@@ -265,11 +447,12 @@ void RecountRequired(FrameBuild& f)
 
 int FindResource(FrameBuild& f, uint32_t type, uint32_t ea, uint32_t size, uint32_t aux)
 {
-    for (uint32_t i = 0; i < f.resCount; i++)
-        if (f.resources[i].type == type && f.resources[i].guestEa == ea &&
-            f.resources[i].size == size && f.resources[i].aux == aux)
-            return (int)i;
-    return -1;
+    ProfScope ps(&s_profResFindNs);
+    (void)f;
+    const ResKey key{ type, ea, size, aux };
+    auto it = s_resIndex.find(key);
+    if (it == s_resIndex.end()) return -1;
+    return (int)it->second;
 }
 
 void EnsureGxStartLocked()
@@ -279,18 +462,52 @@ void EnsureGxStartLocked()
     s_build.gxStartValid = true;
 }
 
+bool CoverableType(uint32_t type)
+{
+    return type == A2bRes_VertexArray || type == A2bRes_IndexedXf || type == A2bRes_Texture ||
+           type == A2bRes_TlutRam || type == A2bRes_DisplayList;
+}
+
 void AddResourceLocked(uint32_t type, uint32_t ea, uint32_t size, bool tryCopy,
                        uint32_t lifetime, uint32_t aux, bool required)
 {
     const uint32_t eaCanon = CanonGuestEa(ea);
+
+    // Exact key hit.
     int existing = FindResource(s_build, type, eaCanon, size, aux);
     if (existing >= 0)
     {
         A2bResource& er = s_build.resources[existing];
         er.refCount++;
-        if (required)
-            er.flags |= A2bRes_Required;
+        if (required) er.flags |= A2bRes_Required;
         return;
+    }
+
+    // Covering hit: prior larger-or-equal span for same guest identity.
+    if (CoverableType(type) && size > 0)
+    {
+        auto cit = s_resCover.find(CoverKey{ type, eaCanon, aux });
+        if (cit != s_resCover.end())
+        {
+            const uint32_t cidx = cit->second;
+            if (cidx < s_build.resCount)
+            {
+                A2bResource& er = s_build.resources[cidx];
+                if (er.type == type && er.guestEa == eaCanon && er.size >= size &&
+                    (er.flags & A2bRes_Copied))
+                {
+                    er.refCount++;
+                    if (required) er.flags |= A2bRes_Required;
+                    if (type == A2bRes_VertexArray && er.copiedSize >= kVertSatSpan)
+                    {
+                        const uint32_t slot = aux & 0xFF;
+                        if (slot < 12)
+                            s_vertSatMask.fetch_or(1u << slot, std::memory_order_relaxed);
+                    }
+                    return;
+                }
+            }
+        }
     }
 
     EnsureBuildCapsLocked(s_build);
@@ -301,7 +518,8 @@ void AddResourceLocked(uint32_t type, uint32_t ea, uint32_t size, bool tryCopy,
         return;
     }
 
-    A2bResource& r = s_build.resources[s_build.resCount++];
+    const uint32_t idx = s_build.resCount++;
+    A2bResource& r = s_build.resources[idx];
     r = A2bResource{};
     r.type = type;
     r.guestEa = eaCanon;
@@ -311,8 +529,10 @@ void AddResourceLocked(uint32_t type, uint32_t ea, uint32_t size, bool tryCopy,
     r.refCount = 1;
     r.submitSeq = s_build.submitCount > 0 ? s_build.submitCount - 1 : 0;
     r.dataOffset = (uint32_t)s_build.resData.size();
-    if (required)
-        r.flags |= A2bRes_Required;
+    if (required) r.flags |= A2bRes_Required;
+    s_resIndex.insert_or_assign(ResKey{ type, eaCanon, size, aux }, idx);
+    if (CoverableType(type))
+        s_resCover.insert_or_assign(CoverKey{ type, eaCanon, aux }, idx);
 
     if (size == 0 || !GuestPtrOk(eaCanon) || !tryCopy)
     {
@@ -328,6 +548,21 @@ void AddResourceLocked(uint32_t type, uint32_t ea, uint32_t size, bool tryCopy,
         r.flags |= A2bRes_Truncated;
         s_build.truncated++;
     }
+    {
+        const uint32_t room = GuestCopyableBytes(eaCanon);
+        if (room == 0)
+        {
+            r.flags |= A2bRes_Unresolved;
+            s_build.unresolved++;
+            return;
+        }
+        if (copyN > room)
+        {
+            copyN = room;
+            r.flags |= A2bRes_Truncated;
+            s_build.truncated++;
+        }
+    }
     if (s_build.resBytes + copyN > A2b_CapMaxResBytes())
     {
         s_build.flags |= A2bFrame_OverflowResBytes | A2bFrame_Incomplete;
@@ -336,13 +571,82 @@ void AddResourceLocked(uint32_t type, uint32_t ea, uint32_t size, bool tryCopy,
         return;
     }
 
-    const uint32_t phys = eaCanon & 0x1FFFFFFF;
+    const uint32_t phys = eaCanon & 0x3FFFFFFFu;
     const uint8_t* src = PhysPtr(phys);
-    s_build.resData.insert(s_build.resData.end(), src, src + copyN);
+
+    // A3p prod: sample fingerprint + address-keyed blob cache (no full O(n) hash).
+    // Non-prod keeps full HashBytes for MATCH diagnostics.
+    const bool useBlobCache = ProdMode() && copyN >= kBlobCacheMinBytes;
+    uint32_t ch = 0;
+    uint32_t sampleFp = 0;
+    if (!ProdMode())
+    {
+        ProfScope ps(&s_profResHashNs);
+        ch = HashBytes(src, copyN);
+    }
+    else if (useBlobCache)
+    {
+        ProfScope ps(&s_profResHashNs);
+        sampleFp = SampleFingerprint(src, copyN);
+        ch = sampleFp;
+    }
+    else
+    {
+        ch = copyN ^ (eaCanon * 2654435761u) ^ (type << 16);
+        if (!ch) ch = 1u;
+    }
+    r.contentHash = ch;
+
+    auto noteVertSat = [&]() {
+        if (type == A2bRes_VertexArray && copyN >= kVertSatSpan)
+        {
+            const uint32_t slot = aux & 0xFF;
+            if (slot < 12)
+                s_vertSatMask.fetch_or(1u << slot, std::memory_order_relaxed);
+        }
+    };
+
+    if (useBlobCache)
+    {
+        const BlobKey bk{ type, eaCanon, copyN, aux };
+        auto it = s_blobCache.find(bk);
+        if (it != s_blobCache.end() && it->second.data.size() == copyN &&
+            it->second.sampleFp == sampleFp)
+        {
+            s_build.resData.insert(s_build.resData.end(), it->second.data.begin(),
+                                   it->second.data.end());
+            r.copiedSize = copyN;
+            r.flags |= A2bRes_Copied;
+            s_build.resBytes += copyN;
+            it->second.lastXfb = (uint32_t)s_build.xfbIndex;
+            s_profResCacheHits.fetch_add(1, std::memory_order_relaxed);
+            s_profResCopiedBytes.fetch_add(copyN, std::memory_order_relaxed);
+            noteVertSat();
+            return;
+        }
+    }
+
+    {
+        ProfScope ps(&s_profResCopyNs);
+        s_build.resData.insert(s_build.resData.end(), src, src + copyN);
+    }
     r.copiedSize = copyN;
-    r.contentHash = HashBytes(src, copyN);
     r.flags |= A2bRes_Copied;
     s_build.resBytes += copyN;
+    s_profResCacheMiss.fetch_add(1, std::memory_order_relaxed);
+    s_profResCopiedBytes.fetch_add(copyN, std::memory_order_relaxed);
+    noteVertSat();
+
+    if (useBlobCache)
+    {
+        if (s_blobCache.size() >= kBlobCacheMaxEntries)
+            s_blobCache.erase(s_blobCache.begin());
+        BlobEnt ent{};
+        ent.data.assign(src, src + copyN);
+        ent.sampleFp = sampleFp;
+        ent.lastXfb = (uint32_t)s_build.xfbIndex;
+        s_blobCache.insert_or_assign(BlobKey{ type, eaCanon, copyN, aux }, std::move(ent));
+    }
 }
 
 void AddResource(uint32_t type, uint32_t ea, uint32_t size, bool tryCopy,
@@ -459,11 +763,64 @@ uint32_t A2b_FindFirstBp52(const uint8_t* cmd, uint32_t n)
 }
 
 bool A2b_FifoCaptureEnabled() { return EnvOn(); }
+bool A2b_CaptureActive() { return CaptureActive(); }
+bool A2b_ProdMode() { return ProdMode(); }
+bool A2b_ProfileEnabled() { return ProfileOn(); }
+
+void A2b_GetProfile(A2bProfileStats& out)
+{
+    out = A2bProfileStats{};
+    out.frames = s_profFrames.load(std::memory_order_relaxed);
+    out.fifoAppendNs = s_profFifoAppendNs.load(std::memory_order_relaxed);
+    out.fifoAppendBytes = s_profFifoAppendBytes.load(std::memory_order_relaxed);
+    out.fifoAppendCalls = s_profFifoAppendCalls.load(std::memory_order_relaxed);
+    out.resFindNs = s_profResFindNs.load(std::memory_order_relaxed);
+    out.resCopyNs = s_profResCopyNs.load(std::memory_order_relaxed);
+    out.resHashNs = s_profResHashNs.load(std::memory_order_relaxed);
+    out.resCacheHits = s_profResCacheHits.load(std::memory_order_relaxed);
+    out.resCacheMiss = s_profResCacheMiss.load(std::memory_order_relaxed);
+    out.resCopiedBytes = s_profResCopiedBytes.load(std::memory_order_relaxed);
+    out.xfbFinalizeNs = s_profXfbFinalizeNs.load(std::memory_order_relaxed);
+    out.cmdHashNs = s_profCmdHashNs.load(std::memory_order_relaxed);
+    out.midRefreshNs = s_profMidRefreshNs.load(std::memory_order_relaxed);
+    out.midRefreshBytes = s_profMidRefreshBytes.load(std::memory_order_relaxed);
+    out.midPinBlock = s_profMidPinBlock.load(std::memory_order_relaxed);
+    out.efbIncomingNs = s_profEfbInNs.load(std::memory_order_relaxed);
+    out.metaEvalNs = s_profMetaEvalNs.load(std::memory_order_relaxed);
+    out.indexedArrNs = s_profIdxArrNs.load(std::memory_order_relaxed);
+    out.peakCmdBytes = s_profPeakCmd.load(std::memory_order_relaxed);
+    out.peakResBytes = s_profPeakResBytes.load(std::memory_order_relaxed);
+    out.peakResCount = s_profPeakResCount.load(std::memory_order_relaxed);
+}
+
+void A2b_OverlayProfile(char* buf, size_t bufSize)
+{
+    if (!buf || !bufSize) return;
+    buf[0] = 0;
+    if (!ProfileOn()) return;
+    A2bProfileStats st{};
+    A2b_GetProfile(st);
+    const double inv = st.frames ? (1.0 / (double)st.frames) : 0.0;
+    std::snprintf(buf, bufSize,
+                  "A2bProf f=%llu fifo=%.2fms resH=%.2fms resC=%.2fms idx=%.2fms efb=%.2fms "
+                  "meta=%.2fms hit=%llu miss=%llu peakCmd=%u peakResB=%u",
+                  (unsigned long long)st.frames, st.fifoAppendNs * inv / 1e6,
+                  st.resHashNs * inv / 1e6, st.resCopyNs * inv / 1e6, st.indexedArrNs * inv / 1e6,
+                  st.efbIncomingNs * inv / 1e6, st.metaEvalNs * inv / 1e6,
+                  (unsigned long long)st.resCacheHits, (unsigned long long)st.resCacheMiss,
+                  st.peakCmdBytes, st.peakResBytes);
+}
+
+void A2b_ProfAddIndexedArrNs(uint64_t ns)
+{
+    if (ns) s_profIdxArrNs.fetch_add(ns, std::memory_order_relaxed);
+}
 
 void A2b_OnFifoSubmission(const uint8_t* data, size_t n)
 {
     if (!CaptureActive() || !data || n == 0) return;
 
+    ProfScope ps(&s_profFifoAppendNs);
     std::lock_guard lk(s_mu);
     EnsureBuildCapsLocked(s_build);
     EnsureGxStartLocked();
@@ -483,11 +840,14 @@ void A2b_OnFifoSubmission(const uint8_t* data, size_t n)
         if (cur.byteCount + n <= A2b_CapMaxBytesPerSub())
         {
             s_build.cmd.insert(s_build.cmd.end(), data, data + n);
+            // A3p: incremental FNV — avoid O(n²) rehash of the whole submission.
+            cur.contentHash = FnvUpdate(cur.contentHash, data, n);
             cur.byteCount += (uint32_t)n;
-            cur.contentHash = HashBytes(s_build.cmd.data() + cur.byteOffset, cur.byteCount);
             s_build.totalBytes += (uint32_t)n;
             if (s_build.simFrameId == 0)
                 s_build.simFrameId = sim;
+            s_profFifoAppendCalls.fetch_add(1, std::memory_order_relaxed);
+            s_profFifoAppendBytes.fetch_add(n, std::memory_order_relaxed);
             return;
         }
     }
@@ -506,12 +866,15 @@ void A2b_OnFifoSubmission(const uint8_t* data, size_t n)
     s.submitSeq = s_build.submitCount;
     s.byteCount = (uint32_t)n;
     s.byteOffset = (uint32_t)s_build.cmd.size();
-    s.contentHash = HashBytes(data, n);
+    // Running FNV state; appends continue from this value. Finalize 0→1 at summary.
+    s.contentHash = FnvUpdate(2166136261u, data, n);
     s_build.cmd.insert(s_build.cmd.end(), data, data + n);
     s_build.totalBytes += (uint32_t)n;
     s_build.submitCount++;
     if (s_build.simFrameId == 0)
         s_build.simFrameId = s.simFrameId;
+    s_profFifoAppendCalls.fetch_add(1, std::memory_order_relaxed);
+    s_profFifoAppendBytes.fetch_add(n, std::memory_order_relaxed);
 }
 
 void A2b_OnDisplayList(uint32_t guestEa, uint32_t size)
@@ -528,6 +891,24 @@ void A2b_OnVertexArray(uint32_t guestEa, uint32_t size, uint32_t stride, uint32_
 {
     AddResource(A2bRes_VertexArray, guestEa, size, true, A2bResLife_FrameLocal,
                 (arrayIndex & 0xFF) | ((stride & 0xFFFF) << 8), true);
+}
+
+bool A2b_HasCoveringCopy(uint32_t type, uint32_t guestEa, uint32_t aux, uint32_t minSize)
+{
+    if (!CaptureActive() || minSize == 0) return false;
+    const uint32_t eaCanon = CanonGuestEa(guestEa);
+    std::lock_guard lk(s_mu);
+    auto it = s_resCover.find(CoverKey{ type, eaCanon, aux });
+    if (it == s_resCover.end() || it->second >= s_build.resCount) return false;
+    const A2bResource& r = s_build.resources[it->second];
+    return r.type == type && r.guestEa == eaCanon && (r.flags & A2bRes_Copied) &&
+           r.copiedSize >= minSize;
+}
+
+bool A2b_VertexSlotSaturated(uint32_t arrayIndex)
+{
+    if (arrayIndex >= 12) return false;
+    return (s_vertSatMask.load(std::memory_order_relaxed) & (1u << arrayIndex)) != 0;
 }
 
 void A2b_OnTexture(uint32_t guestEa, uint32_t size, uint32_t fmt, uint32_t w, uint32_t h)
@@ -796,7 +1177,12 @@ void A2b_OnTmemWindow(uint32_t tmemOff, uint32_t size, const uint8_t* data)
 
 void A2b_NoteDraw()
 {
-    if (!CaptureActive()) return;
+    if (!EnvOn()) return;
+    if (!CaptureActive())
+    {
+        s_obsDraws.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
     std::lock_guard lk(s_mu);
     s_build.drawCount++;
 }
@@ -811,22 +1197,53 @@ void A2b_OnSimFrameEnd()
 void A2b_OnXfbCopy()
 {
     if (!EnvOn()) return;
-    // Soft-arm: still advance empty frames so ring stays consistent once armed.
+    // Soft-arm: observe draws without CaptureIndexedArrays / resource copies.
     if (!A3e_CaptureArmed())
     {
+        const uint32_t obs = s_obsDraws.exchange(0, std::memory_order_relaxed);
+        A3e_NoteObservedDraws(obs);
         std::lock_guard lk(s_mu);
         s_build = FrameBuild{};
+        s_resIndex.clear();
+        s_resCover.clear();
+        s_vertSatMask.store(0, std::memory_order_relaxed);
         return;
     }
+    s_obsDraws.store(0, std::memory_order_relaxed);
 
     {
+        ProfScope ps(&s_profXfbFinalizeNs);
         std::lock_guard lk(s_mu);
         s_build.xfbIndex = Perf_XfbFrameIndex();
         if (s_build.simFrameId == 0)
             s_build.simFrameId = s_simTag.load(std::memory_order_relaxed);
+        // Finalize submission hashes (0 → 1 sentinel matches HashBytes).
+        for (uint32_t i = 0; i < s_build.submitCount; i++)
+            if (!s_build.subs[i].contentHash) s_build.subs[i].contentHash = 1u;
         SnapGxLite(s_build.gx);
         SnapContext(s_build.ctx);
         RecountRequired(s_build);
+
+        if (s_build.totalBytes > s_peakCmdReserve)
+            s_peakCmdReserve = s_build.totalBytes + (s_build.totalBytes >> 2);
+        if (s_build.resBytes > s_peakResReserve)
+            s_peakResReserve = s_build.resBytes + (s_build.resBytes >> 2);
+        s_profFrames.fetch_add(1, std::memory_order_relaxed);
+        uint32_t peak = s_profPeakCmd.load(std::memory_order_relaxed);
+        while (s_build.totalBytes > peak &&
+               !s_profPeakCmd.compare_exchange_weak(peak, s_build.totalBytes))
+        {
+        }
+        peak = s_profPeakResBytes.load(std::memory_order_relaxed);
+        while (s_build.resBytes > peak &&
+               !s_profPeakResBytes.compare_exchange_weak(peak, s_build.resBytes))
+        {
+        }
+        peak = s_profPeakResCount.load(std::memory_order_relaxed);
+        while (s_build.resCount > peak &&
+               !s_profPeakResCount.compare_exchange_weak(peak, s_build.resCount))
+        {
+        }
 
         if (s_haveCurr)
         {
@@ -847,9 +1264,27 @@ void A2b_OnXfbCopy()
         // via A2b_OnPassEntryEfb after the optional post-XFB ClearEFB.
         s_build.gxStart = g_gx;
         s_build.gxStartValid = true;
+        A3e_NoteObservedDraws(s_curr.drawCount);
     }
 
-    A2c_OnArchivedFrame();
+    A2b_RefreshMidPacket();
+    {
+        ProfScope ps(&s_profMetaEvalNs);
+        A2c_OnArchivedFrame();
+    }
+
+    if (ProfileOn())
+    {
+        static uint64_t lastProfMs = 0;
+        const uint64_t now = Platform_TickMs();
+        if (now - lastProfMs >= 2000)
+        {
+            lastProfMs = now;
+            char line[256];
+            A2b_OverlayProfile(line, sizeof(line));
+            if (line[0]) LOG_INFO("{}", line);
+        }
+    }
 
     if (DumpOn())
     {
@@ -869,12 +1304,15 @@ void A2b_OnXfbCopy()
 
 void A2b_OnPassEntryEfb()
 {
-    if (!EnvOn()) return;
+    // A3p: EFB incoming capture is a GPU readback — only while archive capture is armed.
+    if (!CaptureActive()) return;
+    ProfScope ps(&s_profEfbInNs);
     std::lock_guard lk(s_mu);
     // Replace any prior slot for the in-progress build.
     ReleaseEfbSlot(s_build);
     uint32_t ch = 0, dh = 0, ew = 0, eh = 0;
-    const int slot = Render_EfbIncomingCapture(&ch, &dh, &ew, &eh);
+    // Prod: GPU copy only. Diagnostic FIFO capture keeps every-pixel hashes for MATCH.
+    const int slot = Render_EfbIncomingCapture(&ch, &dh, &ew, &eh, !ProdMode());
     if (slot >= 0)
     {
         s_build.efbIncomingSlot = slot;
@@ -910,7 +1348,8 @@ bool A2b_GetPreviousSummary(A2bFrameSummary& out)
     return true;
 }
 
-static void ClonePacketFromLocked(const FrameBuild& src, A2bArchivePacket& out, bool addEfbRef)
+static void ClonePacketFromLocked(const FrameBuild& src, A2bArchivePacket& out, bool addEfbRef,
+                                  bool includeResData)
 {
     out = A2bArchivePacket{};
     FillSummary(src, out.summary);
@@ -923,8 +1362,11 @@ static void ClonePacketFromLocked(const FrameBuild& src, A2bArchivePacket& out, 
     if (addEfbRef && out.efbIncomingValid)
         Render_EfbIncomingAddRef(out.efbIncomingSlot);
     out.cmd = src.cmd;
-    out.resData = src.resData;
-    out.tmemStart = src.tmemStart;
+    if (includeResData)
+    {
+        out.resData = src.resData;
+        out.tmemStart = src.tmemStart;
+    }
     out.submitCount = src.submitCount;
     out.resCount = src.resCount;
     out.crossEdgeCount = src.crossEdgeCount;
@@ -938,7 +1380,7 @@ bool A2b_CloneCurrentPacket(A2bArchivePacket& out)
 {
     std::lock_guard lk(s_mu);
     if (!s_haveCurr) return false;
-    ClonePacketFromLocked(s_curr, out, true);
+    ClonePacketFromLocked(s_curr, out, true, true);
     return true;
 }
 
@@ -946,8 +1388,85 @@ bool A2b_ClonePreviousPacket(A2bArchivePacket& out)
 {
     std::lock_guard lk(s_mu);
     if (!s_havePrev) return false;
-    ClonePacketFromLocked(s_prev, out, true);
+    ClonePacketFromLocked(s_prev, out, true, true);
     return true;
+}
+
+bool A2b_CloneCurrentMeta(A2bArchivePacket& out)
+{
+    std::lock_guard lk(s_mu);
+    if (!s_haveCurr) return false;
+    out = A2bArchivePacket{};
+    FillSummary(s_curr, out.summary);
+    out.gxStart = s_curr.gxStart;
+    out.gxStartValid = s_curr.gxStartValid;
+    out.efbIncomingSlot = s_curr.efbIncomingSlot;
+    out.efbIncomingValid = s_curr.efbIncomingValid;
+    out.efbInColorHash = s_curr.efbInColorHash;
+    out.efbInDepthHash = s_curr.efbInDepthHash;
+    // No EFB addref — meta-only for EvaluatePass.
+    out.cmd = s_curr.cmd;
+    out.submitCount = s_curr.submitCount;
+    out.resCount = s_curr.resCount;
+    out.crossEdgeCount = s_curr.crossEdgeCount;
+    out.subs.assign(s_curr.subs.begin(), s_curr.subs.begin() + s_curr.submitCount);
+    out.resources.assign(s_curr.resources.begin(), s_curr.resources.begin() + s_curr.resCount);
+    for (uint32_t i = 0; i < s_curr.crossEdgeCount; i++)
+        out.crossEdges[i] = s_curr.crossEdges[i];
+    // resData intentionally empty — EvaluatePass does not read blob bytes.
+    return true;
+}
+
+void A2b_RefreshMidPacket()
+{
+    // A3p: mark dirty only — full clone deferred to first PinMidPacket.
+    if (!ProdMode() && !EnvFlag("SCR_DECOUPLED_PRESENT")) return;
+    std::lock_guard lk(s_mu);
+    if (!s_haveCurr) return;
+    s_midDirty = true;
+}
+
+bool A2b_PinMidPacket(const A2bArchivePacket** out)
+{
+    if (!out) return false;
+    ProfScope ps(&s_profMidRefreshNs);
+    std::lock_guard lk(s_mu);
+    if (!s_haveCurr) return false;
+    if (s_midDirty)
+    {
+        if (s_midPin.load(std::memory_order_relaxed) > 0)
+        {
+            s_profMidPinBlock.fetch_add(1, std::memory_order_relaxed);
+            return false;
+        }
+        if (s_midValid && s_midPkt.efbIncomingValid)
+        {
+            Render_EfbIncomingRelease(s_midPkt.efbIncomingSlot);
+            s_midPkt.efbIncomingValid = false;
+            s_midPkt.efbIncomingSlot = -1;
+        }
+        // Prod mid reads live guest RAM — skip multi-MB resData clone.
+        ClonePacketFromLocked(s_curr, s_midPkt, true, !ProdMode());
+        s_midValid = true;
+        s_midDirty = false;
+        s_profMidRefreshBytes.fetch_add(s_midPkt.cmd.size() + s_midPkt.resData.size(),
+                                        std::memory_order_relaxed);
+    }
+    if (!s_midValid) return false;
+    s_midPin.fetch_add(1, std::memory_order_relaxed);
+    *out = &s_midPkt;
+    return true;
+}
+
+void A2b_UnpinMidPacket()
+{
+    s_midPin.fetch_sub(1, std::memory_order_relaxed);
+}
+
+bool A2b_MidPacketValid()
+{
+    std::lock_guard lk(s_mu);
+    return s_midValid;
 }
 
 uint32_t A2b_GetCrossEfbEdgeCount()
