@@ -87,8 +87,8 @@ Exact A2e/A2f MATCH paths remain behind non-prod `SCR_A2B_FIFO_CAPTURE` / `SCR_A
 | Item | Status |
 |------|--------|
 | Mid uses A3n ViewPos' when `PoseInterp_BuildForHostTime` succeeds | Wired |
-| Logged TR1 mids | `pose=0` — brackets/apply not ready in those samples; fixed α=0.5 fallback |
-| Full-scene mid camera | **PARTIAL** — environment follows archived GX; player interp not proven on UNIQUE samples |
+| Logged TR1 mids | A3p: `pose=0` before pose snaps / no mid headroom. **A3q** proves UNIQUE `poseOk=1` + `gx>0` — see `docs/A3Q_MID_REPLAY_POSE_AND_CAMERA.md` |
+| Full-scene mid camera | A3p **PARTIAL**; A3q Sonic ViewPos' + env sample-held **PASS** (env target-time deferred) |
 | Sample-held dynamics | Acceptable when pose build fails (fail-closed α debug only) |
 
 ---

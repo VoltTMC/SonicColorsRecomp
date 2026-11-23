@@ -1,12 +1,22 @@
 # Progress log
 
+## 2026-11-23 — A3q: mid-replay pose injection + camera consistency
+
+**Goal:** Prove scratch UNIQUE mids consume A3n interpolated Sonic pose and a coherent camera/view policy. Correctness only — no sustained 2× claim.
+
+**Shipped:** `pose=`/`poseOk` diagnosis (bool); MidPoseTrace + gx-consumed delta; guest-thread force-mid under `SCR_MID_POSE_TRACE`; A3e select draw ceiling 65536; `docs/A3Q_MID_REPLAY_POSE_AND_CAMERA.md`.
+
+**Evidence (RTX 3080, `a3q_tr1_mid_pose4.log`):** UNIQUE `poseOk=1 nodes=58 view=8098afe0 gx=110–220`; MidCamera `env=archived_sample_held a3bXF=0`; sim≈60 Hz; pair_reject fail-closed observed.
+
+**Gate:** Pose built+consumed on UNIQUE **PASS**; full-scene env target-time interp deferred; sustained 2× **FAIL** (non-goal). Win GPU **UNVERIFIED**.
+
 ## 2026-11-23 — A3p: production-efficient archive + scratch replay
 
 **Goal:** Make FIFO archive capture cheap enough for ~60 Hz sim with complete TR1 archives; enable unique mid scratch when headroom exists. No Approach A redraw.
 
 **Shipped:** Soft-arm without heavy closure; EFB incoming gated + prod hash skip; sample-fp blob cache; covering/sat vertex spans; MEM bounds clamp; lean mid pin (no resData/Apply in prod); mid EvaluatePass on current packet; `docs/A3P_PRODUCTION_ARCHIVE_AND_REPLAY.md`.
 
-**Evidence (RTX 3080):** Capture-only prod ~60 Hz armed dense; baseline ~60. Decoupled: sparse `mid UNIQUE` with distinct hashes; present_calls often ≈ unique_xfb (replay vs wait headroom). `pose=0` on samples → camera consistency PARTIAL.
+**Evidence (RTX 3080):** Capture-only prod ~60 Hz armed dense; baseline ~60. Decoupled: sparse `mid UNIQUE` with distinct hashes; present_calls often ≈ unique_xfb (replay vs wait headroom). `pose=0` on samples → camera consistency PARTIAL (resolved in A3q).
 
 **Gate:** Capture@60 + complete archives **PASS**; sustained ~1 unique mid/guest update **FAIL**; no 120 FPS claim. Win GPU **UNVERIFIED**.
 

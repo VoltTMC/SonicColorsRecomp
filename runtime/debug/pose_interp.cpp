@@ -44,6 +44,7 @@ struct InterpOut
 
 InterpOut s_published{};
 uint32_t s_logN = 0;
+PoseInterpFallback s_lastFb{ PoseInterpFb_None };
 
 bool EnvFlag(const char* name)
 {
@@ -117,6 +118,7 @@ bool TimeDriven()
 void NoteFb(PoseInterpFallback why)
 {
     s_st.fallback++;
+    s_lastFb = why;
     if (why < 8) s_st.fbReason[why]++;
 }
 
@@ -262,6 +264,7 @@ bool BuildFromPair(const PoseSnap& prev, const PoseSnap& curr, float alpha)
         s_published = out;
     }
 
+    s_lastFb = PoseInterpFb_None;
     s_st.applied++;
     s_st.nodesInterp += nInterp;
     s_st.viewRebuilt += nInterp;
@@ -415,3 +418,42 @@ void PoseInterp_OverlayLine(char* buf, size_t bufSize)
                   TimeDriven() ? "T" : "", (unsigned long long)st.applied,
                   (unsigned long long)st.fallback, (unsigned long long)st.gxOverrides);
 }
+
+PoseInterpFallback PoseInterp_LastFallback() { return s_lastFb; }
+
+const char* PoseInterp_FallbackName(PoseInterpFallback fb)
+{
+    switch (fb)
+    {
+    case PoseInterpFb_None: return "none";
+    case PoseInterpFb_Disabled: return "disabled";
+    case PoseInterpFb_NoPair: return "no_pair";
+    case PoseInterpFb_PairReject: return "pair_reject";
+    case PoseInterpFb_Decompose: return "decompose";
+    case PoseInterpFb_Validate: return "validate";
+    case PoseInterpFb_Unbracketed: return "unbracketed";
+    default: return "unknown";
+    }
+}
+
+uint64_t PoseInterp_GxOverrideCount()
+{
+    return s_st.gxOverrides;
+}
+
+bool PoseInterp_GetPublished(uint32_t* viewBaseEa, uint32_t* viewActiveEa, uint16_t* nodesInterp,
+                             uint16_t* nView, uint64_t* seqPrev, uint64_t* seqCurr, float* alpha)
+{
+    std::lock_guard<std::mutex> lk(s_mu);
+    if (!s_published.active) return false;
+    if (viewBaseEa) *viewBaseEa = s_published.viewBaseEa;
+    if (viewActiveEa) *viewActiveEa = s_published.viewActiveEa;
+    if (nodesInterp) *nodesInterp = s_published.nodesInterp;
+    if (nView) *nView = s_published.nView;
+    if (seqPrev) *seqPrev = s_published.seqPrev;
+    if (seqCurr) *seqCurr = s_published.seqCurr;
+    if (alpha) *alpha = s_published.alpha;
+    return true;
+}
+
+void PoseInterp_ClearPublished() { PublishInactive(); }

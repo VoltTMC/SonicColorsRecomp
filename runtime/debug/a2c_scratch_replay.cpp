@@ -3,6 +3,7 @@
 #include "a2b_fifo_archive.h"
 #include "a3a_draw_attr.h"
 #include "a3b_camera_interp.h"
+#include "pose_interp.h"
 #include "a3c_env_capture.h"
 #include "a3d_scene_coverage.h"
 #include "a3e_budgets.h"
@@ -227,9 +228,12 @@ uint32_t ClassifyFamily(uint32_t passBytes, uint32_t draws, uint32_t deps, uint3
     // A3e: dense complete gameplay (beyond A2e/A3c bands). Explicit family so
     // selection budgets can rise without mis-labeling as Other.
     // A3p prod covering dedupe can drop unique deps below 8 while draws stay dense.
+    // A3q: TR1 FIFO prim counts reach ~25k (particles/effects) while status draws/xfb≈700;
+    // keep ceiling above observed peak so pose-ready archives remain selectable.
     const uint32_t depMin = A2b_ProdMode() ? 1u : 8u;
+    const uint32_t drawMax = A3e_DenseEnabled() ? 65536u : 16384u;
     if (A3e_DenseEnabled() && passBytes >= 7000 && passBytes <= (1024u << 10) && draws >= 150 &&
-        draws <= 16384 && deps >= depMin)
+        draws <= drawMax && deps >= depMin)
         return A2cFamily_A3eDense;
     return A2cFamily_Other;
 }
@@ -369,7 +373,7 @@ void EvaluatePass(const A2bArchivePacket& pkt, A2cPassReport& out)
                         out.drawCount <= 800 && pkt.gxStartValid;
     const bool a3eSel = A3e_DenseEnabled() && out.family == A2cFamily_A3eDense &&
                         out.passBytes > 256 && out.passBytes <= (1024u << 10) &&
-                        out.drawCount >= 150 && out.drawCount <= 16384 && pkt.gxStartValid &&
+                        out.drawCount >= 150 && out.drawCount <= 65536 && pkt.gxStartValid &&
                         !(pkt.summary.flags & A2bFrame_Incomplete) &&
                         pkt.summary.rejectedResources == 0;
     const bool selected =
@@ -1618,9 +1622,10 @@ void A2c_OverlayLine(char* buf, size_t bufSize)
 }
 
 bool A2c_DecoupledMidPresent(float alpha, uint32_t* outColorHash, uint32_t* outDraws,
-                             char* detail, size_t detailN)
+                             char* detail, size_t detailN, uint64_t* outGxOverrides)
 {
     if (detail && detailN) detail[0] = 0;
+    if (outGxOverrides) *outGxOverrides = 0;
     if (!A2b_FifoCaptureEnabled())
     {
         if (detail && detailN)
@@ -1676,6 +1681,9 @@ bool A2c_DecoupledMidPresent(float alpha, uint32_t* outColorHash, uint32_t* outD
     const bool applyRam = !A2b_ProdMode();
     if (applyRam) ApplyResourcesToGuest(pkt, ramSaves);
 
+    // A3q: isolate capture hooks; PoseInterp_OverrideIndexed still runs in LoadIndexedXF.
+    Render_SetReplayIsolation(true);
+
     bool ok = false;
     uint32_t colorHash = 0;
     GX_SetPeSuppress(true);
@@ -1719,10 +1727,15 @@ bool A2c_DecoupledMidPresent(float alpha, uint32_t* outColorHash, uint32_t* outD
     }
 
     // Curr-pose archive → baseIsPrev=false. Camera delta toward α when A3b on.
+    // A3q: A3b XF viewMtx is not V̂ — only use when explicitly enabled; PoseInterp
+    // owns player ViewPos. Environment remains archived sample-held view state.
     if (A3b_CameraInterpEnabled() && !A3b_CameraSuspended())
         A3b_BeginScratchCamera(alpha, false);
 
+    const uint64_t gx0 = PoseInterp_GxOverrideCount();
     GX_ReplayCommands(pkt.cmd.data(), pass.passBytes);
+    const uint64_t gxConsumed = PoseInterp_GxOverrideCount() - gx0;
+    if (outGxOverrides) *outGxOverrides = gxConsumed;
 
     if (A3b_ScratchCameraActive()) A3b_EndScratchCamera();
 
@@ -1730,9 +1743,9 @@ bool A2c_DecoupledMidPresent(float alpha, uint32_t* outColorHash, uint32_t* outD
     if (outColorHash) *outColorHash = colorHash;
     if (outDraws) *outDraws = pass.drawCount;
     if (detail && detailN)
-        std::snprintf(detail, detailN, "%s %s draws=%u hash=%08x α=%.3f",
+        std::snprintf(detail, detailN, "%s %s draws=%u hash=%08x α=%.3f gx=%llu",
                       ok ? "mid-OK" : "mid-FAIL", A2c_FamilyName(pass.family), pass.drawCount,
-                      colorHash, alpha);
+                      colorHash, alpha, (unsigned long long)gxConsumed);
 
     cleanup();
     return ok;

@@ -144,5 +144,6 @@ const char* A2c_FamilyName(uint32_t family);
 // scratch as a unique mid-frame. Caller must hold GX_SyncGPU lock. PoseInterp /
 // A3b probe alpha should already be published for `alpha`. Returns false if no
 // ready archive (not an error for the scheduler — fall back to non-unique pacing).
+// outGxOverrides: PoseInterp indexed-XF substitutions during this scratch replay (A3q).
 bool A2c_DecoupledMidPresent(float alpha, uint32_t* outColorHash, uint32_t* outDraws,
-                             char* detail, size_t detailN);
+                             char* detail, size_t detailN, uint64_t* outGxOverrides = nullptr);

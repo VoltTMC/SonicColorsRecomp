@@ -1187,7 +1187,27 @@ Opt-in lean capture (`SCR_A2B_PROD` / auto with decoupled). Restores ~60 Hz sim 
 | Armed dense capture @ ~60 Hz | PASS | RTX 3080 TR1 |
 | Sustained ~1 unique mid / guest update | **FAIL** | Full-scene replay vs pace wait |
 | Distinct mid hashes when UNIQUE | PASS | Sparse samples |
-| Full-scene mid camera | PARTIAL | `pose=0` on logged UNIQUEs |
+| Full-scene mid camera | PARTIAL | `pose=0` on logged UNIQUEs (see A3q) |
+| Win GPU | UNVERIFIED | |
+
+### Approach A3q — mid pose injection + camera consistency (2026-11-23)
+
+Correctness milestone: scratch UNIQUE consumes A3n pose; coherent mid camera policy. Report: `docs/A3Q_MID_REPLAY_POSE_AND_CAMERA.md`.
+
+| Switch | Role |
+|--------|------|
+| `SCR_MID_POSE_TRACE=1` | Bounded MidPoseTrace; `poseOk` bool; sparse guest force-mid |
+| `SCR_MID_CAMERA_TRACE=1` | Same enable as pose trace |
+
+| Item | Status | Notes |
+|------|--------|-------|
+| `pose=` / `poseOk` meaning | PASS | Bool: BuildForHostTime/BuildAtAlpha published |
+| UNIQUE mid poseOk=1 + gx>0 | PASS | nodes=58; ViewPos `8098afe0`; gx=110–220 |
+| Env / terrain mid view | PASS (policy) | Archived sample-held; not A3b XF |
+| Sonic mid view | PASS | `ViewPos'=V̂'·World'` |
+| CamCut / pair reject | PASS | fail-closed `poseOk=0` |
+| A3p ~60 Hz capture | PASS | Sparse force-mid ~64 present/s |
+| Sustained 2× unique | FAIL | Explicit non-goal |
 | Win GPU | UNVERIFIED | |
 
 ### Approach A3a — draw-level transform attribution + scratch substitution (2026-11-21)

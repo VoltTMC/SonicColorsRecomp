@@ -55,3 +55,12 @@ bool PoseInterp_Active();
 bool PoseInterp_TimeDriven();
 void PoseInterp_GetStats(PoseInterpStats& out);
 void PoseInterp_OverlayLine(char* buf, size_t bufSize);
+
+// A3q: mid-replay correlation helpers.
+PoseInterpFallback PoseInterp_LastFallback();
+const char* PoseInterp_FallbackName(PoseInterpFallback fb);
+uint64_t PoseInterp_GxOverrideCount();
+bool PoseInterp_GetPublished(uint32_t* viewBaseEa, uint32_t* viewActiveEa, uint16_t* nodesInterp,
+                             uint16_t* nView, uint64_t* seqPrev, uint64_t* seqCurr, float* alpha);
+// Clear published output (call after mid so next guest frame is not mid-α polluted).
+void PoseInterp_ClearPublished();

@@ -11,12 +11,16 @@
 // Guest sim/audio cadence unchanged. Unique mid-frames require a ready A2b/A2c
 // archive (SCR_A2B_FIFO_CAPTURE=1 + dense/env pass). Without archive, mid slots
 // re-present the last XFB for pacing only and are counted as duplicates.
+//
+// A3q: SCR_MID_POSE_TRACE=1 — bounded correlated mid pose/camera records (off by default).
 
 struct DecoupledPresentStats
 {
     uint64_t simTicks = 0;
     uint64_t scheduleAttempts = 0;
     uint64_t uniqueMid = 0;
+    uint64_t uniqueMidPoseOk = 0;     // UNIQUE + PoseInterp build succeeded
+    uint64_t uniqueMidPoseGx = 0;     // UNIQUE + gxOverrides consumed > 0
     uint64_t duplicatePace = 0;
     uint64_t midFail = 0;
     uint64_t timeAlphaOk = 0;
@@ -30,6 +34,30 @@ struct DecoupledPresentStats
     uint32_t lastMidHash = 0;
     uint32_t lastGuestHash = 0;
     uint32_t distinctMidVsGuest = 0;
+    uint32_t lastGxConsumed = 0;
+    uint16_t lastNodesInterp = 0;
+};
+
+// Bounded A3q mid-attempt record (pose= field in logs is poseOk 0/1, not a count).
+struct MidPoseTrace
+{
+    uint64_t corrId = 0;
+    uint64_t targetTicks = 0;
+    uint64_t seqPrev = 0;
+    uint64_t seqCurr = 0;
+    float alpha = 0;
+    uint8_t poseOk = 0;
+    uint8_t uniqueOk = 0;
+    uint8_t poseFb = 0;  // PoseInterpFallback
+    uint16_t nodesInterp = 0;
+    uint16_t nView = 0;
+    uint32_t viewBaseEa = 0;
+    uint32_t viewActiveEa = 0;
+    uint32_t archiveXfb = 0;
+    uint32_t draws = 0;
+    uint32_t colorHash = 0;
+    uint64_t gxConsumed = 0;
+    char detail[160]{};
 };
 
 bool DecoupledPresent_Enabled();
@@ -37,7 +65,13 @@ float DecoupledPresent_TargetRate();
 // Called from PaceUncappedHost while waiting for the next sim deadline.
 // ctx/base unused today; reserved for future guest-thread work.
 void DecoupledPresent_OnPaceWait(uint64_t nowTicks, uint64_t simDeadlineTicks, uint64_t freq);
+// Guest-thread entry once per uncapped frame (before wait). Consumes
+// SCR_MID_POSE_TRACE force-mid requests; safe for GX_SyncGPU.
+void DecoupledPresent_OnGuestPaceEnter(uint64_t nowTicks, uint64_t freq);
 // After each guest XFB — record cadence anchors.
 void DecoupledPresent_OnXfb();
 void DecoupledPresent_GetStats(DecoupledPresentStats& out);
 void DecoupledPresent_OverlayLine(char* buf, size_t bufSize);
+bool DecoupledPresent_MidPoseTraceEnabled();
+uint32_t DecoupledPresent_MidPoseTraceCount();
+bool DecoupledPresent_GetMidPoseTrace(uint32_t index, MidPoseTrace& out);
