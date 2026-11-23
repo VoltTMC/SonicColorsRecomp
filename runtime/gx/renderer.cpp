@@ -2564,6 +2564,55 @@ void Renderer_RepeatLastXfb()
     Video_Present(s_xfbSRV, 0, 0, 1, 1);
     g_framesPresented++;
 }
+
+// A3o mid-frame unique present from scratch EFB (not a duplicate of s_xfbTex).
+static ID3D11Texture2D* s_midXfbTex = nullptr;
+static ID3D11ShaderResourceView* s_midXfbSRV = nullptr;
+static std::atomic<uint64_t> s_uniqueMidPresentTotal{ 0 };
+
+bool Render_PresentScratchUniqueMid(uint32_t* outColorHash)
+{
+    if (!g_device || !g_ctx || !s_scratchColor) return false;
+    Flush();
+    D3D11_TEXTURE2D_DESC sd{};
+    s_scratchColor->GetDesc(&sd);
+    D3D11_TEXTURE2D_DESC td{};
+    if (s_midXfbTex) s_midXfbTex->GetDesc(&td);
+    if (!s_midXfbTex || td.Width != sd.Width || td.Height != sd.Height)
+    {
+        if (s_midXfbSRV) { s_midXfbSRV->Release(); s_midXfbSRV = nullptr; }
+        if (s_midXfbTex) { s_midXfbTex->Release(); s_midXfbTex = nullptr; }
+        D3D11_TEXTURE2D_DESC d = sd;
+        d.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+        d.Usage = D3D11_USAGE_DEFAULT;
+        d.CPUAccessFlags = 0;
+        d.MiscFlags = 0;
+        if (FAILED(g_device->CreateTexture2D(&d, nullptr, &s_midXfbTex)) || !s_midXfbTex)
+            return false;
+        if (FAILED(g_device->CreateShaderResourceView(s_midXfbTex, nullptr, &s_midXfbSRV)) ||
+            !s_midXfbSRV)
+        {
+            s_midXfbTex->Release();
+            s_midXfbTex = nullptr;
+            return false;
+        }
+    }
+    UnbindOMTargets();
+    g_ctx->CopyResource(s_midXfbTex, s_scratchColor);
+    const uint32_t h = HashTextureContents(s_midXfbTex, true);
+    if (outColorHash) *outColorHash = h;
+    Video_Present(s_midXfbSRV, 0, 0, 1, 1);
+    g_framesPresented++;
+    s_uniqueMidPresentTotal.fetch_add(1, std::memory_order_relaxed);
+    // Re-bind scratch if isolation still requested.
+    if (s_replayIsolation) SetEFBTarget();
+    return true;
+}
+
+uint64_t Render_UniqueMidPresentTotal()
+{
+    return s_uniqueMidPresentTotal.load(std::memory_order_relaxed);
+}
 int g_screenshotEvery = 0;   // frames between automatic screenshots (0 = off)
 uint32_t g_screenshotStart = 0;
 static std::atomic<bool> s_userScreenshot{ false };

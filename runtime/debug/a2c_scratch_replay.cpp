@@ -1540,3 +1540,99 @@ void A2c_OverlayLine(char* buf, size_t bufSize)
                   p.replayReady ? "READY" : "no", p.passBytes, p.depCount, p.depEfbCopySampled,
                   p.depEfbCopyCross);
 }
+
+bool A2c_DecoupledMidPresent(float alpha, uint32_t* outColorHash, uint32_t* outDraws,
+                             char* detail, size_t detailN)
+{
+    if (detail && detailN) detail[0] = 0;
+    if (!A2b_FifoCaptureEnabled())
+    {
+        if (detail && detailN)
+            std::snprintf(detail, detailN, "no A2b archive (set SCR_A2B_FIFO_CAPTURE=1)");
+        return false;
+    }
+
+    A2cPassReport pass{};
+    bool have = A2c_GetFamilyPassReport(A2cFamily_A3eDense, pass) && pass.replayReady;
+    if (!have)
+        have = A2c_GetFamilyPassReport(A2cFamily_A3cEnv, pass) && pass.replayReady;
+    if (!have)
+        have = A2c_GetPassReport(pass) && pass.replayReady &&
+               (pass.family == A2cFamily_A3eDense || pass.family == A2cFamily_A3cEnv ||
+                pass.family == A2cFamily_Other);
+    if (!have)
+    {
+        if (detail && detailN)
+            std::snprintf(detail, detailN, "no ready dense/env pass");
+        return false;
+    }
+
+    A2bArchivePacket pkt{};
+    if (!A2b_CloneCurrentPacket(pkt))
+    {
+        if (detail && detailN)
+            std::snprintf(detail, detailN, "clone packet failed");
+        return false;
+    }
+
+    GXState gxSaved = g_gx;
+    std::vector<uint8_t> tmemSaved(Render_TmemPtr(), Render_TmemPtr() + Render_TmemSize());
+    int32_t tevSaved[4][4];
+    memcpy(tevSaved, g_tevKonst, sizeof(tevSaved));
+    std::vector<RamSave> ramSaves;
+    ApplyResourcesToGuest(pkt, ramSaves);
+
+    bool ok = false;
+    uint32_t colorHash = 0;
+    GX_SetPeSuppress(true);
+    A3b_SetProbeAlpha(alpha);
+    A3a_SuspendOverride(true);  // PoseInterp owns player ViewPos; avoid A3a clash
+
+    auto cleanup = [&]() {
+        A3b_SetProbeAlpha(NAN);
+        A3a_SuspendOverride(false);
+        if (A3b_ScratchCameraActive()) A3b_EndScratchCamera();
+        GX_SetPeSuppress(false);
+        Render_SetReplayIsolation(false);
+        g_gx = gxSaved;
+        memcpy(Render_TmemPtr(), tmemSaved.data(), tmemSaved.size());
+        memcpy(g_tevKonst, tevSaved, sizeof(tevSaved));
+        RestoreGuest(ramSaves);
+        if (pkt.efbIncomingValid)
+        {
+            Render_EfbIncomingRelease(pkt.efbIncomingSlot);
+            pkt.efbIncomingValid = false;
+            pkt.efbIncomingSlot = -1;
+        }
+    };
+
+    uint32_t sw = 0, sh = 0;
+    g_gx = pkt.gxStart;
+    Render_ResetHostDrawState();
+    if (!Render_ScratchBeginFromIncoming(pkt.efbIncomingSlot, &sw, &sh))
+    {
+        if (detail && detailN)
+            std::snprintf(detail, detailN, "scratch begin failed");
+        cleanup();
+        return false;
+    }
+
+    // Curr-pose archive → baseIsPrev=false. Camera delta toward α when A3b on.
+    if (A3b_CameraInterpEnabled() && !A3b_CameraSuspended())
+        A3b_BeginScratchCamera(alpha, false);
+
+    GX_ReplayCommands(pkt.cmd.data(), pass.passBytes);
+
+    if (A3b_ScratchCameraActive()) A3b_EndScratchCamera();
+
+    ok = Render_PresentScratchUniqueMid(&colorHash);
+    if (outColorHash) *outColorHash = colorHash;
+    if (outDraws) *outDraws = pass.drawCount;
+    if (detail && detailN)
+        std::snprintf(detail, detailN, "%s %s draws=%u hash=%08x α=%.3f",
+                      ok ? "mid-OK" : "mid-FAIL", A2c_FamilyName(pass.family), pass.drawCount,
+                      colorHash, alpha);
+
+    cleanup();
+    return ok;
+}

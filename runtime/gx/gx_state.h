@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <mutex>
 
 // Raw GX register state as written by the command stream.
 struct GXState
@@ -97,6 +98,8 @@ void Render_InvalidateTextureCache();
 void GX_SetPeSuppress(bool on);
 bool GX_PeSuppressActive();
 void GX_ReplayCommands(const uint8_t* data, size_t n);
+// Blocks until GPU thread drains; returned lock keeps GPU idle for renderer work.
+std::unique_lock<std::mutex> GX_SyncGPU();
 
 void Render_SetReplayIsolation(bool on);
 bool Render_ReplayIsolationActive();
@@ -137,6 +140,12 @@ uint32_t Render_HashScratchDepth();       // depth fingerprint; keeps isolation
 uint32_t Render_HashLiveEfb();
 uint32_t Render_HashLiveDepth();
 uint32_t Render_HashScratchBlack();
+
+// A3o: copy scratch colour → mid-XFB texture, Present, count as unique mid-frame.
+// Call while scratch isolation still active (scratch colour valid). Returns false if
+// scratch/device unavailable. outColorHash optional fingerprint of presented image.
+bool Render_PresentScratchUniqueMid(uint32_t* outColorHash);
+uint64_t Render_UniqueMidPresentTotal();
 
 struct RenderEfbCompare
 {

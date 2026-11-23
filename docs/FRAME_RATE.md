@@ -1150,6 +1150,27 @@ Opt-in. Rigid World + \(V̂\) SLERP → ViewPos' → GX indexed XF. **No extra X
 | ~60 Hz guest | PASS | |
 | Extra presents / FPS claim | **No** | Same cadence |
 
+### Approach A3o — decoupled presentation + time-driven α (2026-11-23)
+
+Opt-in. Scheduler in `PaceUncappedHost` (`--frame-rate 0`); time-driven α; mid unique via A2b/A2c scratch replay → dedicated mid XFB. **Does not claim production 2× unique FPS.** Report: `docs/A3O_DECOUPLED_PRESENTATION.md`.
+
+| Switch | Role |
+|--------|------|
+| `SCR_DECOUPLED_PRESENT=1` | Scheduler + time-driven PoseInterp |
+| `SCR_DECOUPLED_PRESENT_RATE` | Default 2 |
+| `SCR_PRESENT_TRACE` / `SCR_PRESENT_LATENCY_MS` | Diagnostics / delay |
+| `SCR_A2B_FIFO_CAPTURE` (+ dense) | Required for unique mid |
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Guest sim ~60 (no dense A2b) | PASS | Audio/gameplay unchanged |
+| Time-driven α | PASS | Bracket `hostTicks`; no extrapolate |
+| ~120 present_calls / ~60 unique_xfb | PASS | Extras = duplicate pace when mid unavailable |
+| Unique mid render @ 2× | **FAIL** | Path implemented; dense archive eats wait headroom |
+| Duplicate ≠ unique | PASS | `Render_PresentScratchUniqueMid` only counts mid |
+| Approach A guest redraw | Rejected | Unsafe |
+| Win GPU | UNVERIFIED | |
+
 ### Approach A3a — draw-level transform attribution + scratch substitution (2026-11-21)
 
 Opt-in diagnostics only. **No interpolation, no second XFB, no unique-FPS claim.**

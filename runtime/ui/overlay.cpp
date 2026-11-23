@@ -28,6 +28,7 @@
 #include "../debug/pose_capture.h"
 #include "../debug/pose_qualify.h"
 #include "../debug/pose_interp.h"
+#include "../debug/decoupled_present.h"
 #include "../input/input_latency.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
@@ -442,6 +443,13 @@ void Overlay_Render(float w, float h)
                 PoseInterp_OverlayLine(pi, sizeof(pi));
                 if (pi[0])
                     ImGui::TextUnformatted(pi);
+            }
+            if (DecoupledPresent_Enabled())
+            {
+                char dp[192];
+                DecoupledPresent_OverlayLine(dp, sizeof(dp));
+                if (dp[0])
+                    ImGui::TextUnformatted(dp);
             }
             if (A2b_FifoCaptureEnabled() || A2c_ScratchReplayEnabled())
             {

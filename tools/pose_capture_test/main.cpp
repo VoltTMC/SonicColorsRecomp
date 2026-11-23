@@ -124,7 +124,8 @@ int main()
         Expect(!PoseRing_Publish(r, incomplete), "reject incomplete");
         Expect(r.count == 0, "count still 0");
 
-        for (int i = 0; i < 5; i++)
+        const int nPub = kPoseRingSlots + 2;
+        for (int i = 0; i < nPub; i++)
         {
             PoseSnap s = MakeComplete(8, 0, 0x809882e0, 1);
             s.xfbIndex = (uint64_t)i;
@@ -133,9 +134,9 @@ int main()
         Expect(r.count == (uint32_t)kPoseRingSlots, "ring full");
         Expect(r.overwrites == 2, "two overwrites after wrap");
         Expect(PoseRing_Latest(r, out), "latest ok");
-        Expect(out.xfbIndex == 4, "latest is last");
+        Expect(out.xfbIndex == (uint64_t)(nPub - 1), "latest is last");
         Expect(PoseRing_Previous(r, out), "previous ok");
-        Expect(out.xfbIndex == 3, "previous is penultimate");
+        Expect(out.xfbIndex == (uint64_t)(nPub - 2), "previous is penultimate");
     }
 
     // --- Parent / overflow / model change correspondence ---

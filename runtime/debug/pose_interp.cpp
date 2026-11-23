@@ -1,4 +1,4 @@
-// Approach A3n — live TR1 Sonic pose interpolation (SCR_POSE_INTERP).
+// Approach A3n/A3o — live TR1 Sonic pose interpolation (SCR_POSE_INTERP).
 #include "pose_interp.h"
 #include "pose_qualify.h"
 #include "../kernel/memory.h"  // CanonAddr, Read32, Read16
@@ -17,6 +17,7 @@ namespace
 std::atomic<int> s_on{ -1 };
 std::atomic<int> s_trace{ -1 };
 std::atomic<int> s_validate{ -1 };
+std::atomic<int> s_timeDriven{ -1 };
 std::mutex s_mu;
 
 PoseInterpStats s_st{};
@@ -37,13 +38,11 @@ struct InterpOut
     uint64_t seqCurr = 0;
     float alpha = 0.5f;
     PoseMtx3x4 vHat{};
-    // Palette-indexed ViewPos' (by mtxID). valid[i]=1 if overridden.
     PoseMtx3x4 viewPos[kPoseMaxNodes]{};
     uint8_t valid[kPoseMaxNodes]{};
 };
 
-InterpOut s_out{};
-InterpOut s_published{};  // double-buffer publish
+InterpOut s_published{};
 uint32_t s_logN = 0;
 
 bool EnvFlag(const char* name)
@@ -72,10 +71,17 @@ bool On()
         v = EnvFlag("SCR_POSE_INTERP") ? 1 : 0;
         s_on.store(v, std::memory_order_relaxed);
         s_fixedAlpha = EnvAlpha();
+        const bool td = EnvFlag("SCR_DECOUPLED_PRESENT");
+        s_timeDriven.store(td ? 1 : 0, std::memory_order_relaxed);
         if (v)
-            LOG_INFO("PoseInterp: enabled (SCR_POSE_INTERP); alpha={:.3f} (fixed mid-bracket "
-                     "latency; no extra XFBs)",
-                     s_fixedAlpha);
+        {
+            if (td)
+                LOG_INFO("PoseInterp: enabled; time-driven alpha (SCR_DECOUPLED_PRESENT)");
+            else
+                LOG_INFO("PoseInterp: enabled; fixed alpha={:.3f} (set SCR_DECOUPLED_PRESENT=1 "
+                         "for target-time alpha)",
+                         s_fixedAlpha);
+        }
     }
     return v != 0;
 }
@@ -102,6 +108,12 @@ bool ValidateOn()
     return v != 0;
 }
 
+bool TimeDriven()
+{
+    On();
+    return s_timeDriven.load(std::memory_order_relaxed) != 0;
+}
+
 void NoteFb(PoseInterpFallback why)
 {
     s_st.fallback++;
@@ -114,37 +126,8 @@ void PublishInactive()
     s_published = {};
 }
 
-}  // namespace
-
-bool PoseInterp_Enabled() { return On(); }
-
-bool PoseInterp_Active()
+bool BuildFromPair(const PoseSnap& prev, const PoseSnap& curr, float alpha)
 {
-    if (!On()) return false;
-    std::lock_guard<std::mutex> lk(s_mu);
-    return s_published.active != 0;
-}
-
-void PoseInterp_OnXfb()
-{
-    if (!On()) return;
-    if (!PoseCapture_Enabled()) return;
-
-    s_st.attempts++;
-    PoseSnap prev{}, curr{};
-    if (!PoseCapture_GetLatest(curr))
-    {
-        NoteFb(PoseInterpFb_NoPair);
-        PublishInactive();
-        return;
-    }
-    if (!PoseCapture_GetPrevious(prev))
-    {
-        NoteFb(PoseInterpFb_NoPair);
-        PublishInactive();
-        return;
-    }
-
     const PosePairVerdict verd = Pose_EvaluatePair(prev, curr);
     if (verd.reject != PosePair_Ok)
     {
@@ -155,19 +138,22 @@ void PoseInterp_OnXfb()
             LOG_INFO("PoseInterp fallback reject={} seq={}/{}", (unsigned)verd.reject, prev.seq,
                      curr.seq);
         s_logN++;
-        return;
+        return false;
     }
 
-    const float alpha = s_fixedAlpha;
+    if (alpha < 0.f) alpha = 0.f;
+    if (alpha > 1.f) alpha = 1.f;
     s_st.alphaLast = alpha;
+    if (alpha < s_st.alphaMin) s_st.alphaMin = alpha;
+    if (alpha > s_st.alphaMax) s_st.alphaMax = alpha;
+    if (TimeDriven()) s_st.timeDriven++;
 
-    // Resolve active ViewPos base from current ScnMdl (frozen at this XFB).
     const uint32_t scn = CanonAddr(curr.scnMdlEa);
     if (!scn)
     {
         NoteFb(PoseInterpFb_NoPair);
         PublishInactive();
-        return;
+        return false;
     }
     const uint32_t viewBase = CanonAddr(Read32(scn + kPoseScn_ViewPos));
     const uint16_t nView = Read16(scn + kPoseScn_NumView);
@@ -175,7 +161,7 @@ void PoseInterp_OnXfb()
     {
         NoteFb(PoseInterpFb_NoPair);
         PublishInactive();
-        return;
+        return false;
     }
     const uint32_t viewActive = viewBase + curr.viewSlot * curr.slotBytes;
 
@@ -193,7 +179,7 @@ void PoseInterp_OnXfb()
     {
         NoteFb(PoseInterpFb_Decompose);
         PublishInactive();
-        return;
+        return false;
     }
 
     uint16_t nInterp = 0;
@@ -209,7 +195,7 @@ void PoseInterp_OnXfb()
         {
             NoteFb(PoseInterpFb_Decompose);
             PublishInactive();
-            return;
+            return false;
         }
         PoseMtx3x4 vp{};
         Pose_MtxConcat(out.vHat, w, vp);
@@ -217,7 +203,7 @@ void PoseInterp_OnXfb()
         {
             NoteFb(PoseInterpFb_Validate);
             PublishInactive();
-            return;
+            return false;
         }
         out.viewPos[mid] = vp;
         out.valid[mid] = 1;
@@ -225,7 +211,6 @@ void PoseInterp_OnXfb()
 
         if (ValidateOn())
         {
-            // Relationship residual vs V̂'·W' (should be ~0 by construction).
             float r = 0;
             Pose_ValidateNodeRel(out.vHat, w, vp, kPoseRelTol, &r);
             if (r > relMax) relMax = r;
@@ -236,7 +221,7 @@ void PoseInterp_OnXfb()
     {
         NoteFb(PoseInterpFb_Decompose);
         PublishInactive();
-        return;
+        return false;
     }
 
     if (ValidateOn())
@@ -265,7 +250,7 @@ void PoseInterp_OnXfb()
         {
             NoteFb(PoseInterpFb_Validate);
             PublishInactive();
-            return;
+            return false;
         }
     }
 
@@ -284,11 +269,90 @@ void PoseInterp_OnXfb()
     if (TraceOn() && (s_logN < 8 || (s_logN % 120) == 0))
     {
         LOG_INFO("PoseInterp apply α={:.3f} nodes={} seq={}/{} scn={:08x} viewEa={:08x} "
-                 "relMax={:.5f} applied={} gx={} miss={}",
+                 "relMax={:.5f} applied={} gx={} miss={} time={}",
                  alpha, nInterp, prev.seq, curr.seq, scn, viewActive, relMax, s_st.applied,
-                 s_st.gxOverrides, s_st.gxMiss);
+                 s_st.gxOverrides, s_st.gxMiss, TimeDriven() ? 1 : 0);
     }
     s_logN++;
+    return true;
+}
+
+}  // namespace
+
+bool PoseInterp_Enabled() { return On(); }
+
+bool PoseInterp_TimeDriven() { return TimeDriven(); }
+
+bool PoseInterp_Active()
+{
+    if (!On()) return false;
+    std::lock_guard<std::mutex> lk(s_mu);
+    return s_published.active != 0;
+}
+
+bool PoseInterp_BuildAtAlpha(float alpha)
+{
+    if (!On()) return false;
+    if (!PoseCapture_Enabled()) return false;
+    s_st.attempts++;
+    PoseSnap prev{}, curr{};
+    if (!PoseCapture_GetLatest(curr) || !PoseCapture_GetPrevious(prev))
+    {
+        NoteFb(PoseInterpFb_NoPair);
+        PublishInactive();
+        return false;
+    }
+    return BuildFromPair(prev, curr, alpha);
+}
+
+bool PoseInterp_BuildForHostTime(uint64_t hostTicks, float* outAlpha)
+{
+    if (!On()) return false;
+    if (!PoseCapture_Enabled()) return false;
+    s_st.attempts++;
+    PoseSnap prev{}, curr{};
+    float alpha = 0.f;
+    if (!PoseCapture_GetBracket(hostTicks, prev, curr, &alpha))
+    {
+        NoteFb(PoseInterpFb_Unbracketed);
+        PublishInactive();
+        return false;
+    }
+    if (outAlpha) *outAlpha = alpha;
+    return BuildFromPair(prev, curr, alpha);
+}
+
+void PoseInterp_OnXfb()
+{
+    if (!On()) return;
+    if (!PoseCapture_Enabled()) return;
+
+    s_st.attempts++;
+    PoseSnap prev{}, curr{};
+    if (!PoseCapture_GetLatest(curr))
+    {
+        NoteFb(PoseInterpFb_NoPair);
+        PublishInactive();
+        return;
+    }
+    if (!PoseCapture_GetPrevious(prev))
+    {
+        NoteFb(PoseInterpFb_NoPair);
+        PublishInactive();
+        return;
+    }
+
+    // Live XFB path: time-driven uses mid-bracket of the just-published pair as a
+    // stable delayed sample (presentation scheduler rebuilds for exact targets).
+    float alpha = s_fixedAlpha;
+    if (TimeDriven())
+    {
+        if (curr.hostTicks > prev.hostTicks)
+            alpha = 0.5f;  // endpoint XFB uses mid until scheduler rebuilds
+        else
+            alpha = s_fixedAlpha;
+    }
+    BuildFromPair(prev, curr, alpha);
 }
 
 bool PoseInterp_OverrideIndexed(uint32_t guestEa, uint32_t index, uint32_t stride,
@@ -305,7 +369,6 @@ bool PoseInterp_OverrideIndexed(uint32_t guestEa, uint32_t index, uint32_t strid
         s_st.gxMiss++;
         return false;
     }
-    // CP array bases are often physical; CanonAddr → 0x8/0x9 cached form.
     const uint32_t ea = CanonAddr(guestEa);
     const uint32_t base = CanonAddr(ea - index * stride);
     const uint32_t slot0 = CanonAddr(s_published.viewBaseEa);
@@ -348,7 +411,7 @@ void PoseInterp_OverlayLine(char* buf, size_t bufSize)
     if (!On()) return;
     PoseInterpStats st{};
     PoseInterp_GetStats(st);
-    std::snprintf(buf, bufSize, "PoseI α=%.2f apply=%llu fb=%llu gx=%llu", st.alphaLast,
-                  (unsigned long long)st.applied, (unsigned long long)st.fallback,
-                  (unsigned long long)st.gxOverrides);
+    std::snprintf(buf, bufSize, "PoseI α=%.2f%s apply=%llu fb=%llu gx=%llu", st.alphaLast,
+                  TimeDriven() ? "T" : "", (unsigned long long)st.applied,
+                  (unsigned long long)st.fallback, (unsigned long long)st.gxOverrides);
 }

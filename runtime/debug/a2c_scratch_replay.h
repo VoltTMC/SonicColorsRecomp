@@ -139,3 +139,10 @@ bool A2c_GetFamilyReplay(uint32_t family, A2cReplayResult& out);
 void A2c_OverlayLine(char* buf, size_t bufSize);
 
 const char* A2c_FamilyName(uint32_t family);
+
+// A3o: isolated scratch replay of last ready A3eDense/A3cEnv pass, then present
+// scratch as a unique mid-frame. Caller must hold GX_SyncGPU lock. PoseInterp /
+// A3b probe alpha should already be published for `alpha`. Returns false if no
+// ready archive (not an error for the scheduler — fall back to non-unique pacing).
+bool A2c_DecoupledMidPresent(float alpha, uint32_t* outColorHash, uint32_t* outDraws,
+                             char* detail, size_t detailN);

@@ -23,7 +23,8 @@ constexpr uint32_t kPoseResMdl_ToNodeDic = 0x14;
 
 // Capacity: Sonic TR1 nView=193; A3h max ResNodes=256. Fail closed above this.
 constexpr int kPoseMaxNodes = 256;
-constexpr int kPoseRingSlots = 3;  // prev | latest | writing
+// A3o: 5 slots — prev/latest/writing + pin headroom under 2× present.
+constexpr int kPoseRingSlots = 5;
 
 // GC MTX 3×4 row-major (same as A1b / nw4r).
 struct PoseMtx3x4
@@ -85,6 +86,7 @@ struct PoseSnap
     uint16_t parentResolved = 0;
 
     uint64_t seq = 0;           // monotonic published sequence
+    uint64_t hostTicks = 0;     // Platform_PerfCounter at publish (A3o)
     uint64_t simFrameId = 0;
     uint64_t xfbIndex = 0;
     uint32_t worldGen = 0;      // CalcWorld observations for this ScnMdl
@@ -124,6 +126,7 @@ struct PoseStats
     uint64_t relFail = 0;
     uint64_t overflow = 0;
     uint64_t ringOverwrite = 0;
+    uint64_t ringPinBlock = 0;  // publish skipped — target slot pinned (A3o)
     uint64_t modelChange = 0;
     uint64_t bytesCopied = 0;
     uint32_t peakNodes = 0;
@@ -241,6 +244,11 @@ void PoseCapture_OnCalcWorld(uint32_t scnMdlEa);  // guest thread, after world w
 void PoseCapture_OnXfb();                         // publish coherent snapshot
 bool PoseCapture_GetLatest(PoseSnap& out);
 bool PoseCapture_GetPrevious(PoseSnap& out);
+// A3o: bracket pair for host target time t (copies under lock). Requires t0≤t≤t1.
+bool PoseCapture_GetBracket(uint64_t hostTicks, PoseSnap& prev, PoseSnap& curr, float* outAlpha);
+// Pin by sequence — prevents ring overwrite while pinCount>0. Consumers normally copy.
+bool PoseCapture_PinSeq(uint64_t seq);
+void PoseCapture_UnpinSeq(uint64_t seq);
 void PoseCapture_GetStats(PoseStats& out);
 void PoseCapture_OverlayLine(char* buf, size_t bufSize);
 

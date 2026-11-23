@@ -4,6 +4,7 @@
 #include "../kernel/memory.h"
 #include "../log.h"
 #include "../perf.h"
+#include "../platform/platform.h"
 
 #include <atomic>
 #include <cstdio>
@@ -17,6 +18,7 @@ namespace
 std::atomic<int> s_on{ -1 };
 std::mutex s_mu;
 PoseSnap s_ring[kPoseRingSlots]{};
+uint8_t s_pin[kPoseRingSlots]{};  // pin counts; publish skips overwrite when >0
 uint32_t s_write = 0;
 uint32_t s_count = 0;
 uint64_t s_pubSeq = 0;
@@ -62,13 +64,13 @@ bool On()
     if (v < 0)
     {
         v = (EnvFlag("SCR_POSE_CAPTURE") || EnvFlag("SCR_POSE_QUALIFY") ||
-             EnvFlag("SCR_POSE_INTERP"))
+             EnvFlag("SCR_POSE_INTERP") || EnvFlag("SCR_DECOUPLED_PRESENT"))
                 ? 1
                 : 0;
         s_on.store(v, std::memory_order_relaxed);
         if (v)
-            LOG_INFO("PoseCapture: enabled (SCR_POSE_CAPTURE/QUALIFY/INTERP); ring={} nodes≤{} "
-                     "bytes/snap≈{}",
+            LOG_INFO("PoseCapture: enabled (SCR_POSE_CAPTURE/QUALIFY/INTERP/DECOUPLED); ring={} "
+                     "nodes≤{} bytes/snap≈{}",
                      kPoseRingSlots, kPoseMaxNodes,
                      (unsigned)(sizeof(PoseSnap)));
     }
@@ -252,6 +254,13 @@ void Reject(PoseSnap& s, PoseReject why, PoseStats& st)
 void Publish(PoseSnap& snap)
 {
     std::lock_guard<std::mutex> lk(s_mu);
+    snap.hostTicks = Platform_PerfCounter();
+    // Fail closed: never overwrite a pinned slot. Consumer must Unpin or copy.
+    if (s_pin[s_write] > 0)
+    {
+        s_stats.ringPinBlock++;
+        return;
+    }
     if (s_count == (uint32_t)kPoseRingSlots) s_stats.ringOverwrite++;
     snap.seq = ++s_pubSeq;
     s_ring[s_write] = snap;
@@ -472,6 +481,65 @@ bool PoseCapture_GetPrevious(PoseSnap& out)
     const uint32_t idx = (s_write + kPoseRingSlots - 2) % kPoseRingSlots;
     out = s_ring[idx];
     return (out.flags & PoseFlag_Complete) != 0;
+}
+
+bool PoseCapture_GetBracket(uint64_t hostTicks, PoseSnap& prev, PoseSnap& curr, float* outAlpha)
+{
+    std::lock_guard<std::mutex> lk(s_mu);
+    if (s_count < 2) return false;
+    // Walk published slots oldest→newest; find consecutive Complete pair with t0≤t≤t1.
+    const uint32_t n = s_count < (uint32_t)kPoseRingSlots ? s_count : (uint32_t)kPoseRingSlots;
+    const uint32_t oldest = (s_write + kPoseRingSlots - n) % kPoseRingSlots;
+    int bestI = -1;
+    for (uint32_t i = 0; i + 1 < n; i++)
+    {
+        const PoseSnap& a = s_ring[(oldest + i) % kPoseRingSlots];
+        const PoseSnap& b = s_ring[(oldest + i + 1) % kPoseRingSlots];
+        if (!(a.flags & PoseFlag_Complete) || !(b.flags & PoseFlag_Complete)) continue;
+        if (a.hostTicks == 0 || b.hostTicks == 0 || b.hostTicks <= a.hostTicks) continue;
+        if (hostTicks < a.hostTicks || hostTicks > b.hostTicks) continue;
+        bestI = (int)i;  // prefer latest matching bracket
+    }
+    if (bestI < 0) return false;
+    prev = s_ring[(oldest + (uint32_t)bestI) % kPoseRingSlots];
+    curr = s_ring[(oldest + (uint32_t)bestI + 1) % kPoseRingSlots];
+    if (outAlpha)
+    {
+        const double span = (double)(curr.hostTicks - prev.hostTicks);
+        *outAlpha = span > 0.0 ? (float)((double)(hostTicks - prev.hostTicks) / span) : 0.f;
+        if (*outAlpha < 0.f) *outAlpha = 0.f;
+        if (*outAlpha > 1.f) *outAlpha = 1.f;
+    }
+    return true;
+}
+
+bool PoseCapture_PinSeq(uint64_t seq)
+{
+    if (!seq) return false;
+    std::lock_guard<std::mutex> lk(s_mu);
+    for (int i = 0; i < kPoseRingSlots; i++)
+    {
+        if (s_ring[i].seq == seq && (s_ring[i].flags & PoseFlag_Complete))
+        {
+            if (s_pin[i] < 255) s_pin[i]++;
+            return true;
+        }
+    }
+    return false;
+}
+
+void PoseCapture_UnpinSeq(uint64_t seq)
+{
+    if (!seq) return;
+    std::lock_guard<std::mutex> lk(s_mu);
+    for (int i = 0; i < kPoseRingSlots; i++)
+    {
+        if (s_ring[i].seq == seq && s_pin[i] > 0)
+        {
+            s_pin[i]--;
+            return;
+        }
+    }
 }
 
 void PoseCapture_GetStats(PoseStats& out)

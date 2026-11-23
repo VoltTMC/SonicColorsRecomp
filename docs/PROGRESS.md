@@ -1,5 +1,15 @@
 # Progress log
 
+## 2026-11-23 — A3o: decoupled presentation + time-driven pose α
+
+**Goal:** Independent 2× presentation scheduler; time-driven α; safe mid render without advancing guest sim.
+
+**Shipped:** `decoupled_present.*` (`SCR_DECOUPLED_PRESENT`, `_RATE`, `SCR_PRESENT_TRACE`, latency); pose `hostTicks` + 5-slot pin ring; `PoseInterp_BuildForHostTime` / time-driven α; `A2c_DecoupledMidPresent` + `Render_PresentScratchUniqueMid`; report `docs/A3O_DECOUPLED_PRESENTATION.md`.
+
+**Evidence (RTX 3080):** Uncapped+decoupled (no A2b): sim≈60, unique_xfb≈60, present_calls≈120 with mid fail-closed (duplicates only). Dense A2b: sim≈35, no mid headroom. Unique mid 2× **not** claimed.
+
+**Gate:** Timing/scheduler/fail-closed **PASS**; genuine 2× unique renders **FAIL** (archive cost / missing sustained mid). Win GPU **UNVERIFIED**.
+
 ## 2026-11-23 — A3n: first live TR1 Sonic pose interpolation
 
 **Goal:** Consume qualified A3l pairs; rigid World + \(V̂\) SLERP; recompute ViewPos; feed existing GX indexed XF. No extra XFBs / no FPS claim.
