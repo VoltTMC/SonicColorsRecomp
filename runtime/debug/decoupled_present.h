@@ -2,7 +2,7 @@
 #include <cstddef>
 #include <cstdint>
 
-// Approach A3o — decoupled 2× presentation scheduler (opt-in).
+// Approach A3o/A3r — decoupled 2× presentation scheduler (opt-in).
 // SCR_DECOUPLED_PRESENT=1       enable scheduler (off by default)
 // SCR_DECOUPLED_PRESENT_RATE=2  presents per sim update (default 2)
 // SCR_PRESENT_TRACE=1           bounded scheduling diagnostics
@@ -13,19 +13,30 @@
 // re-present the last XFB for pacing only and are counted as duplicates.
 //
 // A3q: SCR_MID_POSE_TRACE=1 — bounded correlated mid pose/camera records (off by default).
+// A3r: production mid attempted once per sim on guest pace enter (not only wait residual).
+//      SCR_MID_HASH=1 — enable CPU image hash on mid present (off; expensive).
+//      SCR_MID_PROFILE=1 — emit bounded mid stage ms in status overlay path.
 
 struct DecoupledPresentStats
 {
     uint64_t simTicks = 0;
     uint64_t scheduleAttempts = 0;
+    uint64_t midAttempts = 0;
+    uint64_t midSelected = 0;         // archive pin/eval started
     uint64_t uniqueMid = 0;
     uint64_t uniqueMidPoseOk = 0;     // UNIQUE + PoseInterp build succeeded
     uint64_t uniqueMidPoseGx = 0;     // UNIQUE + gxOverrides consumed > 0
     uint64_t duplicatePace = 0;
     uint64_t midFail = 0;
+    uint64_t midFailNoArchive = 0;
+    uint64_t midFailNotReady = 0;
+    uint64_t midFailNoPose = 0;       // UNIQUE without poseOk (archive-only mid)
+    uint64_t midSkipBudget = 0;       // skipped to protect sim deadline
     uint64_t timeAlphaOk = 0;
     uint64_t timeAlphaFail = 0;
     uint64_t missedDeadline = 0;
+    uint64_t midNsTotal = 0;          // CPU wall for TryUniqueMid
+    uint64_t midNsPeak = 0;
     float alphaLast = 0;
     float alphaMin = 1.f;
     float alphaMax = 0.f;
@@ -36,6 +47,7 @@ struct DecoupledPresentStats
     uint32_t distinctMidVsGuest = 0;
     uint32_t lastGxConsumed = 0;
     uint16_t lastNodesInterp = 0;
+    float lastMidMs = 0;
 };
 
 // Bounded A3q mid-attempt record (pose= field in logs is poseOk 0/1, not a count).
@@ -67,7 +79,10 @@ float DecoupledPresent_TargetRate();
 void DecoupledPresent_OnPaceWait(uint64_t nowTicks, uint64_t simDeadlineTicks, uint64_t freq);
 // Guest-thread entry once per uncapped frame (before wait). Consumes
 // SCR_MID_POSE_TRACE force-mid requests; safe for GX_SyncGPU.
-void DecoupledPresent_OnGuestPaceEnter(uint64_t nowTicks, uint64_t freq);
+// simDeadlineTicks: next sim deadline (0 = unknown). Soft budget unless
+// SCR_MID_IGNORE_BUDGET=1.
+void DecoupledPresent_OnGuestPaceEnter(uint64_t nowTicks, uint64_t freq,
+                                       uint64_t simDeadlineTicks);
 // After each guest XFB — record cadence anchors.
 void DecoupledPresent_OnXfb();
 void DecoupledPresent_GetStats(DecoupledPresentStats& out);

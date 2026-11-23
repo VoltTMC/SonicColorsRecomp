@@ -228,12 +228,27 @@ uint32_t ClassifyFamily(uint32_t passBytes, uint32_t draws, uint32_t deps, uint3
     // A3e: dense complete gameplay (beyond A2e/A3c bands). Explicit family so
     // selection budgets can rise without mis-labeling as Other.
     // A3p prod covering dedupe can drop unique deps below 8 while draws stay dense.
-    // A3q: TR1 FIFO prim counts reach ~25k (particles/effects) while status draws/xfb≈700;
-    // keep ceiling above observed peak so pose-ready archives remain selectable.
+    //
+    // drawCount here is A2b_NoteDraw = FIFO primitive batches with count>0 (not
+    // status draws/xfb ≈650–750 Render_Draw between XFBs). TR1 peaks ~25–28k FIFO
+    // prims; former 16384 select ceiling rejected valid pose-ready archives (A3q).
+    // Bound = measured peak (~28k) + margin → 32768; override SCR_A3E_MAX_FIFO_DRAWS.
     const uint32_t depMin = A2b_ProdMode() ? 1u : 8u;
-    const uint32_t drawMax = A3e_DenseEnabled() ? 65536u : 16384u;
+    static uint32_t s_drawMax = 0;
+    if (!s_drawMax)
+    {
+        const char* e = std::getenv("SCR_A3E_MAX_FIFO_DRAWS");
+        uint32_t v = 32768u;
+        if (e && e[0])
+        {
+            char* end = nullptr;
+            const unsigned long parsed = std::strtoul(e, &end, 10);
+            if (end != e && parsed >= 150ul && parsed <= 65536ul) v = (uint32_t)parsed;
+        }
+        s_drawMax = A3e_DenseEnabled() ? v : 16384u;
+    }
     if (A3e_DenseEnabled() && passBytes >= 7000 && passBytes <= (1024u << 10) && draws >= 150 &&
-        draws <= drawMax && deps >= depMin)
+        draws <= s_drawMax && deps >= depMin)
         return A2cFamily_A3eDense;
     return A2cFamily_Other;
 }
@@ -371,9 +386,23 @@ void EvaluatePass(const A2bArchivePacket& pkt, A2cPassReport& out)
                         out.family == A2cFamily_A3cEnv && out.passBytes > 256 &&
                         out.passBytes <= (512u << 10) && out.drawCount >= 100 &&
                         out.drawCount <= 800 && pkt.gxStartValid;
+    // Match ClassifyFamily draw ceiling (SCR_A3E_MAX_FIFO_DRAWS / default 32768).
+    static uint32_t s_selDrawMax = 0;
+    if (!s_selDrawMax)
+    {
+        const char* e = std::getenv("SCR_A3E_MAX_FIFO_DRAWS");
+        uint32_t v = 32768u;
+        if (e && e[0])
+        {
+            char* end = nullptr;
+            const unsigned long parsed = std::strtoul(e, &end, 10);
+            if (end != e && parsed >= 150ul && parsed <= 65536ul) v = (uint32_t)parsed;
+        }
+        s_selDrawMax = v;
+    }
     const bool a3eSel = A3e_DenseEnabled() && out.family == A2cFamily_A3eDense &&
                         out.passBytes > 256 && out.passBytes <= (1024u << 10) &&
-                        out.drawCount >= 150 && out.drawCount <= 65536 && pkt.gxStartValid &&
+                        out.drawCount >= 150 && out.drawCount <= s_selDrawMax && pkt.gxStartValid &&
                         !(pkt.summary.flags & A2bFrame_Incomplete) &&
                         pkt.summary.rejectedResources == 0;
     const bool selected =
@@ -1633,6 +1662,9 @@ bool A2c_DecoupledMidPresent(float alpha, uint32_t* outColorHash, uint32_t* outD
         return false;
     }
 
+    const uint64_t tAll0 = Platform_PerfCounter();
+    const uint64_t freq = Platform_PerfFrequency();
+
     // A3p: pin/clone the *current* archive first, then EvaluatePass on that packet so
     // passBytes/readiness cannot drift from a stale family report.
     const A2bArchivePacket* pinned = nullptr;
@@ -1732,20 +1764,31 @@ bool A2c_DecoupledMidPresent(float alpha, uint32_t* outColorHash, uint32_t* outD
     if (A3b_CameraInterpEnabled() && !A3b_CameraSuspended())
         A3b_BeginScratchCamera(alpha, false);
 
+    const uint64_t tReplay0 = Platform_PerfCounter();
     const uint64_t gx0 = PoseInterp_GxOverrideCount();
     GX_ReplayCommands(pkt.cmd.data(), pass.passBytes);
     const uint64_t gxConsumed = PoseInterp_GxOverrideCount() - gx0;
     if (outGxOverrides) *outGxOverrides = gxConsumed;
+    const uint64_t tReplay1 = Platform_PerfCounter();
 
     if (A3b_ScratchCameraActive()) A3b_EndScratchCamera();
 
+    const uint64_t tPres0 = Platform_PerfCounter();
     ok = Render_PresentScratchUniqueMid(&colorHash);
+    const uint64_t tPres1 = Platform_PerfCounter();
     if (outColorHash) *outColorHash = colorHash;
     if (outDraws) *outDraws = pass.drawCount;
     if (detail && detailN)
-        std::snprintf(detail, detailN, "%s %s draws=%u hash=%08x α=%.3f gx=%llu",
+    {
+        const double inv = freq ? (1000.0 / (double)freq) : 0.0;
+        std::snprintf(detail, detailN,
+                      "%s %s draws=%u hash=%08x α=%.3f gx=%llu replay=%.1fms present=%.1fms "
+                      "total=%.1fms",
                       ok ? "mid-OK" : "mid-FAIL", A2c_FamilyName(pass.family), pass.drawCount,
-                      colorHash, alpha, (unsigned long long)gxConsumed);
+                      colorHash, alpha, (unsigned long long)gxConsumed,
+                      (tReplay1 - tReplay0) * inv, (tPres1 - tPres0) * inv,
+                      (tPres1 - tAll0) * inv);
+    }
 
     cleanup();
     return ok;

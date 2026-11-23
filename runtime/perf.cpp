@@ -90,9 +90,9 @@ static void PaceUncappedHost(PPCContext& ctx, uint8_t* base)
         return;
     }
 
-    // A3q: guest-thread force-mid probe (SCR_MID_POSE_TRACE) even when wait is empty.
+    // A3r: guest-thread mid attempt (and A3q TRACE force-mid) even when wait is empty.
     if (DecoupledPresent_Enabled())
-        DecoupledPresent_OnGuestPaceEnter(now, freq);
+        DecoupledPresent_OnGuestPaceEnter(now, freq, s_nextSimDeadline);
 
     while (now < s_nextSimDeadline)
     {

@@ -1,5 +1,15 @@
 # Progress log
 
+## 2026-11-23 — A3r: sustained unique mid throughput (PARTIAL)
+
+**Goal:** ~60 sim + ~60 genuine scratch mids/s with A3q pose injection; no TRACE required.
+
+**Shipped:** Per-sim guest-pace mid; soft budget + EMA/probe; skip mid hash by default; FIFO draw select default 32768 (`SCR_A3E_MAX_FIFO_DRAWS`); status `unique_mid`/`mid_poseOk`/`mid_gx`; `docs/A3R_SUSTAINED_UNIQUE_RENDER_THROUGHPUT.md`.
+
+**Evidence (RTX 3080):** Default: sim≈60, unique_mid≈10/s with poseOk+gx. `SCR_MID_IGNORE_BUDGET`: ~30+30 (sim halved). Mid wall ≈17–21 ms (FIFO replay). **60+60 FAIL.**
+
+**Gate:** Capacity/select **PASS**; pose on accepted mids **PASS**; sustained 2× **FAIL** (replay cost). Win GPU **UNVERIFIED**.
+
 ## 2026-11-23 — A3q: mid-replay pose injection + camera consistency
 
 **Goal:** Prove scratch UNIQUE mids consume A3n interpolated Sonic pose and a coherent camera/view policy. Correctness only — no sustained 2× claim.

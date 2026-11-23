@@ -1190,6 +1190,27 @@ Opt-in lean capture (`SCR_A2B_PROD` / auto with decoupled). Restores ~60 Hz sim 
 | Full-scene mid camera | PARTIAL | `pose=0` on logged UNIQUEs (see A3q) |
 | Win GPU | UNVERIFIED | |
 
+### Approach A3r — sustained unique mid throughput (2026-11-23)
+
+Production mid scheduling on the A3q-correct path. Report: `docs/A3R_SUSTAINED_UNIQUE_RENDER_THROUGHPUT.md`.
+
+| Switch | Role |
+|--------|------|
+| `SCR_MID_IGNORE_BUDGET=1` | Force mid when soft budget would skip (may cut sim Hz) |
+| `SCR_MID_HASH=1` | CPU every-pixel mid hash (off; expensive) |
+| `SCR_MID_PROFILE=1` | Bounded mid timing |
+| `SCR_A3E_MAX_FIFO_DRAWS` | A3e FIFO `drawCount` select ceiling (default 32768) |
+
+| Item | Status | Notes |
+|------|--------|-------|
+| 16384 FIFO select ceiling | PASS | Was A3e select on `A2b_NoteDraw`; default 32768 |
+| Mid without TRACE | PASS | Guest pace enter + soft budget |
+| Sim ~60 Hz (default) | PASS | |
+| Unique mid ~10/s poseOk+gx | PASS | Dense TR1 RTX 3080 |
+| ~60 mid/s @ 60 sim | **FAIL** | Mid ≈17–21 ms replay |
+| Ignore-budget 1:1 | PARTIAL | ~30 sim + ~30 mid |
+| Win GPU | UNVERIFIED | |
+
 ### Approach A3q — mid pose injection + camera consistency (2026-11-23)
 
 Correctness milestone: scratch UNIQUE consumes A3n pose; coherent mid camera policy. Report: `docs/A3Q_MID_REPLAY_POSE_AND_CAMERA.md`.

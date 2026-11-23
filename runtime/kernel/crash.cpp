@@ -9,6 +9,8 @@
 #include "../platform/platform.h"
 #include "../perf.h"
 #include "../gx/video.h"
+#include "../gx/gx_state.h"
+#include "../debug/decoupled_present.h"
 #include "../region.h"
 
 #include <algorithm>
@@ -87,8 +89,14 @@ static void WatchdogThread()
             // present_calls = swapchain Present() (may re-show the same XFB).
             // unique_xfb = guest EFB→XFB copies. unique_frames_presented = first Present per XFB.
             // display_refresh_hz = physical monitor mode — not equal to present_calls.
+            static uint64_t lastMid = 0, lastPoseOk = 0, lastGx = 0;
+            const uint64_t midPres = Render_UniqueMidPresentTotal();
+            DecoupledPresentStats dp{};
+            if (DecoupledPresent_Enabled())
+                DecoupledPresent_GetStats(dp);
             LOG_INFO("status: target {} | simulation_hz {:.1f} | unique_xfb {:.1f} | "
                      "unique_frames_presented {:.1f} | present_calls {:.1f} | "
+                     "unique_mid {:.1f} | mid_poseOk {:.1f} | mid_gx {:.1f} | mid_ms {:.2f} | "
                      "guest_vi_hz {:.2f} | display_refresh_hz {:.0f} | vsync {}{} | "
                      "present {:.2f} ms | GPU blit {:.2f} ms | draws/xfb {} | RSS {} MiB | "
                      "audio peak {} underruns {} drops {} repeats {} rate {:.0f} Hz",
@@ -97,6 +105,10 @@ static void WatchdogThread()
                      (xfb - lastXfb) / secs,
                      (uniquePres - lastUniquePres) / secs,
                      (present - lastPresent) / secs,
+                     (midPres - lastMid) / secs,
+                     (dp.uniqueMidPoseOk - lastPoseOk) / secs,
+                     (dp.uniqueMidPoseGx - lastGx) / secs,
+                     dp.lastMidMs,
                      (g_viFieldCount - lastFields) / secs,
                      dispHz,
                      g_videoConfig.vsync ? "on" : "off",
@@ -105,6 +117,9 @@ static void WatchdogThread()
                      Platform_ProcessRssMb(),
                      g_audioPeak, g_audioUnderruns, g_audioDrops, g_audioRepeats,
                      (g_audioFrames - lastAudio) / secs);
+            lastMid = midPres;
+            lastPoseOk = dp.uniqueMidPoseOk;
+            lastGx = dp.uniqueMidPoseGx;
             extern void Perf_LogStatus(double);
             Perf_LogStatus(secs);
             g_audioRepeats = 0;

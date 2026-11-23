@@ -2608,8 +2608,20 @@ bool Render_PresentScratchUniqueMid(uint32_t* outColorHash)
     }
     UnbindOMTargets();
     g_ctx->CopyResource(s_midXfbTex, s_scratchColor);
-    const uint32_t h = HashTextureContents(s_midXfbTex, true);
-    if (outColorHash) *outColorHash = h;
+    // A3r: full every-pixel staging hash is multi-ms; only when SCR_MID_HASH=1 (diag).
+    uint32_t h = 0;
+    if (outColorHash)
+    {
+        static int s_midHash = -1;
+        if (s_midHash < 0)
+        {
+            const char* e = std::getenv("SCR_MID_HASH");
+            s_midHash = (e && e[0] && e[0] != '0') ? 1 : 0;
+        }
+        if (s_midHash)
+            h = HashTextureContents(s_midXfbTex, true);
+        *outColorHash = h;
+    }
     Video_Present(s_midXfbSRV, 0, 0, 1, 1);
     g_framesPresented++;
     s_uniqueMidPresentTotal.fetch_add(1, std::memory_order_relaxed);
