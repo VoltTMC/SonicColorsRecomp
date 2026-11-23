@@ -66,12 +66,14 @@ bool EnvOn()
             const char* i4 = std::getenv("SCR_A3I_PALETTE_PROVENANCE");
             const char* pc = std::getenv("SCR_POSE_CAPTURE");
             const char* pq = std::getenv("SCR_POSE_QUALIFY");
+            const char* pi = std::getenv("SCR_POSE_INTERP");
             if ((t && t[0] && t[0] != '0') || (p && p[0] && p[0] != '0') ||
                 (g && g[0] && g[0] != '0') || (h && h[0] && h[0] != '0') ||
                 (h1 && h1[0] && h1[0] != '0') || (h2 && h2[0] && h2[0] != '0') ||
                 (i1 && i1[0] && i1[0] != '0') || (i2 && i2[0] && i2[0] != '0') ||
                 (i3 && i3[0] && i3[0] != '0') || (i4 && i4[0] && i4[0] != '0') ||
-                (pc && pc[0] && pc[0] != '0') || (pq && pq[0] && pq[0] != '0'))
+                (pc && pc[0] && pc[0] != '0') || (pq && pq[0] && pq[0] != '0') ||
+                (pi && pi[0] && pi[0] != '0'))
                 c = 1;
         }
         if (c)

@@ -302,3 +302,185 @@ PosePairVerdict Pose_EvaluatePair(const PoseSnap& prev, const PoseSnap& curr)
     v.reject = PosePair_Ok;
     return v;
 }
+
+namespace
+{
+
+constexpr float kPoseRigEps = 2e-3f;
+constexpr float kPoseQuatEps = 1e-6f;
+
+float PDot3(float ax, float ay, float az, float bx, float by, float bz)
+{
+    return ax * bx + ay * by + az * bz;
+}
+float PLen3(float x, float y, float z) { return std::sqrt(PDot3(x, y, z, x, y, z)); }
+void PCross3(float ax, float ay, float az, float bx, float by, float bz, float& ox, float& oy,
+             float& oz)
+{
+    ox = ay * bz - az * by;
+    oy = az * bx - ax * bz;
+    oz = ax * by - ay * bx;
+}
+
+float PClamp(float v, float lo, float hi)
+{
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
+}
+
+}  // namespace
+
+PoseQuat Pose_QuatNormalize(const PoseQuat& q)
+{
+    const float n = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+    if (n < kPoseQuatEps) return { 0, 0, 0, 1 };
+    return { q.x / n, q.y / n, q.z / n, q.w / n };
+}
+
+float Pose_QuatDot(const PoseQuat& a, const PoseQuat& b)
+{
+    return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+}
+
+PoseQuat Pose_QuatSlerp(const PoseQuat& aIn, const PoseQuat& bIn, float alpha)
+{
+    PoseQuat a = Pose_QuatNormalize(aIn);
+    PoseQuat b = Pose_QuatNormalize(bIn);
+    float dot = Pose_QuatDot(a, b);
+    if (dot < 0.f)
+    {
+        b = { -b.x, -b.y, -b.z, -b.w };
+        dot = -dot;
+    }
+    alpha = PClamp(alpha, 0.f, 1.f);
+    if (dot > 0.9995f)
+    {
+        PoseQuat r{ a.x + alpha * (b.x - a.x), a.y + alpha * (b.y - a.y),
+                    a.z + alpha * (b.z - a.z), a.w + alpha * (b.w - a.w) };
+        return Pose_QuatNormalize(r);
+    }
+    const float theta = std::acos(PClamp(dot, -1.f, 1.f));
+    const float s = std::sin(theta);
+    const float w0 = std::sin((1.f - alpha) * theta) / s;
+    const float w1 = std::sin(alpha * theta) / s;
+    return Pose_QuatNormalize({ w0 * a.x + w1 * b.x, w0 * a.y + w1 * b.y, w0 * a.z + w1 * b.z,
+                                w0 * a.w + w1 * b.w });
+}
+
+bool Pose_DecomposeRigid(const PoseMtx3x4& m, PoseRigid& out)
+{
+    out = {};
+    if (!Pose_MtxFinite(m)) return false;
+    // Reject non-rigid classes up front (TR1 Sonic: all Rigid).
+    const PoseMtxClassInfo ci = Pose_ClassifyMtx(m);
+    if (ci.cls != PoseMtx_Rigid && ci.cls != PoseMtx_UniformScale) return false;
+
+    const float* mm = m.m;
+    const float sx = PLen3(mm[0], mm[4], mm[8]);
+    const float sy = PLen3(mm[1], mm[5], mm[9]);
+    const float sz = PLen3(mm[2], mm[6], mm[10]);
+    if (sx < kPoseQuatEps || sy < kPoseQuatEps || sz < kPoseQuatEps) return false;
+
+    float c0x = mm[0] / sx, c0y = mm[4] / sx, c0z = mm[8] / sx;
+    float c1x = mm[1] / sy, c1y = mm[5] / sy, c1z = mm[9] / sy;
+    float c2x = mm[2] / sz, c2y = mm[6] / sz, c2z = mm[10] / sz;
+    if (std::fabs(PDot3(c0x, c0y, c0z, c1x, c1y, c1z)) > kPoseRigEps ||
+        std::fabs(PDot3(c0x, c0y, c0z, c2x, c2y, c2z)) > kPoseRigEps ||
+        std::fabs(PDot3(c1x, c1y, c1z, c2x, c2y, c2z)) > kPoseRigEps)
+        return false;
+
+    float cx, cy, cz;
+    PCross3(c0x, c0y, c0z, c1x, c1y, c1z, cx, cy, cz);
+    if (PDot3(cx, cy, cz, c2x, c2y, c2z) < 0.f) return false;  // reflection
+
+    PCross3(c0x, c0y, c0z, c1x, c1y, c1z, c2x, c2y, c2z);
+    const float n2 = PLen3(c2x, c2y, c2z);
+    if (n2 < kPoseQuatEps) return false;
+    c2x /= n2;
+    c2y /= n2;
+    c2z /= n2;
+    PCross3(c2x, c2y, c2z, c0x, c0y, c0z, c1x, c1y, c1z);
+
+    const float r00 = c0x, r01 = c1x, r02 = c2x;
+    const float r10 = c0y, r11 = c1y, r12 = c2y;
+    const float r20 = c0z, r21 = c1z, r22 = c2z;
+    PoseQuat q{};
+    const float tr = r00 + r11 + r22;
+    if (tr > 0.f)
+    {
+        const float s = std::sqrt(tr + 1.f) * 2.f;
+        q.w = 0.25f * s;
+        q.x = (r21 - r12) / s;
+        q.y = (r02 - r20) / s;
+        q.z = (r10 - r01) / s;
+    }
+    else if (r00 > r11 && r00 > r22)
+    {
+        const float s = std::sqrt(1.f + r00 - r11 - r22) * 2.f;
+        q.w = (r21 - r12) / s;
+        q.x = 0.25f * s;
+        q.y = (r01 + r10) / s;
+        q.z = (r02 + r20) / s;
+    }
+    else if (r11 > r22)
+    {
+        const float s = std::sqrt(1.f + r11 - r00 - r22) * 2.f;
+        q.w = (r02 - r20) / s;
+        q.x = (r01 + r10) / s;
+        q.y = 0.25f * s;
+        q.z = (r12 + r21) / s;
+    }
+    else
+    {
+        const float s = std::sqrt(1.f + r22 - r00 - r11) * 2.f;
+        q.w = (r10 - r01) / s;
+        q.x = (r02 + r20) / s;
+        q.y = (r12 + r21) / s;
+        q.z = 0.25f * s;
+    }
+    out.q = Pose_QuatNormalize(q);
+    out.t[0] = mm[3];
+    out.t[1] = mm[7];
+    out.t[2] = mm[11];
+    out.scale = (sx + sy + sz) / 3.f;
+    out.valid = true;
+    return true;
+}
+
+void Pose_ComposeRigid(const PoseRigid& r, PoseMtx3x4& out)
+{
+    const PoseQuat q = Pose_QuatNormalize(r.q);
+    const float xx = q.x * q.x, yy = q.y * q.y, zz = q.z * q.z;
+    const float xy = q.x * q.y, xz = q.x * q.z, yz = q.y * q.z;
+    const float wx = q.w * q.x, wy = q.w * q.y, wz = q.w * q.z;
+    const float s = r.scale;
+    out.m[0] = s * (1.f - 2.f * (yy + zz));
+    out.m[1] = s * (2.f * (xy - wz));
+    out.m[2] = s * (2.f * (xz + wy));
+    out.m[3] = r.t[0];
+    out.m[4] = s * (2.f * (xy + wz));
+    out.m[5] = s * (1.f - 2.f * (xx + zz));
+    out.m[6] = s * (2.f * (yz - wx));
+    out.m[7] = r.t[1];
+    out.m[8] = s * (2.f * (xz - wy));
+    out.m[9] = s * (2.f * (yz + wx));
+    out.m[10] = s * (1.f - 2.f * (xx + yy));
+    out.m[11] = r.t[2];
+}
+
+bool Pose_InterpRigid(const PoseMtx3x4& a, const PoseMtx3x4& b, float alpha, PoseMtx3x4& out)
+{
+    PoseRigid ra{}, rb{};
+    if (!Pose_DecomposeRigid(a, ra) || !Pose_DecomposeRigid(b, rb)) return false;
+    alpha = PClamp(alpha, 0.f, 1.f);
+    PoseRigid ri{};
+    ri.t[0] = ra.t[0] + alpha * (rb.t[0] - ra.t[0]);
+    ri.t[1] = ra.t[1] + alpha * (rb.t[1] - ra.t[1]);
+    ri.t[2] = ra.t[2] + alpha * (rb.t[2] - ra.t[2]);
+    ri.q = Pose_QuatSlerp(ra.q, rb.q, alpha);
+    ri.scale = ra.scale + alpha * (rb.scale - ra.scale);
+    ri.valid = true;
+    Pose_ComposeRigid(ri, out);
+    return Pose_MtxFinite(out);
+}

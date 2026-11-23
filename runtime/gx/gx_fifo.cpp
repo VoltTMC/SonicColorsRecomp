@@ -3,6 +3,7 @@
 #include "../debug/a2b_fifo_archive.h"
 #include "../debug/a2c_scratch_replay.h"
 #include "../debug/a3h_skeleton_palette.h"
+#include "../debug/pose_interp.h"
 #include "../hw/hw.h"
 #include "../kernel/memory.h"
 #include "../log.h"
@@ -244,8 +245,30 @@ static void LoadIndexedXF(int array, uint32_t word)
     Render_Flush();
     if (A2b_FifoCaptureEnabled() && !Render_ReplayIsolationActive())
         A2b_OnIndexedXf(guestEa, size * 4);
-    for (uint32_t i = 0; i < size; i++)
-        g_gx.xfmem[(addr + i) & 0xFFF] = BE32(src + 4 * i);
+    // A3n: substitute interpolated ViewPos for the live player palette only.
+    float interp[12];
+    const bool useInterp = PoseInterp_Enabled() && size >= 12 &&
+                           PoseInterp_OverrideIndexed(guestEa, index, stride, interp);
+    if (useInterp)
+    {
+        for (uint32_t i = 0; i < 12; i++)
+        {
+            union
+            {
+                float f;
+                uint32_t u;
+            } c;
+            c.f = interp[i];
+            g_gx.xfmem[(addr + i) & 0xFFF] = c.u;
+        }
+        for (uint32_t i = 12; i < size; i++)
+            g_gx.xfmem[(addr + i) & 0xFFF] = BE32(src + 4 * i);
+    }
+    else
+    {
+        for (uint32_t i = 0; i < size; i++)
+            g_gx.xfmem[(addr + i) & 0xFFF] = BE32(src + 4 * i);
+    }
     Render_OnXF(addr, size, true);
     A3h_OnIndexedXf(guestEa, base, index, stride, addr, size);
 }

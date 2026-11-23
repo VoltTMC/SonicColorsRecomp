@@ -27,6 +27,7 @@
 #include "../debug/a3k_owner_transform.h"
 #include "../debug/pose_capture.h"
 #include "../debug/pose_qualify.h"
+#include "../debug/pose_interp.h"
 #include "../input/input_latency.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
@@ -434,6 +435,13 @@ void Overlay_Render(float w, float h)
                 PoseQualify_OverlayLine(pq, sizeof(pq));
                 if (pq[0])
                     ImGui::TextUnformatted(pq);
+            }
+            if (PoseInterp_Enabled())
+            {
+                char pi[192];
+                PoseInterp_OverlayLine(pi, sizeof(pi));
+                if (pi[0])
+                    ImGui::TextUnformatted(pi);
             }
             if (A2b_FifoCaptureEnabled() || A2c_ScratchReplayEnabled())
             {

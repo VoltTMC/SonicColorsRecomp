@@ -232,6 +232,54 @@ int main()
         Expect(Pose_EvaluatePair(a, warm).reject == PosePair_Warmup, "warmup curr");
     }
 
+    // --- Rigid TRS / SLERP (A3n) ---
+    {
+        PoseMtx3x4 a = Translate(0, 0, 0);
+        PoseMtx3x4 b = Translate(10, 0, 0);
+        PoseMtx3x4 mid{};
+        Expect(Pose_InterpRigid(a, b, 0.f, mid), "α0 ok");
+        Expect(Pose_MtxMaxAbsDiff(mid, a) < 1e-5f, "α0 exact");
+        Expect(Pose_InterpRigid(a, b, 1.f, mid), "α1 ok");
+        Expect(Pose_MtxMaxAbsDiff(mid, b) < 1e-5f, "α1 exact");
+        Expect(Pose_InterpRigid(a, b, 0.5f, mid), "α0.5 ok");
+        Expect(std::fabs(mid.m[3] - 5.f) < 1e-4f, "mid translation");
+
+        // 90° about Y: column0 (1,0,0) → (0,0,-1) roughly via compose.
+        PoseRigid ra{}, rb{};
+        Expect(Pose_DecomposeRigid(Ident(), ra), "decomp I");
+        rb = ra;
+        // 180° around Y via quaternion (0,1,0,0)
+        rb.q = { 0, 1, 0, 0 };
+        PoseMtx3x4 r180{};
+        Pose_ComposeRigid(rb, r180);
+        PoseMtx3x4 r90{};
+        Expect(Pose_InterpRigid(Ident(), r180, 0.5f, r90), "180 mid");
+        PoseRigid rm{};
+        Expect(Pose_DecomposeRigid(r90, rm), "mid decomp");
+        // Shortest-path: opposite hemisphere quat should flip.
+        PoseQuat qn = { 0, 0, 0, -1 };  // same as identity after normalize/sign
+        PoseQuat qs = Pose_QuatSlerp({ 0, 0, 0, 1 }, qn, 0.5f);
+        Expect(std::fabs(Pose_QuatDot(Pose_QuatNormalize(qs), { 0, 0, 0, 1 })) > 0.99f,
+               "sign correction → near I");
+
+        PoseMtx3x4 bad{};
+        Expect(!Pose_InterpRigid(Ident(), bad, 0.5f, mid), "reject singular");
+        PoseMtx3x4 nanM = Ident();
+        nanM.m[0] = NAN;
+        Expect(!Pose_InterpRigid(Ident(), nanM, 0.5f, mid), "reject nan");
+
+        // ViewPos' = V̂' · W'
+        PoseMtx3x4 v0 = Translate(0, 0, 0);
+        PoseMtx3x4 v1 = Translate(2, 0, 0);
+        PoseMtx3x4 w0 = Translate(1, 0, 0);
+        PoseMtx3x4 w1 = Translate(3, 0, 0);
+        PoseMtx3x4 vi{}, wi{}, pred{};
+        Expect(Pose_InterpRigid(v0, v1, 0.5f, vi) && Pose_InterpRigid(w0, w1, 0.5f, wi),
+               "view+world mid");
+        Pose_MtxConcat(vi, wi, pred);
+        Expect(std::fabs(pred.m[3] - 3.f) < 1e-4f, "V̂·W translation 1+2");
+    }
+
     if (g_fail)
     {
         std::fprintf(stderr, "%d failure(s)\n", g_fail);

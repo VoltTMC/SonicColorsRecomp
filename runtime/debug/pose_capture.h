@@ -198,6 +198,27 @@ constexpr float kPoseCamCutVHatT = 40.f;
 
 PosePairVerdict Pose_EvaluatePair(const PoseSnap& prev, const PoseSnap& curr);
 
+// --- Rigid TRS (A3n; host-testable; no live GX) --------------------------------
+struct PoseQuat
+{
+    float x = 0, y = 0, z = 0, w = 1;
+};
+
+struct PoseRigid
+{
+    float t[3]{};
+    PoseQuat q{};
+    float scale = 1.f;
+    bool valid = false;
+};
+
+PoseQuat Pose_QuatNormalize(const PoseQuat& q);
+float Pose_QuatDot(const PoseQuat& a, const PoseQuat& b);
+PoseQuat Pose_QuatSlerp(const PoseQuat& a, const PoseQuat& b, float alpha);
+bool Pose_DecomposeRigid(const PoseMtx3x4& m, PoseRigid& out);
+void Pose_ComposeRigid(const PoseRigid& r, PoseMtx3x4& out);
+bool Pose_InterpRigid(const PoseMtx3x4& a, const PoseMtx3x4& b, float alpha, PoseMtx3x4& out);
+
 // Synthetic ring helpers for host tests (independent of guest capture).
 struct PoseRingTest
 {

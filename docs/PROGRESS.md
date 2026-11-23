@@ -1,5 +1,15 @@
 # Progress log
 
+## 2026-11-23 — A3n: first live TR1 Sonic pose interpolation
+
+**Goal:** Consume qualified A3l pairs; rigid World + \(V̂\) SLERP; recompute ViewPos; feed existing GX indexed XF. No extra XFBs / no FPS claim.
+
+**Shipped:** `pose_interp.*` (`SCR_POSE_INTERP`, `_ALPHA`, `_TRACE`, `_VALIDATE`); `Pose_InterpRigid` / quat SLERP; `LoadIndexedXF` override via `CanonAddr` ViewPos slots; report `docs/A3N_FIRST_LIVE_POSE_INTERPOLATION.md`.
+
+**Evidence (RTX 3080):** 58-node apply; ViewPos `8098afe0`/`8098d420`; GX `gxOverrides` ≫ 0; CamCut fallback; sim ≈60 Hz. Host rigid tests PASS.
+
+**Gate:** Live interpolated pose **PASS** through GX. Higher presentation FPS remains a **separate** milestone.
+
 ## 2026-11-23 — A3m: pose qualification + interpolation readiness design
 
 **Goal:** Qualify A3l snapshots for a future interpolation consumer; produce design only (no interp).

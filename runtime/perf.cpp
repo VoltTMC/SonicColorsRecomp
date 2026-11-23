@@ -21,6 +21,7 @@
 #include "debug/a3k_owner_transform.h"
 #include "debug/pose_capture.h"
 #include "debug/pose_qualify.h"
+#include "debug/pose_interp.h"
 
 #include <atomic>
 #include <algorithm>
@@ -349,8 +350,9 @@ void Perf_OnXfbCopy()
     A3i_OnXfbCopyStandalone();  // drains A3i when enabled without A3a
     A3j_OnXfbCopyStandalone();  // drains A3j when enabled without A3a
     A3k_OnXfbCopyStandalone();  // drains A3k when enabled without A3a
-    PoseCapture_OnXfb();  // no-op unless SCR_POSE_CAPTURE/QUALIFY
+    PoseCapture_OnXfb();  // no-op unless SCR_POSE_CAPTURE/QUALIFY/INTERP
     PoseQualify_OnXfb();  // no-op unless SCR_POSE_QUALIFY=1
+    PoseInterp_OnXfb();   // no-op unless SCR_POSE_INTERP=1
     A3b_OnXfbCopy();  // no-op unless SCR_A3B_CAMERA_INTERP=1
     A3c_OnXfbCopy();  // no-op unless SCR_A3C_ENV_CAPTURE/INTERP=1
     A3d_OnXfbCopy();  // no-op unless SCR_A3D_SCENE_COVERAGE=1

@@ -1130,6 +1130,26 @@ Opt-in validation only. **No interpolation / no extra XFBs.** Full report: `docs
 | Capture+qualify ~60 Hz | PASS | RTX 3080 |
 | Interp implementation | **Not started** | Design READY for separate milestone |
 
+### Approach A3n — first live TR1 Sonic pose interpolation (2026-11-23)
+
+Opt-in. Rigid World + \(V̂\) SLERP → ViewPos' → GX indexed XF. **No extra XFBs / no higher-FPS claim.** Report: `docs/A3N_FIRST_LIVE_POSE_INTERPOLATION.md`.
+
+| Switch | Role |
+|--------|------|
+| `SCR_POSE_INTERP=1` | Enable consumer + GX override (implies capture) |
+| `SCR_POSE_INTERP_ALPHA` | Fixed α (default 0.5 mid-bracket) |
+| `SCR_POSE_INTERP_TRACE` / `_VALIDATE` | Bounded diagnostics |
+
+| Item | Status | Notes |
+|------|--------|-------|
+| 58-node World SLERP | PASS | Rigid only |
+| \(V̂\) separate | PASS | Not A3b XF viewMtx |
+| ViewPos' = \(V̂'·W'\) | PASS | |
+| GX consumption | PASS | CanonAddr ViewPos slots; gxOverrides > 0 |
+| Fallback | PASS | Pose_EvaluatePair |
+| ~60 Hz guest | PASS | |
+| Extra presents / FPS claim | **No** | Same cadence |
+
 ### Approach A3a — draw-level transform attribution + scratch substitution (2026-11-21)
 
 Opt-in diagnostics only. **No interpolation, no second XFB, no unique-FPS claim.**
