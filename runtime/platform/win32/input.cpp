@@ -40,10 +40,9 @@ void Input_PollHotplug()
 {
     EnsureSdlGamepad();
     if (!s_sdlReady) return;
-    // Gamepad_Poll() is called several times per emulated frame (pad, Wiimote, motion).
-    // SDL_PumpEvents() is not free: on Windows it also services HIDAPI joystick backends.
-    // Hotplug only needs a few Hz — the old XInput backend remapped devices at 4 Hz — so
-    // do not pump the entire SDL event queue on every virtual controller read.
+    // Hotplug (ADDED/REMOVED) only needs a few Hz. Do NOT couple stick/button freshness to
+    // this pump: SDL_UpdateJoysticks() runs inside SdlGamepad_Read every poll. Throttling
+    // PumpEvents alone (4205982) left XInput/HIDAPI state stale for up to ~250 ms.
     static uint64_t s_lastPumpMs = 0;
     const uint64_t now = Platform_TickMs();
     if (s_lastPumpMs && now - s_lastPumpMs < 250) return;

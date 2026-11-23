@@ -1,10 +1,12 @@
 // Controllers (platform/input.h) with a keyboard fallback for player 1.
 #include "gamepad.h"
+#include "input_latency.h"
 #include "../config.h"
 #include "../tas/tas.h"
 #include "../ui/overlay.h"
 #include "../platform/input.h"
 #include "../platform/platform.h"
+#include "../platform/sdl_gamepad.h"
 #include "../platform/window.h"
 
 #include <algorithm>
@@ -237,6 +239,8 @@ void Gamepad_Poll(int index, GamepadState& out)
     PadState st;
     if ((index == 0 || Gamepad_IsConnected(index)) && Pad_Read(index, st))
     {
+        InputLatency_OnPublish(index, SdlGamepad_LastAcquireSeq(index));
+        InputLatency_Tick();
         out.connected = true;
         float lt = st.lt / 255.0f, rt = st.rt / 255.0f;
         uint32_t phys = st.buttons & ~PAD_HOME;

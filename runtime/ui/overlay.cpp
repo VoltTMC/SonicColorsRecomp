@@ -22,6 +22,7 @@
 #include "../debug/a3f_player_provenance.h"
 #include "../debug/a3g_pose_aggregate.h"
 #include "../debug/a3h_skeleton_palette.h"
+#include "../input/input_latency.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
 #include "../tas/tas.h"
@@ -309,6 +310,13 @@ void Overlay_Render(float w, float h)
                 A1b_OverlayLine(a1b, sizeof(a1b));
                 if (a1b[0])
                     ImGui::TextUnformatted(a1b);
+            }
+            if (InputLatency_Enabled())
+            {
+                char inLat[160];
+                InputLatency_OverlayLine(inLat, sizeof(inLat));
+                if (inLat[0])
+                    ImGui::TextUnformatted(inLat);
             }
             if (A1c_GxCaptureEnabled())
             {

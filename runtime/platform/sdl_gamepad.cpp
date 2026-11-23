@@ -1,9 +1,11 @@
 // Shared SDL3 gamepad → XInput-layout PadState (Linux + Windows/Wine).
 #include "sdl_gamepad.h"
 #include "../input/gamepad.h"
+#include "../input/input_latency.h"
 #include "../log.h"
 #include "../ui/overlay.h"
 
+#include <atomic>
 #include <format>
 #include <mutex>
 #include <string>
@@ -14,6 +16,9 @@ namespace
 std::mutex s_mu;
 SDL_Gamepad* s_pads[4]{};
 bool s_inited = false;
+std::atomic<uint64_t> s_acquireSeq{ 0 };
+// Last acquire seq per packed slot (for InputLatency_OnPublish correlation).
+uint64_t s_lastSeq[4]{};
 
 void CompactPads()
 {
@@ -174,6 +179,13 @@ const char* SdlGamepad_Name(int index)
 
 bool SdlGamepad_Read(int index, PadState& out)
 {
+    // SDL caches joystick/gamepad state until SDL_UpdateJoysticks() (or PumpEvents).
+    // Windows Input_PollHotplug throttles PumpEvents to ~4 Hz for hotplug only — without
+    // an explicit UpdateJoysticks here, XInput/HIDAPI pads stay stale up to ~250 ms
+    // (regression from 4205982). Linux window loop pumps every frame; this call is still
+    // correct and cheap (XInputGetState per open pad).
+    SDL_UpdateJoysticks();
+
     std::lock_guard lk(s_mu);
     SDL_Gamepad* p = index >= 0 && index < 4 ? s_pads[index] : nullptr;
     if (!p) return false;
@@ -206,7 +218,18 @@ bool SdlGamepad_Read(int index, PadState& out)
     out.ry = Axis(p, SDL_GAMEPAD_AXIS_RIGHTY, true);
     out.lt = (uint8_t)(SDL_GetGamepadAxis(p, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) * 255 / 32767);
     out.rt = (uint8_t)(SDL_GetGamepadAxis(p, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) * 255 / 32767);
+
+    const uint64_t seq = ++s_acquireSeq;
+    if (index >= 0 && index < 4) s_lastSeq[index] = seq;
+    InputLatency_OnAcquire(index, out.buttons, out.lx, out.ly, out.lt, out.rt, seq);
     return true;
+}
+
+uint64_t SdlGamepad_LastAcquireSeq(int index)
+{
+    if (index < 0 || index >= 4) return 0;
+    std::lock_guard lk(s_mu);
+    return s_lastSeq[index];
 }
 
 void SdlGamepad_SetRumble(int index, uint16_t low, uint16_t high)

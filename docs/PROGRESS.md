@@ -1,5 +1,15 @@
 # Progress log
 
+## 2026-11-23 — Windows Xbox / SDL gamepad input latency
+
+**Goal:** Investigate GitHub reports of high Xbox controller latency on Windows; fix only with evidence.
+
+**Cause:** `4205982` throttled Windows `SDL_PumpEvents` to 250 ms (hotplug). That also starved `SDL_UpdateJoysticks`, so XInput/HIDAPI pad state could stay stale up to ~250 ms. Linux pumps every frame → unaffected.
+
+**Fix:** `SDL_UpdateJoysticks()` inside `SdlGamepad_Read`; keep hotplug pump throttled. Opt-in `SCR_INPUT_LATENCY` / `--input-latency` timing + overlay. Report: `docs/WINDOWS_XBOX_INPUT_LATENCY.md`.
+
+**Validation:** Source + SDL XInput update path **PASS**; native Windows Xbox hardware **UNVERIFIED**. `regression_smoke` + Linux/MinGW builds OK. No sim/audio timing changes.
+
 ## 2026-11-23 — A3h: guest skeleton hierarchy + GX palette provenance
 
 **Goal:** Evidence-driven mapping from player draws → nw4r `ScnMdlSimple` / `ResNode` parents → indexed-XF palette rows. Fix A3g 128-contributor truncation. No interpolation / second XFB / unique-FPS.

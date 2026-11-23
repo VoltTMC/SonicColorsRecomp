@@ -19,4 +19,5 @@ void SdlGamepad_PumpHotplug();
 int SdlGamepad_Count();
 const char* SdlGamepad_Name(int index);
 bool SdlGamepad_Read(int index, PadState& out);
+uint64_t SdlGamepad_LastAcquireSeq(int index);
 void SdlGamepad_SetRumble(int index, uint16_t low, uint16_t high);

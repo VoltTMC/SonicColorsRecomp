@@ -144,6 +144,7 @@ static void PrintUsage()
         "  --mute                  Silence host audio\n"
         "  --list-audio-devices    Print playback devices and exit\n"
         "  --list-gamepads         Print connected controllers (slots 0–3) and exit\n"
+        "  --input-latency         Log host acquire→guest publish controller timing\n"
         "  --music-mods DIR        Music replacement directory\n"
         "  --music-debug           Log music-mod decisions\n"
         "  --music-force-stage ID  Force stage id for music cues (e.g. stg110)\n"
@@ -342,6 +343,11 @@ int main(int argc, char** argv)
         else if (a == "--dump-textures") { extern bool g_dumpTextures; g_dumpTextures = true; }
         else if (a == "--autopress") { extern bool g_autoPress; g_autoPress = true; }
         else if (a == "--input-debug") { extern void InputDebug_SetEnabled(bool); InputDebug_SetEnabled(true); }
+        else if (a == "--input-latency")
+        {
+            extern void InputLatency_SetEnabled(bool);
+            InputLatency_SetEnabled(true);
+        }
         else if (a == "--boost-debug") { extern void BoostDebug_SetEnabled(bool); BoostDebug_SetEnabled(true); }
         else if (a == "--input-script" && i + 1 < argc) { extern void Gamepad_LoadScript(const char*); Gamepad_LoadScript(argv[++i]); }
         else if (a == "--tas" && i + 1 < argc) { extern void Tas_Load(const char*); Tas_Load(argv[++i]); }
