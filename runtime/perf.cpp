@@ -7,6 +7,7 @@
 #include "kernel/threads.h"
 #include "cpu/ppc_context.h"
 #include "gx/video.h"
+#include "gx/gx_state.h"
 #include "audio/music_mod.h"
 #include "debug/a1_xf_capture.h"
 #include "debug/a1b_pose_capture.h"
@@ -207,6 +208,7 @@ static std::atomic<uint64_t> s_uniquePresentedTotal{ 0 };           // XFBs pres
 static std::atomic<uint64_t> s_lastUniquePresentedXfb{ 0 };         // watermark vs s_xfbTotal
 static std::atomic<uint64_t> s_guestN{ 0 }, s_presentN{ 0 }, s_xfbN{ 0 }, s_uniquePresentedN{ 0 };
 static std::atomic<uint64_t> s_guestNs{ 0 }, s_presentNs{ 0 }, s_gxSyncNs{ 0 }, s_viWaitNs{ 0 };
+static std::atomic<uint64_t> s_presentPrepNs{ 0 }, s_presentCallNs{ 0 };
 static std::atomic<uint64_t> s_gapNs{ 0 };   // wall time between FrameLoopWait exit → next enter
 static std::atomic<uint64_t> s_gxSyncCount{ 0 }, s_viSpinIters{ 0 };
 static std::atomic<uint64_t> s_viPostSkip{ 0 }, s_viPostRun{ 0 };  // post-EQ VI barriers
@@ -311,6 +313,13 @@ void Perf_OnGxSyncEnd()
     s_gxSyncNs.fetch_add(Now() - t_gx0, std::memory_order_relaxed);
     s_gxSyncCount.fetch_add(1, std::memory_order_relaxed);
     t_gx0 = 0;
+}
+
+void Perf_NotePresentSplit(uint64_t prepNs, uint64_t presentCallNs)
+{
+    if (!s_on) return;
+    s_presentPrepNs.fetch_add(prepNs, std::memory_order_relaxed);
+    s_presentCallNs.fetch_add(presentCallNs, std::memory_order_relaxed);
 }
 
 void Perf_OnPresentBegin()
@@ -424,6 +433,8 @@ void Perf_LogStatus(double secs)
     uint64_t uniquePresN = s_uniquePresentedN.exchange(0);
     uint64_t guestNs = s_guestNs.exchange(0);
     uint64_t presentNs = s_presentNs.exchange(0);
+    uint64_t presentPrepNs = s_presentPrepNs.exchange(0);
+    uint64_t presentCallNs = s_presentCallNs.exchange(0);
     uint64_t gxNs = s_gxSyncNs.exchange(0);
     uint64_t viNs = s_viWaitNs.exchange(0);
     uint64_t gapNs = s_gapNs.exchange(0);
@@ -455,6 +466,34 @@ void Perf_LogStatus(double secs)
              Video_DisplayRefreshHz(), g_videoConfig.vsync ? "on" : "off",
              viMsPerGuest, viIters, viPostSkip, viPostRun, gxMs, gxCnt,
              Perf_GpuMsSmooth(), Perf_LastXfbDraws(), Platform_ProcessRssMb());
+    if (presentN && (presentPrepNs || presentCallNs))
+    {
+        LOG_INFO("perf: present_split prep {:.2f} ms + Present() {:.2f} ms (n={})",
+                 (presentPrepNs * nsToMs) / presentN, (presentCallNs * nsToMs) / presentN, presentN);
+    }
+    {
+        static int frameProf = -1;
+        if (frameProf < 0)
+        {
+            const char* e = std::getenv("SCR_FRAME_PROFILE");
+            frameProf = (e && e[0] && e[0] != '0') ? 1 : 0;
+        }
+        if (frameProf)
+        {
+            uint64_t flushNs = 0, xfNs = 0, prepNs = 0, flushN = 0, dixN = 0;
+            Render_FrameProfGet(&flushNs, &xfNs, &prepNs, &flushN, &dixN, true);
+            RenderSubmitProf sub{};
+            Render_SubmitProfGet(&sub);
+            Render_SubmitProfReset();
+            const double xfb = xfbN ? (double)xfbN : 1.0;
+            LOG_INFO("perf: frame_flush {:.2f} ms/xfb (prep {:.2f} xf {:.2f}) flushes {:.0f} dix {:.0f} "
+                     "map {:.2f} ms x{} xfUp {} bind {}/{} cb {}/{} tex {}",
+                     (flushNs * nsToMs) / xfb, (prepNs * nsToMs) / xfb, (xfNs * nsToMs) / xfb,
+                     flushN / xfb, dixN / xfb, (sub.mapNs * nsToMs) / xfb, sub.mapN,
+                     sub.xfUploadN, sub.bindCalls, sub.bindSkipped, sub.cbUploadN, sub.cbSkipN,
+                     sub.texLookupN);
+        }
+    }
     {
         extern void ShaderCache_OverlayLine(char* buf, size_t bufSize);
         char sc[192];

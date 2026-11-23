@@ -298,8 +298,11 @@ static uint32_t s_xfDirtyEnd = 0;    // exclusive; 0/0 ⇒ full 0x680 upload
 // A3s mid-stage CPU timers (ns); reset via Render_MidProfReset.
 static uint64_t s_midFlushNs = 0, s_midXfUploadNs = 0, s_midDrawDecodeNs = 0, s_midFlushPrepNs = 0;
 static uint64_t s_midFlushCount = 0, s_midDrawCount = 0, s_midDrawIndexed = 0;
+static uint64_t s_frameFlushNs = 0, s_frameXfUploadNs = 0, s_frameFlushPrepNs = 0;
+static uint64_t s_frameFlushCount = 0, s_frameDrawIndexed = 0;
 static int s_midProf = -1;
 static int s_submitProf = -1;
+static int s_frameProf = -1;
 // A3s/A3t: skip redundant D3D11 binds across consecutive Flush() calls.
 static ID3D11VertexShader* s_boundVS = nullptr;
 static ID3D11PixelShader* s_boundPS = nullptr;
@@ -331,6 +334,16 @@ static int s_midGpuW = 0;
 static bool s_midGpuPending[2]{};
 static uint64_t s_midGpuNsLast = 0;
 
+static bool FrameProfOn()
+{
+    if (s_frameProf < 0)
+    {
+        const char* e = std::getenv("SCR_FRAME_PROFILE");
+        s_frameProf = (e && e[0] && e[0] != '0') ? 1 : 0;
+    }
+    return s_frameProf != 0;
+}
+
 static bool MidProfOn()
 {
     if (s_midProf < 0)
@@ -348,8 +361,10 @@ static bool SubmitProfOn()
         const char* e = std::getenv("SCR_D3D11_SUBMIT_PROFILE");
         s_submitProf = (e && e[0] && e[0] != '0') ? 1 : 0;
     }
-    return s_submitProf != 0 || MidProfOn();
+    return s_submitProf != 0 || MidProfOn() || FrameProfOn();
 }
+
+static bool FlushCpuProfOn() { return MidProfOn() || FrameProfOn(); }
 
 static void InvalidateHostBindCache()
 {
@@ -1858,6 +1873,21 @@ void Render_SubmitProfGet(RenderSubmitProf* out)
     if (out) *out = s_submit;
 }
 
+void Render_FrameProfGet(uint64_t* flushNs, uint64_t* xfUploadNs, uint64_t* flushPrepNs,
+                         uint64_t* flushCount, uint64_t* drawIndexed, bool clear)
+{
+    if (flushNs) *flushNs = s_frameFlushNs;
+    if (xfUploadNs) *xfUploadNs = s_frameXfUploadNs;
+    if (flushPrepNs) *flushPrepNs = s_frameFlushPrepNs;
+    if (flushCount) *flushCount = s_frameFlushCount;
+    if (drawIndexed) *drawIndexed = s_frameDrawIndexed;
+    if (clear)
+    {
+        s_frameFlushNs = s_frameXfUploadNs = s_frameFlushPrepNs = 0;
+        s_frameFlushCount = s_frameDrawIndexed = 0;
+    }
+}
+
 static void MidGpuEnsure()
 {
     if (s_midDj[0]) return;
@@ -2597,7 +2627,7 @@ static void Flush()
         s_indices.clear();
         return;
     }
-    const uint64_t tFlush0 = MidProfOn() ? Platform_PerfCounter() : 0;
+    const uint64_t tFlush0 = FlushCpuProfOn() ? Platform_PerfCounter() : 0;
     uint32_t cull = (BP(0x00) >> 14) & 3;
     if (cull == 3 && s_topo == Topo::Tri)
     {
@@ -2640,11 +2670,15 @@ static void Flush()
     // range tracking is retained for future aligned uploads / profiling only.
     if (s_xfDirty)
     {
-        const uint64_t t0 = MidProfOn() ? Platform_PerfCounter() : 0;
+        const uint64_t t0 = FlushCpuProfOn() ? Platform_PerfCounter() : 0;
         (void)s_xfDirtyBegin;
         (void)s_xfDirtyEnd;
         g_ctx->UpdateSubresource(s_xfBuf, 0, nullptr, g_gx.xfmem, 0, 0);
-        if (SubmitProfOn()) s_submit.updateSubN++;
+        if (SubmitProfOn())
+        {
+            s_submit.updateSubN++;
+            s_submit.xfUploadN++;
+        }
         s_xfDirty = false;
         s_xfDirtyBegin = 0;
         s_xfDirtyEnd = 0;
@@ -2655,6 +2689,7 @@ static void Flush()
             {
                 const uint64_t dt = (Platform_PerfCounter() - t0) * 1000000000ull / freq;
                 if (MidProfOn()) s_midXfUploadNs += dt;
+                if (FrameProfOn()) s_frameXfUploadNs += dt;
                 if (SubmitProfOn()) s_submit.updateSubNs += dt;
             }
         }
@@ -2717,7 +2752,7 @@ static void Flush()
     }
     else if (SubmitProfOn()) s_submit.bindSkipped++;
 
-    const uint64_t tPrep0 = MidProfOn() ? Platform_PerfCounter() : 0;
+    const uint64_t tPrep0 = FlushCpuProfOn() ? Platform_PerfCounter() : 0;
     // A3t: skip FillVS when projection/viewport/materials/flip fingerprint matches.
     {
         uint64_t vsFp = Hash64(&g_gx.xfregs[XF_PROJECTION], 7 * sizeof(uint32_t));
@@ -2812,11 +2847,15 @@ static void Flush()
         }
         else if (SubmitProfOn()) s_submit.bindSkipped++;
     }
-    if (MidProfOn() && tPrep0)
+    if (FlushCpuProfOn() && tPrep0)
     {
         const uint64_t freq = Platform_PerfFrequency();
         if (freq)
-            s_midFlushPrepNs += (Platform_PerfCounter() - tPrep0) * 1000000000ull / freq;
+        {
+            const uint64_t dt = (Platform_PerfCounter() - tPrep0) * 1000000000ull / freq;
+            if (MidProfOn()) s_midFlushPrepNs += dt;
+            if (FrameProfOn()) s_frameFlushPrepNs += dt;
+        }
     }
     const bool texBindChanged = (usedMaps != s_boundUsedMaps) ||
                                 std::memcmp(srvs, s_boundSrvs, sizeof(srvs)) != 0 ||
@@ -3028,6 +3067,7 @@ static void Flush()
     }
     s_drawCalls++;
     s_midDrawIndexed++;
+    if (FrameProfOn()) s_frameDrawIndexed++;
     if (Capturing())
     {
         static int step = 0;
@@ -3041,12 +3081,27 @@ static void Flush()
 
     s_verts.clear();
     s_indices.clear();
-    if (MidProfOn() && tFlush0)
+    if (FlushCpuProfOn() && tFlush0)
     {
         const uint64_t freq = Platform_PerfFrequency();
         if (freq)
-            s_midFlushNs += (Platform_PerfCounter() - tFlush0) * 1000000000ull / freq;
-        s_midFlushCount++;
+        {
+            const uint64_t dt = (Platform_PerfCounter() - tFlush0) * 1000000000ull / freq;
+            if (MidProfOn())
+            {
+                s_midFlushNs += dt;
+                s_midFlushCount++;
+            }
+            if (FrameProfOn())
+            {
+                s_frameFlushNs += dt;
+                s_frameFlushCount++;
+            }
+        }
+        else if (MidProfOn())
+            s_midFlushCount++;
+        else if (FrameProfOn())
+            s_frameFlushCount++;
     }
 }
 

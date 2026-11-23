@@ -165,6 +165,7 @@ void Render_MidProfGet(uint64_t* flushNs, uint64_t* xfUploadNs, uint64_t* drawDe
 void Render_MidProfGetPrep(uint64_t* flushPrepNs);
 
 // A3t: D3D11 submit counters (SCR_D3D11_SUBMIT_PROFILE=1) + async mid GPU timestamps.
+// A4a: also enabled by SCR_FRAME_PROFILE=1 for the normal (non-mid) Flush path.
 struct RenderSubmitProf
 {
     uint64_t mapNs = 0, mapN = 0;
@@ -176,9 +177,13 @@ struct RenderSubmitProf
     uint64_t cbUploadN = 0;       // VS/PS constant Map uploads
     uint64_t cbSkipN = 0;         // identical CB content skipped
     uint64_t texLookupN = 0;
+    uint64_t xfUploadN = 0;       // full XF UpdateSubresource count
 };
 void Render_SubmitProfReset();
 void Render_SubmitProfGet(RenderSubmitProf* out);
+// A4a: normal-path Flush aggregates (SCR_FRAME_PROFILE=1). Reset by Get-and-clear.
+void Render_FrameProfGet(uint64_t* flushNs, uint64_t* xfUploadNs, uint64_t* flushPrepNs,
+                         uint64_t* flushCount, uint64_t* drawIndexed, bool clear);
 // Bracket mid scratch GPU work; resolve previous bracket asynchronously (DONOTFLUSH).
 void Render_MidGpuTimingBegin();
 void Render_MidGpuTimingEnd();

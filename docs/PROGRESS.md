@@ -1,5 +1,15 @@
 # Progress log
 
+## 2026-11-23 — A4a: iGPU performance investigation (RADV 610M)
+
+**Goal:** Explain ~37 FPS on integrated GPU; profile normal path; ship measurable opts without A3v.
+
+**Findings:** Default `internal_scale=3` (1920×1584) on **RADV RAPHAEL_MENDOCINO / Radeon 610M** is **GPU-bound** (Present() ~10.5 ms drain; Flush CPU only ~2.5 ms). RTX 3080 holds **~60** unique_xfb at the same scale. Title/menus ~60 on iGPU.
+
+**Shipped:** `SCR_FRAME_PROFILE` + present_split; swap **BufferCount=3 / MaxFrameLatency=3** (fixes BufferCount=2 Present stalls on this iGPU); skip letterbox-free backbuffer Clear; `tools/run_amd_clean.sh`. Docs: `docs/A4A_PERFORMANCE_INVESTIGATION.md`.
+
+**60 FPS @ scale 3 on 610M:** **not achievable** (fill/draw hardware limit). Prefer scale 1–2 on weak iGPUs. A3v still off; A3w/A3x intact. Win GPU **UNVERIFIED**.
+
 ## 2026-11-23 — A3z: automatic shader-cache preload by default
 
 **Goal:** Normal launches load the A3w portable DXBC cache with no CLI flags; keep `--precompile-shaders` for cache generation only.

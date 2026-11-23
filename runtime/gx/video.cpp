@@ -13,6 +13,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <d3dcompiler.h>
 #include <dxgi.h>
 #include <dxgi1_2.h>
@@ -238,16 +239,40 @@ bool Video_Init()
         factory5->Release();
     }
 
+    // A4a: BufferCount=3 + MaxFrameLatency=3 reduces Present() blocking when the GPU
+    // is still draining the previous EFB frame (common on weak iGPUs at scale≥2).
+    // Correctness unchanged; slightly higher display latency under load.
+    UINT bufferCount = 3;
+    UINT maxLatency = 3;
+    if (const char* e = std::getenv("SCR_SWAP_BUFFERS"))
+    {
+        const int n = std::atoi(e);
+        if (n >= 2 && n <= 4) bufferCount = (UINT)n;
+    }
+    if (const char* e = std::getenv("SCR_MAX_FRAME_LATENCY"))
+    {
+        const int n = std::atoi(e);
+        if (n >= 1 && n <= 8) maxLatency = (UINT)n;
+    }
+    {
+        IDXGIDevice1* dxgiDev1 = nullptr;
+        if (SUCCEEDED(g_device->QueryInterface(__uuidof(IDXGIDevice1), (void**)&dxgiDev1)) && dxgiDev1)
+        {
+            dxgiDev1->SetMaximumFrameLatency(maxLatency);
+            dxgiDev1->Release();
+        }
+    }
     DXGI_SWAP_CHAIN_DESC1 sd{};
     sd.Width = 0;
     sd.Height = 0;
     sd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     sd.SampleDesc.Count = 1;
     sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    sd.BufferCount = 2;
+    sd.BufferCount = bufferCount;
     sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     if (s_allowTearing)
         sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+    LOG_INFO("present: swap buffers={} max_frame_latency={}", bufferCount, maxLatency);
     hr = factory->CreateSwapChainForHwnd(g_device, hwnd, &sd, nullptr, nullptr, &s_swapchain);
     if (FAILED(hr) && s_allowTearing)
     {
@@ -311,7 +336,9 @@ void Video_Present(ID3D11ShaderResourceView* srv, float u0, float v0, float u1, 
 {
     extern void Perf_OnPresentBegin();
     extern void Perf_OnPresentEnd();
+    extern void Perf_NotePresentSplit(uint64_t prepNs, uint64_t presentCallNs);
     Perf_OnPresentBegin();
+    const uint64_t tPresent0 = Platform_PerfCounter();
     if (Window_TakeResized())
     {
         g_ctx->OMSetRenderTargets(0, nullptr, nullptr);
@@ -343,26 +370,31 @@ void Video_Present(ID3D11ShaderResourceView* srv, float u0, float v0, float u1, 
     }
     D3D11_VIEWPORT vp{ 0, 0, w, h, 0, 1 };
     g_ctx->RSSetViewports(1, &vp);
-    float black[4] = { 0, 0, 0, 1 };
     g_ctx->OMSetRenderTargets(1, &target, nullptr);
-    g_ctx->ClearRenderTargetView(target, black);
+    // letterbox to target aspect (optional integer scale keeps sharp pixels)
+    float aspect = g_videoConfig.widescreen ? 16.0f / 9.0f : 4.0f / 3.0f;
+    float dw = w, dh = h;
+    if (w / h > aspect) dw = h * aspect;
+    else dh = w / aspect;
+    if (g_videoConfig.integerScale)
+    {
+        const float baseW = 640.0f;
+        const float baseH = baseW / aspect;
+        const int scale = std::max(1, (int)std::floor(std::min(dw / baseW, dh / baseH)));
+        dw = baseW * (float)scale;
+        dh = baseH * (float)scale;
+    }
+    const float x0 = (w - dw) / 2, y0 = (h - dh) / 2;
+    // A4a: skip full-window Clear when the blit covers every pixel (no letterbox bars).
+    const bool letterbox = !srv || x0 > 0.5f || y0 > 0.5f || (x0 + dw) < w - 0.5f || (y0 + dh) < h - 0.5f;
+    if (letterbox)
+    {
+        float black[4] = { 0, 0, 0, 1 };
+        g_ctx->ClearRenderTargetView(target, black);
+    }
     GpuTimingBegin();
     if (srv)
     {
-        // letterbox to target aspect (optional integer scale keeps sharp pixels)
-        float aspect = g_videoConfig.widescreen ? 16.0f / 9.0f : 4.0f / 3.0f;
-        float dw = w, dh = h;
-        if (w / h > aspect) dw = h * aspect;
-        else dh = w / aspect;
-        if (g_videoConfig.integerScale)
-        {
-            const float baseW = 640.0f;
-            const float baseH = baseW / aspect;
-            const int scale = std::max(1, (int)std::floor(std::min(dw / baseW, dh / baseH)));
-            dw = baseW * (float)scale;
-            dh = baseH * (float)scale;
-        }
-        float x0 = (w - dw) / 2, y0 = (h - dh) / 2;
         float cb[8] = { u0, v0, u1, v1,
                         x0 / w * 2 - 1, 1 - y0 / h * 2, (x0 + dw) / w * 2 - 1, 1 - (y0 + dh) / h * 2 };
         D3D11_MAPPED_SUBRESOURCE m;
@@ -390,6 +422,7 @@ void Video_Present(ID3D11ShaderResourceView* srv, float u0, float v0, float u1, 
     Render_InvalidateHostBindCache();
     NandAutosave_Tick();
     GpuTimingEndAndResolve();
+    const uint64_t tPrepEnd = Platform_PerfCounter();
     // sync=1 follows the *host* display refresh (60/120/165/…), not emulated VI.
     // VSync off: prefer ALLOW_TEARING when supported so presentation is not FIFO-capped.
     const UINT sync = g_videoConfig.vsync ? 1u : 0u;
@@ -400,6 +433,15 @@ void Video_Present(ID3D11ShaderResourceView* srv, float u0, float v0, float u1, 
         static int failures = 0;
         if (failures++ < 5)
             LOG_ERROR("Present failed {:08x} (device removed reason {:08x})", (uint32_t)hr, (uint32_t)g_device->GetDeviceRemovedReason());
+    }
+    {
+        const uint64_t freq = Platform_PerfFrequency();
+        if (freq && tPresent0)
+        {
+            const uint64_t t1 = Platform_PerfCounter();
+            Perf_NotePresentSplit((tPrepEnd - tPresent0) * 1000000000ull / freq,
+                                  (t1 - tPrepEnd) * 1000000000ull / freq);
+        }
     }
     Perf_OnPresentEnd();
 }

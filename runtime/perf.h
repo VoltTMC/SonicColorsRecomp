@@ -42,6 +42,8 @@ float Perf_PresentMsSmooth();
 uint32_t Perf_LastXfbDraws();
 void Perf_NoteGpuNs(uint64_t gpuNs);   // from D3D11 timestamp queries (one frame late)
 float Perf_GpuMsSmooth();              // 0 if no GPU timing yet
+// A4a: split Present wall into blit/overlay prep vs swapchain Present().
+void Perf_NotePresentSplit(uint64_t prepNs, uint64_t presentCallNs);
 
 // Watchdog / status line: append rates when --perf is on.
 void Perf_LogStatus(double secs);

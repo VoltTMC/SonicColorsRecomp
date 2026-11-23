@@ -40,6 +40,8 @@ Useful flags: `--help`, `--version`, `--portable`, `--check-updates`, `--downloa
 If the game goes black after a graphics driver update, try System → Clear shader cache.
 Precompiled shaders (A3w/A3z): the packaged portable DXBC cache under `shadercache/` loads **automatically** at startup (no flags). `--precompile-shaders` is for building/updating that cache. Diagnostics: `--no-shader-preload`. See [`docs/A3W_OFFLINE_SHADER_PRECOMPILATION.md`](docs/A3W_OFFLINE_SHADER_PRECOMPILATION.md). Device Vulkan/DXVK pipeline caches are **not** universal.
 
+Performance (A4a): on weak integrated GPUs, default `internal_scale=3` is often GPU-bound (~37 unique frames/s measured on Radeon 610M / RADV). Prefer scale 1–2 for 60-class play. Profile with `--perf` and optional `SCR_FRAME_PROFILE=1`. Clean GPU runners: `tools/run_nvidia_clean.sh`, `tools/run_amd_clean.sh`. See [`docs/A4A_PERFORMANCE_INVESTIGATION.md`](docs/A4A_PERFORMANCE_INVESTIGATION.md).
+
 ## Status (2026-11-20)
 
 | Area | State |
