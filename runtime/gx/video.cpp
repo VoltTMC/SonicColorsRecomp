@@ -1,5 +1,6 @@
 // D3D11 device and presentation (the window itself is the platform's, platform/window.h).
 #include "video.h"
+#include "gx_state.h"
 #include "../config.h"
 #include "../log.h"
 #include "../platform/platform.h"
@@ -383,7 +384,10 @@ void Video_Present(ID3D11ShaderResourceView* srv, float u0, float v0, float u1, 
         ID3D11ShaderResourceView* nullSrv = nullptr;
         g_ctx->PSSetShaderResources(0, 1, &nullSrv);
     }
+    // A3x: blit + overlay replace IA/VS/PS/OM; Flush must not reuse A3t bind cache.
+    Render_InvalidateHostBindCache();
     Overlay_Render(w, h);   // in-game settings, drawn over the game while it keeps running
+    Render_InvalidateHostBindCache();
     NandAutosave_Tick();
     GpuTimingEndAndResolve();
     // sync=1 follows the *host* display refresh (60/120/165/…), not emulated VI.

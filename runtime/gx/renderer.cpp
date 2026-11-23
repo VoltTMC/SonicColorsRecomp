@@ -277,7 +277,14 @@ static ID3DBlob* s_vsBlobForLayout = nullptr;
 static uint8_t s_tmem[1024 * 1024];
 
 // ------------------------------------------------------------------ batch
-enum class Topo { Tri, Line, Point };
+enum class Topo { Tri, Line, Point, Invalid };
+// Invalid is the only safe bind-cache sentinel. A3s used Tri, which is also the
+// common GX draw topology — InvalidateHostBindCache then failed to force
+// IASetPrimitiveTopology after DrawQuad left TRIANGLESTRIP bound, producing
+// stretched/exploded geometry on the live XFB path (A3x).
+static_assert(Topo::Invalid != Topo::Tri);
+static_assert(Topo::Invalid != Topo::Line);
+static_assert(Topo::Invalid != Topo::Point);
 // default constructor leaves the vertex uninitialised so resize() does not zero it
 struct BatchVertex : HostVertex { BatchVertex() {} };
 static std::vector<BatchVertex> s_verts;
@@ -296,7 +303,7 @@ static int s_submitProf = -1;
 // A3s/A3t: skip redundant D3D11 binds across consecutive Flush() calls.
 static ID3D11VertexShader* s_boundVS = nullptr;
 static ID3D11PixelShader* s_boundPS = nullptr;
-static Topo s_boundTopo = Topo::Tri;
+static Topo s_boundTopo = Topo::Invalid;
 static uint32_t s_boundCull = ~0u;
 static uint32_t s_boundUsedMaps = ~0u;
 static ID3D11ShaderResourceView* s_boundSrvs[8]{};
@@ -348,7 +355,7 @@ static void InvalidateHostBindCache()
 {
     s_boundVS = nullptr;
     s_boundPS = nullptr;
-    s_boundTopo = Topo::Tri;
+    s_boundTopo = Topo::Invalid;
     s_boundCull = ~0u;
     s_boundUsedMaps = ~0u;
     s_boundVp[0] = s_boundVp[1] = s_boundVp[2] = s_boundVp[3] = -1.f;
@@ -370,6 +377,8 @@ static void InvalidateHostBindCache()
         s_texDimW[i] = s_texDimH[i] = 0;
     }
 }
+
+void Render_InvalidateHostBindCache() { InvalidateHostBindCache(); }
 
 static void MarkXfDirtyRange(uint32_t addr, uint32_t count)
 {
@@ -1886,6 +1895,8 @@ static void UnbindOMTargets()
     if (!g_ctx) return;
     ID3D11RenderTargetView* nullRtv = nullptr;
     g_ctx->OMSetRenderTargets(0, &nullRtv, nullptr);
+    // A3x: OM unbind must invalidate A3t RTV/DSV cache or SetEFBTarget skips rebind.
+    InvalidateHostBindCache();
 }
 
 static uint32_t HashTextureContents(ID3D11Texture2D* tex, bool everyPixel)
@@ -2574,26 +2585,31 @@ static void Flush()
         return;
     }
 
-    // XF memory — A3s: upload only the dirty float range when possible (0x680 SRV).
+    // A3x diagnostic: SCR_A3T_BIND_CACHE=0 forces full rebind/refill every Flush
+    // (isolates stale A3s/A3t host-state cache from other regressions).
+    {
+        static int disableCache = -1;
+        if (disableCache < 0)
+        {
+            const char* e = std::getenv("SCR_A3T_BIND_CACHE");
+            disableCache = (e && e[0] == '0') ? 1 : 0;
+            if (disableCache)
+                LOG_INFO("A3x: SCR_A3T_BIND_CACHE=0 — Flush bind/CB/tex/fill cache disabled");
+        }
+        if (disableCache)
+            InvalidateHostBindCache();
+    }
+
+    // XF memory — A3x: always upload the full 0x680 SRV.
+    // A3s partial UpdateSubresource(D3D11_BOX) produced stretched/corrupt geometry on
+    // DXVK (byte-box updates to DEFAULT buffers are not reliably portable). Dirty
+    // range tracking is retained for future aligned uploads / profiling only.
     if (s_xfDirty)
     {
         const uint64_t t0 = MidProfOn() ? Platform_PerfCounter() : 0;
-        uint32_t b = s_xfDirtyBegin, e = s_xfDirtyEnd;
-        if (e == 0 || e <= b || e > 0x680u || b >= 0x680u)
-        {
-            g_ctx->UpdateSubresource(s_xfBuf, 0, nullptr, g_gx.xfmem, 0, 0);
-        }
-        else
-        {
-            D3D11_BOX box{};
-            box.left = b * 4u;
-            box.right = e * 4u;
-            box.top = 0;
-            box.bottom = 1;
-            box.front = 0;
-            box.back = 1;
-            g_ctx->UpdateSubresource(s_xfBuf, 0, &box, &g_gx.xfmem[b], 0, 0);
-        }
+        (void)s_xfDirtyBegin;
+        (void)s_xfDirtyEnd;
+        g_ctx->UpdateSubresource(s_xfBuf, 0, nullptr, g_gx.xfmem, 0, 0);
         if (SubmitProfOn()) s_submit.updateSubN++;
         s_xfDirty = false;
         s_xfDirtyBegin = 0;
@@ -3403,6 +3419,10 @@ static void DoEFBCopy()
     if (s_replayIsolation)
         Flush();
     g_ctx->OMSetRenderTargets(0, nullptr, nullptr);
+    // A3x: DoEFBCopy + Video_Present blit stomp IA/VS/PS/OM. Without dropping the
+    // A3t Flush bind cache, SetEFBTarget/ClearEFB/Flush skip rebinds (null RT,
+    // blit CB, TRIANGLESTRIP topo, null input layout) → white/corrupt frames.
+    InvalidateHostBindCache();
     // Full-EFB snapshots are only needed when this copy samples EFB (non-XFB).
     // Doing them here made every XFB present copy ~24 MiB at scale 3 (color+depth),
     // then copy the color region again below. Move them into the sampling branch.

@@ -1,5 +1,17 @@
 # Progress log
 
+## 2026-11-23 — A3x: graphics regression (stretched geometry / HUD)
+
+**Goal:** Fix live XFB rendering corruption (TR1 env/player/HUD); keep A3w cache and A3v benched/off.
+
+**Root cause:** A3s Flush bind-cache invalidated topology with `s_boundTopo = Topo::Tri`. After `DrawQuad` left `TRIANGLESTRIP` bound, the next triangle-list Flush skipped `IASetPrimitiveTopology` → exploded geometry. Last good `8991926` (A3r); first bad `055a6dc` (A3s). Shader cache not involved.
+
+**Fix:** `Topo::Invalid` sentinel + `static_assert`; full XF upload (no DXVK partial box); invalidate after Present/OM/util. Docs: `docs/A3X_GRAPHICS_REGRESSION_INVESTIGATION.md`.
+
+**Evidence (RTX 3080):** TR1 correct with full and empty portable cache. Win GPU **UNVERIFIED**.
+
+**A3v:** still **BENCHED** / default off.
+
 ## 2026-11-23 — A3w: offline shader precompilation (portable DXBC)
 
 **Goal:** Bench A3v; extend BlackKnight shadercache (not a parallel system) with versioned manifest, collection, offline compile, runtime stats, honest portable-vs-device claims.
@@ -53,6 +65,8 @@
 **Goal:** Reduce mid `GX_ReplayCommands` critical path from ~17–21 ms toward &lt;~8 ms; evaluate predecoded/cached replay and async only if profiling justifies; preserve A3q pose + A3p archives; approach 60+60 only with evidence.
 
 **Shipped:** `SCR_MID_PROFILE` stage timers (flush / xfUp / decode / dix); partial XF dirty-range upload; Flush bind-cache (VS/PS/topo/cull/vp/scissor/SRV/sampler); lockless `PoseInterp_OverrideIndexed` under replay isolation; report `docs/A3S_CACHED_AND_ASYNC_GX_REPLAY.md`.
+
+**A3x note:** Topology bind-cache sentinel used `Topo::Tri` (also the common draw topo) → live XFB stretch after util `DrawQuad`; fixed in A3x via `Topo::Invalid` + full XF upload.
 
 **Not shipped (evidence):** Full predecoded FIFO plan (decode only ~2 ms); D3D11 deferred CL reuse (dynamic XF/pose); async worker (does not shrink Flush on single immediate context).
 

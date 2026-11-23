@@ -106,6 +106,9 @@ bool Render_ReplayIsolationActive();
 void Render_ForceXfDirty();
 void Render_Flush();  // submit pending host draw batch
 void Render_ResetHostDrawState();  // flush batches; force XF upload next draw
+// A3x: drop A3s/A3t Flush bind/CB cache after external D3D11 state changes
+// (EFB copy unbind, XFB present blit, util draws).
+void Render_InvalidateHostBindCache();
 
 // Incoming EFB snapshot slots (GPU CopyResource; independent of live EFB).
 // slot < 0 means invalid. Capture at pass entry = after post-XFB ClearEFB
