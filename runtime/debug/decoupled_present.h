@@ -16,6 +16,8 @@
 // A3r: production mid attempted once per sim on guest pace enter (not only wait residual).
 //      SCR_MID_HASH=1 — enable CPU image hash on mid present (off; expensive).
 //      SCR_MID_PROFILE=1 — emit bounded mid stage ms in status overlay path.
+// A3t: SCR_D3D11_SUBMIT_PROFILE=1 — Map/CB/bind/DrawIndexed counters in mid detail
+//      (also implied when SCR_MID_PROFILE=1). Mid GPU timestamps always bracketed.
 
 struct DecoupledPresentStats
 {

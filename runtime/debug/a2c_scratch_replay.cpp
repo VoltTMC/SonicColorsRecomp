@@ -1765,14 +1765,21 @@ bool A2c_DecoupledMidPresent(float alpha, uint32_t* outColorHash, uint32_t* outD
         A3b_BeginScratchCamera(alpha, false);
 
     Render_MidProfReset();
+    Render_SubmitProfReset();
     const uint64_t tReplay0 = Platform_PerfCounter();
     const uint64_t gx0 = PoseInterp_GxOverrideCount();
+    Render_MidGpuTimingBegin();
     GX_ReplayCommands(pkt.cmd.data(), pass.passBytes);
+    Render_MidGpuTimingEnd();
     const uint64_t gxConsumed = PoseInterp_GxOverrideCount() - gx0;
     if (outGxOverrides) *outGxOverrides = gxConsumed;
     const uint64_t tReplay1 = Platform_PerfCounter();
-    uint64_t flushNs = 0, xfNs = 0, decNs = 0, flushN = 0, drawN = 0, dixN = 0;
+    uint64_t flushNs = 0, xfNs = 0, decNs = 0, flushN = 0, drawN = 0, dixN = 0, prepNs = 0;
     Render_MidProfGet(&flushNs, &xfNs, &decNs, &flushN, &drawN, &dixN);
+    Render_MidProfGetPrep(&prepNs);
+    RenderSubmitProf sub{};
+    Render_SubmitProfGet(&sub);
+    const uint64_t gpuNs = Render_MidGpuNsLast();
 
     if (A3b_ScratchCameraActive()) A3b_EndScratchCamera();
 
@@ -1785,14 +1792,16 @@ bool A2c_DecoupledMidPresent(float alpha, uint32_t* outColorHash, uint32_t* outD
     {
         const double inv = freq ? (1000.0 / (double)freq) : 0.0;
         std::snprintf(detail, detailN,
-                      "%s %s draws=%u hash=%08x α=%.3f gx=%llu replay=%.1fms present=%.1fms "
-                      "total=%.1fms flush=%.1fms/%llu xfUp=%.1fms decode=%.1fms/%llu dix=%llu",
+                      "%s %s draws=%u α=%.3f gx=%llu replay=%.1fms flush=%.1fms/%llu prep=%.1fms "
+                      "map=%.1fms dixApi=%.1fms/%llu cbSk=%llu/%llu bindSk=%llu/%llu gpu=%.2fms",
                       ok ? "mid-OK" : "mid-FAIL", A2c_FamilyName(pass.family), pass.drawCount,
-                      colorHash, alpha, (unsigned long long)gxConsumed,
-                      (tReplay1 - tReplay0) * inv, (tPres1 - tPres0) * inv,
-                      (tPres1 - tAll0) * inv, flushNs / 1.0e6, (unsigned long long)flushN,
-                      xfNs / 1.0e6, decNs / 1.0e6, (unsigned long long)drawN,
-                      (unsigned long long)dixN);
+                      alpha, (unsigned long long)gxConsumed, (tReplay1 - tReplay0) * inv,
+                      flushNs / 1.0e6, (unsigned long long)flushN, prepNs / 1.0e6,
+                      sub.mapNs / 1.0e6, sub.drawIndexedNs / 1.0e6,
+                      (unsigned long long)sub.drawIndexedN,
+                      (unsigned long long)sub.cbSkipN, (unsigned long long)(sub.cbSkipN + sub.cbUploadN),
+                      (unsigned long long)sub.bindSkipped,
+                      (unsigned long long)(sub.bindSkipped + sub.bindCalls), gpuNs / 1.0e6);
     }
 
     cleanup();

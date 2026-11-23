@@ -1,5 +1,15 @@
 # Progress log
 
+## 2026-11-23 — A3t: D3D11 immediate-context submission optimisation (PARTIAL)
+
+**Goal:** Cut Flush/D3D11 mid submission from ~14–19 ms toward &lt;~8 ms; measure full-scene GPU independently; preserve A3q/A3p.
+
+**Shipped:** Submit profile (`SCR_D3D11_SUBMIT_PROFILE`); async mid GPU timestamps; OM/blend/depth/RTV/layout/CB bind cache; CB content skip; tex-reg reuse; Fill fingerprints; DrawQuad bind-cache invalidate; `docs/A3T_D3D11_SUBMISSION_OPTIMISATION.md`.
+
+**Evidence (RTX 3080 / DXVK):** Flush prep (Fill+GetTexture) ≈12–15 ms; Map ≈1 ms; Dix API ≈0.1 ms; **scratch GPU ≈14–20 ms**. Soft budget: sim≈60, unique_mid≈9–10/s. **CPU &lt;8 ms FAIL; 60+60 FAIL (GPU ceiling).**
+
+**Gate:** Diagnosis **PASS**; micro-opts **PASS**; cmdlist/batching declined; Win GPU **UNVERIFIED**.
+
 ## 2026-11-23 — A3s: cached / async GX replay investigation (PARTIAL)
 
 **Goal:** Reduce mid `GX_ReplayCommands` critical path from ~17–21 ms toward &lt;~8 ms; evaluate predecoded/cached replay and async only if profiling justifies; preserve A3q pose + A3p archives; approach 60+60 only with evidence.

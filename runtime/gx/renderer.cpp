@@ -277,10 +277,11 @@ static bool s_xfDirty = true;
 static uint32_t s_xfDirtyBegin = 0;  // inclusive float index into xfmem
 static uint32_t s_xfDirtyEnd = 0;    // exclusive; 0/0 ⇒ full 0x680 upload
 // A3s mid-stage CPU timers (ns); reset via Render_MidProfReset.
-static uint64_t s_midFlushNs = 0, s_midXfUploadNs = 0, s_midDrawDecodeNs = 0;
+static uint64_t s_midFlushNs = 0, s_midXfUploadNs = 0, s_midDrawDecodeNs = 0, s_midFlushPrepNs = 0;
 static uint64_t s_midFlushCount = 0, s_midDrawCount = 0, s_midDrawIndexed = 0;
 static int s_midProf = -1;
-// A3s: skip redundant D3D11 binds across consecutive Flush() calls.
+static int s_submitProf = -1;
+// A3s/A3t: skip redundant D3D11 binds across consecutive Flush() calls.
 static ID3D11VertexShader* s_boundVS = nullptr;
 static ID3D11PixelShader* s_boundPS = nullptr;
 static Topo s_boundTopo = Topo::Tri;
@@ -290,6 +291,26 @@ static ID3D11ShaderResourceView* s_boundSrvs[8]{};
 static ID3D11SamplerState* s_boundSamps[8]{};
 static float s_boundVp[4] = { -1, -1, -1, -1 };
 static int s_boundScissor[4] = { -1, -1, -1, -1 };
+static ID3D11BlendState* s_boundBlend = nullptr;
+static ID3D11DepthStencilState* s_boundDepth = nullptr;
+static ID3D11RenderTargetView* s_boundRtv = nullptr;
+static ID3D11DepthStencilView* s_boundDsv = nullptr;
+static ID3D11InputLayout* s_boundLayout = nullptr;
+static bool s_boundVsCb = false, s_boundPsCb = false, s_boundXfSrv = false;
+static VSConstants s_lastVsCb{};
+static PSConstants s_lastPsCb{};
+static bool s_haveVsCb = false, s_havePsCb = false;
+static uint32_t s_texFp[8]{};
+static uint32_t s_texDimW[8]{}, s_texDimH[8]{};
+static bool s_texFpValid = false;
+static uint64_t s_vsFillFp = 0, s_psFillFp = 0;
+static bool s_haveVsFillFp = false, s_havePsFillFp = false;
+static RenderSubmitProf s_submit{};
+// A3t: async GPU timestamps around mid scratch replay (double-buffered).
+static ID3D11Query* s_midDj[2]{}, *s_midTs0[2]{}, *s_midTs1[2]{};
+static int s_midGpuW = 0;
+static bool s_midGpuPending[2]{};
+static uint64_t s_midGpuNsLast = 0;
 
 static bool MidProfOn()
 {
@@ -299,6 +320,43 @@ static bool MidProfOn()
         s_midProf = (e && e[0] && e[0] != '0') ? 1 : 0;
     }
     return s_midProf != 0;
+}
+
+static bool SubmitProfOn()
+{
+    if (s_submitProf < 0)
+    {
+        const char* e = std::getenv("SCR_D3D11_SUBMIT_PROFILE");
+        s_submitProf = (e && e[0] && e[0] != '0') ? 1 : 0;
+    }
+    return s_submitProf != 0 || MidProfOn();
+}
+
+static void InvalidateHostBindCache()
+{
+    s_boundVS = nullptr;
+    s_boundPS = nullptr;
+    s_boundTopo = Topo::Tri;
+    s_boundCull = ~0u;
+    s_boundUsedMaps = ~0u;
+    s_boundVp[0] = s_boundVp[1] = s_boundVp[2] = s_boundVp[3] = -1.f;
+    s_boundScissor[0] = s_boundScissor[1] = s_boundScissor[2] = s_boundScissor[3] = -1;
+    s_boundBlend = nullptr;
+    s_boundDepth = nullptr;
+    s_boundRtv = nullptr;
+    s_boundDsv = nullptr;
+    s_boundLayout = nullptr;
+    s_boundVsCb = s_boundPsCb = s_boundXfSrv = false;
+    s_haveVsCb = s_havePsCb = false;
+    s_texFpValid = false;
+    s_haveVsFillFp = s_havePsFillFp = false;
+    for (int i = 0; i < 8; i++)
+    {
+        s_boundSrvs[i] = nullptr;
+        s_boundSamps[i] = nullptr;
+        s_texFp[i] = 0;
+        s_texDimW[i] = s_texDimH[i] = 0;
+    }
 }
 
 static void MarkXfDirtyRange(uint32_t addr, uint32_t count)
@@ -1518,9 +1576,37 @@ template <typename T>
 static void UpdateCB(ID3D11Buffer* b, const T& data)
 {
     D3D11_MAPPED_SUBRESOURCE m;
+    const uint64_t t0 = SubmitProfOn() ? Platform_PerfCounter() : 0;
     g_ctx->Map(b, 0, D3D11_MAP_WRITE_DISCARD, 0, &m);
     memcpy(m.pData, &data, sizeof(T));
     g_ctx->Unmap(b, 0);
+    if (SubmitProfOn())
+    {
+        s_submit.mapN++;
+        s_submit.unmapN++;
+        if (t0)
+        {
+            const uint64_t freq = Platform_PerfFrequency();
+            if (freq) s_submit.mapNs += (Platform_PerfCounter() - t0) * 1000000000ull / freq;
+        }
+    }
+}
+
+// A3t: skip Map/Unmap when constant payload is byte-identical to last upload.
+template <typename T>
+static bool UpdateCBIfChanged(ID3D11Buffer* b, const T& data, T& last, bool& have)
+{
+    if (have && std::memcmp(&data, &last, sizeof(T)) == 0)
+    {
+        if (SubmitProfOn()) s_submit.cbSkipN++;
+        if (SubmitProfOn()) s_submit.bindSkipped++;
+        return false;
+    }
+    UpdateCB(b, data);
+    last = data;
+    have = true;
+    if (SubmitProfOn()) s_submit.cbUploadN++;
+    return true;
 }
 
 static UINT s_vbPos = 0, s_ibPos = 0;
@@ -1548,10 +1634,17 @@ static void Flush();
 
 static void SetEFBTarget()
 {
-    if (s_replayIsolation && s_scratchRTV)
-        g_ctx->OMSetRenderTargets(1, &s_scratchRTV, s_scratchDSV);
-    else
-        g_ctx->OMSetRenderTargets(1, &s_efbRTV, s_efbDSV);
+    ID3D11RenderTargetView* rtv = (s_replayIsolation && s_scratchRTV) ? s_scratchRTV : s_efbRTV;
+    ID3D11DepthStencilView* dsv = (s_replayIsolation && s_scratchRTV) ? s_scratchDSV : s_efbDSV;
+    if (rtv == s_boundRtv && dsv == s_boundDsv)
+    {
+        if (SubmitProfOn()) s_submit.bindSkipped++;
+        return;
+    }
+    g_ctx->OMSetRenderTargets(1, &rtv, dsv);
+    s_boundRtv = rtv;
+    s_boundDsv = dsv;
+    if (SubmitProfOn()) s_submit.bindCalls++;
 }
 
 void Render_SetReplayIsolation(bool on) { s_replayIsolation = on; }
@@ -1565,7 +1658,7 @@ void Render_ForceXfDirty()
 
 void Render_MidProfReset()
 {
-    s_midFlushNs = s_midXfUploadNs = s_midDrawDecodeNs = 0;
+    s_midFlushNs = s_midXfUploadNs = s_midDrawDecodeNs = s_midFlushPrepNs = 0;
     s_midFlushCount = s_midDrawCount = s_midDrawIndexed = 0;
 }
 
@@ -1580,6 +1673,68 @@ void Render_MidProfGet(uint64_t* flushNs, uint64_t* xfUploadNs, uint64_t* drawDe
     if (drawIndexed) *drawIndexed = s_midDrawIndexed;
 }
 
+void Render_MidProfGetPrep(uint64_t* flushPrepNs)
+{
+    if (flushPrepNs) *flushPrepNs = s_midFlushPrepNs;
+}
+
+void Render_SubmitProfReset() { s_submit = {}; }
+
+void Render_SubmitProfGet(RenderSubmitProf* out)
+{
+    if (out) *out = s_submit;
+}
+
+static void MidGpuEnsure()
+{
+    if (s_midDj[0]) return;
+    if (!g_device) return;
+    D3D11_QUERY_DESC qd{};
+    for (int i = 0; i < 2; i++)
+    {
+        qd.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
+        if (FAILED(g_device->CreateQuery(&qd, &s_midDj[i]))) return;
+        qd.Query = D3D11_QUERY_TIMESTAMP;
+        if (FAILED(g_device->CreateQuery(&qd, &s_midTs0[i]))) return;
+        if (FAILED(g_device->CreateQuery(&qd, &s_midTs1[i]))) return;
+    }
+}
+
+static void MidGpuTryResolve(int slot)
+{
+    if (!s_midGpuPending[slot] || !s_midDj[slot] || !g_ctx) return;
+    D3D11_QUERY_DATA_TIMESTAMP_DISJOINT dj{};
+    UINT64 t0 = 0, t1 = 0;
+    if (g_ctx->GetData(s_midDj[slot], &dj, sizeof(dj), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) return;
+    if (g_ctx->GetData(s_midTs0[slot], &t0, sizeof(t0), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) return;
+    if (g_ctx->GetData(s_midTs1[slot], &t1, sizeof(t1), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) return;
+    s_midGpuPending[slot] = false;
+    if (dj.Disjoint || !dj.Frequency || t1 < t0) return;
+    s_midGpuNsLast = (uint64_t)((double)(t1 - t0) * 1.0e9 / (double)dj.Frequency);
+}
+
+void Render_MidGpuTimingBegin()
+{
+    if (!g_ctx) return;
+    MidGpuEnsure();
+    if (!s_midDj[0]) return;
+    MidGpuTryResolve(s_midGpuW ^ 1);
+    g_ctx->Begin(s_midDj[s_midGpuW]);
+    g_ctx->End(s_midTs0[s_midGpuW]);
+}
+
+void Render_MidGpuTimingEnd()
+{
+    if (!g_ctx || !s_midDj[0]) return;
+    g_ctx->End(s_midTs1[s_midGpuW]);
+    g_ctx->End(s_midDj[s_midGpuW]);
+    s_midGpuPending[s_midGpuW] = true;
+    s_midGpuW ^= 1;
+    MidGpuTryResolve(s_midGpuW);
+}
+
+uint64_t Render_MidGpuNsLast() { return s_midGpuNsLast; }
+
 void Render_ResetHostDrawState()
 {
     Flush();
@@ -1590,18 +1745,7 @@ void Render_ResetHostDrawState()
     s_xfDirtyBegin = 0;
     s_xfDirtyEnd = 0x680u;
     s_batchComponents = 0;
-    s_boundVS = nullptr;
-    s_boundPS = nullptr;
-    s_boundTopo = Topo::Tri;
-    s_boundCull = ~0u;
-    s_boundUsedMaps = ~0u;
-    s_boundVp[0] = s_boundVp[1] = s_boundVp[2] = s_boundVp[3] = -1.f;
-    s_boundScissor[0] = s_boundScissor[1] = s_boundScissor[2] = s_boundScissor[3] = -1;
-    for (int i = 0; i < 8; i++)
-    {
-        s_boundSrvs[i] = nullptr;
-        s_boundSamps[i] = nullptr;
-    }
+    InvalidateHostBindCache();
 }
 
 uint8_t* Render_TmemPtr() { return s_tmem; }
@@ -2278,14 +2422,19 @@ static void Flush()
             box.back = 1;
             g_ctx->UpdateSubresource(s_xfBuf, 0, &box, &g_gx.xfmem[b], 0, 0);
         }
+        if (SubmitProfOn()) s_submit.updateSubN++;
         s_xfDirty = false;
         s_xfDirtyBegin = 0;
         s_xfDirtyEnd = 0;
-        if (MidProfOn() && t0)
+        if (t0)
         {
             const uint64_t freq = Platform_PerfFrequency();
             if (freq)
-                s_midXfUploadNs += (Platform_PerfCounter() - t0) * 1000000000ull / freq;
+            {
+                const uint64_t dt = (Platform_PerfCounter() - t0) * 1000000000ull / freq;
+                if (MidProfOn()) s_midXfUploadNs += dt;
+                if (SubmitProfOn()) s_submit.updateSubNs += dt;
+            }
         }
     }
 
@@ -2323,7 +2472,9 @@ static void Flush()
         s_boundVp[1] = vp.TopLeftY;
         s_boundVp[2] = vp.Width;
         s_boundVp[3] = vp.Height;
+        if (SubmitProfOn()) s_submit.bindCalls++;
     }
+    else if (SubmitProfOn()) s_submit.bindSkipped++;
 
     // scissor
     uint32_t tl = BP(0x20), br = BP(0x21);
@@ -2340,13 +2491,31 @@ static void Flush()
         s_boundScissor[1] = (int)sr.top;
         s_boundScissor[2] = (int)sr.right;
         s_boundScissor[3] = (int)sr.bottom;
+        if (SubmitProfOn()) s_submit.bindCalls++;
+    }
+    else if (SubmitProfOn()) s_submit.bindSkipped++;
+
+    const uint64_t tPrep0 = MidProfOn() ? Platform_PerfCounter() : 0;
+    // A3t: skip FillVS when projection/viewport/materials/flip fingerprint matches.
+    {
+        uint64_t vsFp = Hash64(&g_gx.xfregs[XF_PROJECTION], 7 * sizeof(uint32_t));
+        vsFp = Hash64(&g_gx.xfregs[XF_AMBIENT0], 4 * sizeof(uint32_t), vsFp);
+        float vpz[2] = { XFFloat(0x1000 + XF_VIEWPORT + 2), XFFloat(0x1000 + XF_VIEWPORT + 5) };
+        vsFp = Hash64(vpz, sizeof(vpz), vsFp);
+        float fl[2] = { flipX, flipY };
+        vsFp = Hash64(fl, sizeof(fl), vsFp);
+        if (!(s_haveVsFillFp && vsFp == s_vsFillFp && s_haveVsCb))
+        {
+            VSConstants vc;
+            FillVSConstants(vc, &flipX, &flipY);
+            UpdateCBIfChanged(s_vsCB, vc, s_lastVsCb, s_haveVsCb);
+            s_vsFillFp = vsFp;
+            s_haveVsFillFp = true;
+        }
+        else if (SubmitProfOn()) s_submit.bindSkipped++;
     }
 
-    VSConstants vc;
-    FillVSConstants(vc, &flipX, &flipY);
-    UpdateCB(s_vsCB, vc);
-
-    // textures
+    // textures — A3t: reuse prior SRV/sampler/dims when map regs unchanged.
     uint32_t texW[8] = { 1, 1, 1, 1, 1, 1, 1, 1 }, texH[8] = { 1, 1, 1, 1, 1, 1, 1, 1 };
     ID3D11ShaderResourceView* srvs[8];
     ID3D11SamplerState* samps[8];
@@ -2360,25 +2529,82 @@ static void Flush()
     for (uint32_t is = 0; is < pk.numIndStages; is++)
         usedMaps |= 1 << ((pk.indOrder >> (6 * is)) & 7);
     if (pk.numTexGens == 0) usedMaps = 0;
+    uint32_t fp[8]{};
+    bool texRegsSame = s_texFpValid && usedMaps == s_boundUsedMaps;
     for (int m = 0; m < 8; m++)
     {
         if (!(usedMaps & (1 << m))) continue;
-        bool mips;
-        srvs[m] = GetTexture(m, &texW[m], &texH[m], &mips);
-        if (!srvs[m]) srvs[m] = s_dummySRV;
-        samps[m] = GetSampler(TexReg(m, 0x80, 0xA0), TexReg(m, 0x84, 0xA4), mips);
+        // Identity: image + mode + tlut regs (not guest EA alone).
+        fp[m] = TexReg(m, 0x88, 0xA8) ^ (TexReg(m, 0x94, 0xB4) * 0x9E3779B9u) ^
+                (TexReg(m, 0x80, 0xA0) * 0x85EBCA6Bu) ^ (TexReg(m, 0x84, 0xA4) * 0xC2B2AE35u) ^
+                (TexReg(m, 0x98, 0xB8) * 0x27D4EB2Du);
+        if (fp[m] != s_texFp[m]) texRegsSame = false;
+    }
+    if (texRegsSame)
+    {
+        for (int m = 0; m < 8; m++)
+        {
+            if (!(usedMaps & (1 << m))) continue;
+            srvs[m] = s_boundSrvs[m] ? s_boundSrvs[m] : s_dummySRV;
+            samps[m] = s_boundSamps[m] ? s_boundSamps[m] : s_pointClamp;
+            texW[m] = s_texDimW[m] ? s_texDimW[m] : 1;
+            texH[m] = s_texDimH[m] ? s_texDimH[m] : 1;
+        }
+        if (SubmitProfOn()) s_submit.bindSkipped += (uint64_t)__builtin_popcount(usedMaps);
+    }
+    else
+    {
+        for (int m = 0; m < 8; m++)
+        {
+            if (!(usedMaps & (1 << m))) continue;
+            bool mips;
+            srvs[m] = GetTexture(m, &texW[m], &texH[m], &mips);
+            if (!srvs[m]) srvs[m] = s_dummySRV;
+            samps[m] = GetSampler(TexReg(m, 0x80, 0xA0), TexReg(m, 0x84, 0xA4), mips);
+            s_texFp[m] = fp[m];
+            s_texDimW[m] = texW[m];
+            s_texDimH[m] = texH[m];
+            if (SubmitProfOn()) s_submit.texLookupN++;
+        }
+        s_texFpValid = true;
     }
 
-    PSConstants pc;
-    FillPSConstants(pc, texW, texH);
-    UpdateCB(s_psCB, pc);
+    {
+        uint64_t psFp = Hash64(g_gx.bp + 0x06, (0x0F - 0x06 + 1) * sizeof(uint32_t));
+        psFp = Hash64(g_gx.bp + 0x25, 2 * sizeof(uint32_t), psFp);
+        psFp = Hash64(g_gx.bp + 0x42, sizeof(uint32_t), psFp);
+        psFp = Hash64(g_gx.bp + 0xE0, (0xF5 - 0xE0 + 1) * sizeof(uint32_t), psFp);
+        psFp = Hash64(g_tevKonst, sizeof(g_tevKonst), psFp);
+        psFp = Hash64(texW, 8 * sizeof(uint32_t), psFp);
+        psFp = Hash64(texH, 8 * sizeof(uint32_t), psFp);
+        float vpw = XFFloat(0x1000 + XF_VIEWPORT);
+        psFp = Hash64(&vpw, sizeof(vpw), psFp);
+        psFp = Hash64(&s_scale, sizeof(s_scale), psFp);
+        if (!(s_havePsFillFp && psFp == s_psFillFp && s_havePsCb))
+        {
+            PSConstants pc;
+            FillPSConstants(pc, texW, texH);
+            UpdateCBIfChanged(s_psCB, pc, s_lastPsCb, s_havePsCb);
+            s_psFillFp = psFp;
+            s_havePsFillFp = true;
+        }
+        else if (SubmitProfOn()) s_submit.bindSkipped++;
+    }
+    if (MidProfOn() && tPrep0)
+    {
+        const uint64_t freq = Platform_PerfFrequency();
+        if (freq)
+            s_midFlushPrepNs += (Platform_PerfCounter() - tPrep0) * 1000000000ull / freq;
+    }
     const bool texBindChanged = (usedMaps != s_boundUsedMaps) ||
                                 std::memcmp(srvs, s_boundSrvs, sizeof(srvs)) != 0 ||
                                 std::memcmp(samps, s_boundSamps, sizeof(samps)) != 0;
     if (Capturing())
-        CaptureLog(std::format("  psconst fogF=({},{},{},{}) fogI=({},{},{},{}) depth=({},{}) range0=({},{},{},{})", pc.fogF[0], pc.fogF[1], pc.fogF[2], pc.fogF[3],
-                               pc.fogI[0], pc.fogI[1], pc.fogI[2], pc.fogI[3], pc.depthParams[0], pc.depthParams[1], pc.fogRange[0][0], pc.fogRange[0][1],
-                               pc.fogRange[0][2], pc.fogRange[0][3]));
+        CaptureLog(std::format("  psconst fogF=({},{},{},{}) fogI=({},{},{},{}) depth=({},{}) range0=({},{},{},{})",
+                               s_lastPsCb.fogF[0], s_lastPsCb.fogF[1], s_lastPsCb.fogF[2], s_lastPsCb.fogF[3],
+                               s_lastPsCb.fogI[0], s_lastPsCb.fogI[1], s_lastPsCb.fogI[2], s_lastPsCb.fogI[3],
+                               s_lastPsCb.depthParams[0], s_lastPsCb.depthParams[1], s_lastPsCb.fogRange[0][0],
+                               s_lastPsCb.fogRange[0][1], s_lastPsCb.fogRange[0][2], s_lastPsCb.fogRange[0][3]));
 
     // geometry
     uint32_t vbytes = (uint32_t)(s_verts.size() * sizeof(HostVertex));
@@ -2390,42 +2616,100 @@ static void Flush()
     UINT vbOffset = (s_vbPos + sizeof(HostVertex) - 1) / sizeof(HostVertex) * sizeof(HostVertex);
     bool vbWrap = vbOffset + vbytes > s_vbCap;
     if (vbWrap) vbOffset = 0;
-    g_ctx->Map(s_vb, 0, vbWrap ? D3D11_MAP_WRITE_DISCARD : D3D11_MAP_WRITE_NO_OVERWRITE, 0, &m);
-    memcpy((uint8_t*)m.pData + vbOffset, s_verts.data(), vbytes);
-    g_ctx->Unmap(s_vb, 0);
+    {
+        const uint64_t tMap = SubmitProfOn() ? Platform_PerfCounter() : 0;
+        g_ctx->Map(s_vb, 0, vbWrap ? D3D11_MAP_WRITE_DISCARD : D3D11_MAP_WRITE_NO_OVERWRITE, 0, &m);
+        memcpy((uint8_t*)m.pData + vbOffset, s_verts.data(), vbytes);
+        g_ctx->Unmap(s_vb, 0);
+        if (SubmitProfOn())
+        {
+            s_submit.mapN++;
+            s_submit.unmapN++;
+            if (tMap)
+            {
+                const uint64_t freq = Platform_PerfFrequency();
+                if (freq) s_submit.mapNs += (Platform_PerfCounter() - tMap) * 1000000000ull / freq;
+            }
+        }
+    }
     s_vbPos = vbOffset + vbytes;
     UINT ibOffset = s_ibPos;
     bool ibWrap = ibOffset + ibytes > s_ibCap;
     if (ibWrap) ibOffset = 0;
-    g_ctx->Map(s_ib, 0, ibWrap ? D3D11_MAP_WRITE_DISCARD : D3D11_MAP_WRITE_NO_OVERWRITE, 0, &m);
-    memcpy((uint8_t*)m.pData + ibOffset, s_indices.data(), ibytes);
-    g_ctx->Unmap(s_ib, 0);
+    {
+        const uint64_t tMap = SubmitProfOn() ? Platform_PerfCounter() : 0;
+        g_ctx->Map(s_ib, 0, ibWrap ? D3D11_MAP_WRITE_DISCARD : D3D11_MAP_WRITE_NO_OVERWRITE, 0, &m);
+        memcpy((uint8_t*)m.pData + ibOffset, s_indices.data(), ibytes);
+        g_ctx->Unmap(s_ib, 0);
+        if (SubmitProfOn())
+        {
+            s_submit.mapN++;
+            s_submit.unmapN++;
+            if (tMap)
+            {
+                const uint64_t freq = Platform_PerfFrequency();
+                if (freq) s_submit.mapNs += (Platform_PerfCounter() - tMap) * 1000000000ull / freq;
+            }
+        }
+    }
     s_ibPos = ibOffset + ibytes;
 
     UINT stride = sizeof(HostVertex), offset = vbOffset;
-    g_ctx->IASetInputLayout(s_layout);
+    if (s_layout != s_boundLayout)
+    {
+        g_ctx->IASetInputLayout(s_layout);
+        s_boundLayout = s_layout;
+        if (SubmitProfOn()) s_submit.bindCalls++;
+    }
+    else if (SubmitProfOn()) s_submit.bindSkipped++;
+    // VB/IB offsets change every Flush — always rebind.
     g_ctx->IASetVertexBuffers(0, 1, &s_vb, &stride, &offset);
     g_ctx->IASetIndexBuffer(s_ib, DXGI_FORMAT_R32_UINT, ibOffset);
+    if (SubmitProfOn()) s_submit.bindCalls += 2;
     if (s_topo != s_boundTopo)
     {
         g_ctx->IASetPrimitiveTopology(s_topo == Topo::Tri ? D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST
                                       : s_topo == Topo::Line ? D3D11_PRIMITIVE_TOPOLOGY_LINELIST
                                                             : D3D11_PRIMITIVE_TOPOLOGY_POINTLIST);
         s_boundTopo = s_topo;
+        if (SubmitProfOn()) s_submit.bindCalls++;
     }
+    else if (SubmitProfOn()) s_submit.bindSkipped++;
     if (vs != s_boundVS)
     {
         g_ctx->VSSetShader(vs, nullptr, 0);
         s_boundVS = vs;
+        if (SubmitProfOn()) s_submit.bindCalls++;
     }
-    g_ctx->VSSetConstantBuffers(0, 1, &s_vsCB);
-    g_ctx->VSSetShaderResources(0, 1, &s_xfSRV);
+    else if (SubmitProfOn()) s_submit.bindSkipped++;
+    if (!s_boundVsCb)
+    {
+        g_ctx->VSSetConstantBuffers(0, 1, &s_vsCB);
+        s_boundVsCb = true;
+        if (SubmitProfOn()) s_submit.bindCalls++;
+    }
+    else if (SubmitProfOn()) s_submit.bindSkipped++;
+    if (!s_boundXfSrv)
+    {
+        g_ctx->VSSetShaderResources(0, 1, &s_xfSRV);
+        s_boundXfSrv = true;
+        if (SubmitProfOn()) s_submit.bindCalls++;
+    }
+    else if (SubmitProfOn()) s_submit.bindSkipped++;
     if (ps != s_boundPS)
     {
         g_ctx->PSSetShader(ps, nullptr, 0);
         s_boundPS = ps;
+        if (SubmitProfOn()) s_submit.bindCalls++;
     }
-    g_ctx->PSSetConstantBuffers(0, 1, &s_psCB);
+    else if (SubmitProfOn()) s_submit.bindSkipped++;
+    if (!s_boundPsCb)
+    {
+        g_ctx->PSSetConstantBuffers(0, 1, &s_psCB);
+        s_boundPsCb = true;
+        if (SubmitProfOn()) s_submit.bindCalls++;
+    }
+    else if (SubmitProfOn()) s_submit.bindSkipped++;
     if (texBindChanged)
     {
         g_ctx->PSSetShaderResources(0, 8, srvs);
@@ -2433,15 +2717,33 @@ static void Flush()
         s_boundUsedMaps = usedMaps;
         std::memcpy(s_boundSrvs, srvs, sizeof(srvs));
         std::memcpy(s_boundSamps, samps, sizeof(samps));
+        if (SubmitProfOn()) s_submit.bindCalls += 2;
     }
+    else if (SubmitProfOn()) s_submit.bindSkipped += 2;
     const uint32_t cullKey = (s_topo == Topo::Tri && !g_dbgNoCull) ? cull : 0;
     if (cullKey != s_boundCull)
     {
         g_ctx->RSSetState(GetRasterState(cullKey));
         s_boundCull = cullKey;
+        if (SubmitProfOn()) s_submit.bindCalls++;
     }
-    g_ctx->OMSetBlendState(GetBlendState(), nullptr, 0xFFFFFFFF);
-    g_ctx->OMSetDepthStencilState(GetDepthState(), 0);
+    else if (SubmitProfOn()) s_submit.bindSkipped++;
+    ID3D11BlendState* blend = GetBlendState();
+    if (blend != s_boundBlend)
+    {
+        g_ctx->OMSetBlendState(blend, nullptr, 0xFFFFFFFF);
+        s_boundBlend = blend;
+        if (SubmitProfOn()) s_submit.bindCalls++;
+    }
+    else if (SubmitProfOn()) s_submit.bindSkipped++;
+    ID3D11DepthStencilState* depth = GetDepthState();
+    if (depth != s_boundDepth)
+    {
+        g_ctx->OMSetDepthStencilState(depth, 0);
+        s_boundDepth = depth;
+        if (SubmitProfOn()) s_submit.bindCalls++;
+    }
+    else if (SubmitProfOn()) s_submit.bindSkipped++;
     SetEFBTarget();
     if (Capturing())
     {
@@ -2488,7 +2790,20 @@ static void Flush()
             pk.fogType, pk.alphaFunc, pk.pixelFormat, pk.colorComb[0], pk.alphaComb[0], pk.colorComb[1], pk.alphaComb[1], vx, vy, vw, vh,
             g_gx.xfregs[XF_PROJECTION + 6], vk.chan[0], vk.chan[2], t));
     }
-    g_ctx->DrawIndexed((UINT)s_indices.size(), 0, 0);
+    {
+        const uint64_t tDix = SubmitProfOn() ? Platform_PerfCounter() : 0;
+        g_ctx->DrawIndexed((UINT)s_indices.size(), 0, 0);
+        if (SubmitProfOn())
+        {
+            s_submit.drawIndexedN++;
+            if (tDix)
+            {
+                const uint64_t freq = Platform_PerfFrequency();
+                if (freq)
+                    s_submit.drawIndexedNs += (Platform_PerfCounter() - tDix) * 1000000000ull / freq;
+            }
+        }
+    }
     s_drawCalls++;
     s_midDrawIndexed++;
     if (Capturing())
@@ -2667,6 +2982,9 @@ struct UtilCB { float rect[4]; float uv[4]; float color[4]; float params[4]; int
 
 static void DrawQuad(ID3D11PixelShader* ps, const UtilCB& cb, ID3D11BlendState* bs, ID3D11DepthStencilState* ds)
 {
+    // External path mutates IA/VS/PS/OM — drop Flush bind/CB cache so the next
+    // GX Flush cannot skip stale topology/shader/RTV state.
+    InvalidateHostBindCache();
     UpdateCB(s_utilCB, cb);
     g_ctx->IASetInputLayout(nullptr);
     g_ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);

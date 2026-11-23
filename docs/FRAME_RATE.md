@@ -1190,6 +1190,18 @@ Opt-in lean capture (`SCR_A2B_PROD` / auto with decoupled). Restores ~60 Hz sim 
 | Full-scene mid camera | PARTIAL | `pose=0` on logged UNIQUEs (see A3q) |
 | Win GPU | UNVERIFIED | |
 
+### Approach A3t — D3D11 submission optimisation (2026-11-23)
+
+Profiled SCR `Flush()` (host draw submit, not `ID3D11DeviceContext::Flush`). Prep Fill+GetTexture ≈12–15 ms; full scratch GPU ≈14–20 ms (async timestamps). Report: `docs/A3T_D3D11_SUBMISSION_OPTIMISATION.md`.
+
+| Item | Status | Notes |
+|------|--------|-------|
+| CPU Flush &lt;~8 ms | **FAIL** | prep remains ~12 ms |
+| Full-scene GPU measured | PASS | ~14–20 ms mid (≠ blit) |
+| Soft budget sim ~60 | PASS | unique_mid ~9–10/s |
+| 60+60 unique | **FAIL** | GPU ceiling |
+| Win GPU | UNVERIFIED | DXVK Linux evidence |
+
 ### Approach A3s — cached / async GX replay (2026-11-23)
 
 Profiled mid `GX_ReplayCommands`: Flush dominates (~14–19 ms); decode ~2 ms. Shipped partial XF + Flush bind-cache + iso lockless pose; declined full predecoded plan / deferred CL / async worker. Report: `docs/A3S_CACHED_AND_ASYNC_GX_REPLAY.md`.

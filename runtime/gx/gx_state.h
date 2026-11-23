@@ -153,6 +153,29 @@ uint64_t Render_UniqueMidPresentTotal();
 void Render_MidProfReset();
 void Render_MidProfGet(uint64_t* flushNs, uint64_t* xfUploadNs, uint64_t* drawDecodeNs,
                        uint64_t* flushCount, uint64_t* drawCount, uint64_t* drawIndexed);
+// Optional: CPU ns spent in FillVS/PS + GetTexture inside Flush (nullptr ignored).
+void Render_MidProfGetPrep(uint64_t* flushPrepNs);
+
+// A3t: D3D11 submit counters (SCR_D3D11_SUBMIT_PROFILE=1) + async mid GPU timestamps.
+struct RenderSubmitProf
+{
+    uint64_t mapNs = 0, mapN = 0;
+    uint64_t unmapN = 0;
+    uint64_t updateSubNs = 0, updateSubN = 0;
+    uint64_t drawIndexedNs = 0, drawIndexedN = 0;
+    uint64_t bindCalls = 0;       // IA/VS/PS/OM/RS sets that reached the context
+    uint64_t bindSkipped = 0;     // suppressed by bind/CB cache
+    uint64_t cbUploadN = 0;       // VS/PS constant Map uploads
+    uint64_t cbSkipN = 0;         // identical CB content skipped
+    uint64_t texLookupN = 0;
+};
+void Render_SubmitProfReset();
+void Render_SubmitProfGet(RenderSubmitProf* out);
+// Bracket mid scratch GPU work; resolve previous bracket asynchronously (DONOTFLUSH).
+void Render_MidGpuTimingBegin();
+void Render_MidGpuTimingEnd();
+// Last successfully resolved mid GPU duration (ns); 0 if none/disjoint.
+uint64_t Render_MidGpuNsLast();
 
 struct RenderEfbCompare
 {

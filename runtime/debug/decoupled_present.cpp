@@ -213,7 +213,7 @@ bool TryUniqueMid(float alpha, uint64_t targetTicks)
 
     uint32_t hash = 0, draws = 0;
     uint64_t gxConsumed = 0;
-    char detail[192]{};
+    char detail[384]{};
     if (!A2b_FifoCaptureEnabled())
     {
         std::snprintf(detail, sizeof(detail), "no A2b archive (set SCR_A2B_FIFO_CAPTURE=1)");
