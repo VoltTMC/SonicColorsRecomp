@@ -25,6 +25,7 @@
 #include "../debug/a3i_model_ownership.h"
 #include "../debug/a3j_model_palette.h"
 #include "../debug/a3k_owner_transform.h"
+#include "../debug/pose_capture.h"
 #include "../input/input_latency.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
@@ -418,6 +419,13 @@ void Overlay_Render(float w, float h)
                 A3k_OverlayLine(a3k, sizeof(a3k));
                 if (a3k[0])
                     ImGui::TextUnformatted(a3k);
+            }
+            if (PoseCapture_Enabled())
+            {
+                char pose[192];
+                PoseCapture_OverlayLine(pose, sizeof(pose));
+                if (pose[0])
+                    ImGui::TextUnformatted(pose);
             }
             if (A2b_FifoCaptureEnabled() || A2c_ScratchReplayEnabled())
             {

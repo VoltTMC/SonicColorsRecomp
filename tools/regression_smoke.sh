@@ -25,6 +25,13 @@ else
   cmake --build --preset linux-clang --target scr_a3b_camera_math_test -j"$(nproc 2>/dev/null || echo 4)"
   run scr_a3b_camera_math_test "$OUT/scr_a3b_camera_math_test"
 fi
+if [[ -x "$OUT/scr_pose_capture_test" ]]; then
+  run scr_pose_capture_test "$OUT/scr_pose_capture_test"
+else
+  echo "building scr_pose_capture_test..."
+  cmake --build --preset linux-clang --target scr_pose_capture_test -j"$(nproc 2>/dev/null || echo 4)"
+  run scr_pose_capture_test "$OUT/scr_pose_capture_test"
+fi
 if [[ -x "$OUT/scr_install_helpers_test" ]]; then
   run scr_install_helpers_test "$OUT/scr_install_helpers_test"
 else

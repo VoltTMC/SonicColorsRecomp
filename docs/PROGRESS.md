@@ -1,5 +1,17 @@
 # Progress log
 
+## 2026-11-23 — A3l: production-bounded pose capture
+
+**Goal:** Coherent World+ViewPos player pose snapshots at ~60 Hz without diagnostic drain; bounded ring; no interpolation.
+
+**Shipped:** `pose_capture.*` / `pose_capture_math.cpp` (`SCR_POSE_CAPTURE`); CalcWorld associate + XFB publish; 3-slot ring; ResDic hierarchy cache; \(V̂\) validation; host `scr_pose_capture_test`; report `docs/A3L_PRODUCTION_POSE_CAPTURE.md`.
+
+**Evidence (RTX 3080, `a3l_tr1_capture.log`):** ScnMdl `809882e0`, ResDic 78 / in-palette 58, `nView=193`; `relMax` ≈0.001–0.004 (A3k ≈0.002 preserved); 5641 complete snaps; slot 0/1; ring wrap OK. In-stage `simulation_hz` avg ≈59.9.
+
+**Perf:** capture-on ~60 Hz; A2e/A2f MATCH; `regression_smoke` OK; MinGW links; Win GPU **UNVERIFIED**.
+
+**Gate:** Pose-capture foundation **PASS**. Interpolation remains a separate milestone — **not started**.
+
 ## 2026-11-23 — A3k: ownership lifecycle + ViewPos = V̂·World
 
 **Goal:** Persistent body→ScnMdl path (or prove call-time sufficient); prove/disprove `CModelImpl+0x1C`; close body/root/world/view/GX composition without forcing `M=V·W` with A1b \(V\).

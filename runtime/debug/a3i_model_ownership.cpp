@@ -2,6 +2,7 @@
 #include "a3i_model_ownership.h"
 #include "a3j_model_palette.h"
 #include "a3k_owner_transform.h"
+#include "pose_capture.h"
 #include "a1b_pose_capture.h"
 #include "../game_addrs.h"
 #include "../kernel/memory.h"
@@ -759,4 +760,7 @@ PPC_OVERRIDE(ScnMdlSimpleCalcWorld)
     if (A3k_AnyEnabled())
         A3k_OnCalcWorld(th, param);
     PPC_ORIGINAL(ScnMdlSimpleCalcWorld);
+    // World arrays are complete after original; associate live player ScnMdl.
+    if (PoseCapture_Enabled())
+        PoseCapture_OnCalcWorld(th);
 }

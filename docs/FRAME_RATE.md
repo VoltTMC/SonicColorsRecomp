@@ -1095,6 +1095,24 @@ Opt-in. Create-wrap registry (`803C6920`); CalcWorld `this+0x3C` root; `ViewPos=
 | Flags-off ~60 Hz | PASS | instr ~60 Hz TR1 |
 | Interp readiness | ownership/transform/temporal PASS; capture PARTIAL | |
 
+### Approach A3l — production-bounded pose capture (2026-11-23)
+
+Opt-in. Coherent World+ViewPos snapshots for the live player model. **No interpolation / no extra XFBs.** Full report: `docs/A3L_PRODUCTION_POSE_CAPTURE.md`.
+
+| Switch | Role |
+|--------|------|
+| `SCR_POSE_CAPTURE=1` | Bounded 3-slot ring; CalcWorld associate + XFB publish |
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Call-time ownership | PASS | Same A3k mechanism; no body-stored ScnMdl |
+| Visual root `ScnMdl+0x3C` | PASS | Copied into snap |
+| Hierarchy | PASS | ResDic 78; in-palette 58; parents A3h |
+| `ViewPos = V̂·World` | PASS | `relMax` ≈0.001–0.004 |
+| Ring / publication | PASS | Complete-only; wrap tested |
+| Capture-on ~60 Hz TR1 | PASS | avg ≈59.9 on RTX 3080 |
+| Interp | **Not in A3l** | Snapshot pipeline only |
+
 ### Approach A3a — draw-level transform attribution + scratch substitution (2026-11-21)
 
 Opt-in diagnostics only. **No interpolation, no second XFB, no unique-FPS claim.**

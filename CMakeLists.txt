@@ -378,6 +378,20 @@ if(WIN32 OR LINUX)
     set_target_properties(scr_a3b_camera_math_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${SCR_OUT_DIR}
                                                               RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
                                                               RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
+
+    add_executable(scr_pose_capture_test EXCLUDE_FROM_ALL
+                   tools/pose_capture_test/main.cpp runtime/debug/pose_capture_math.cpp)
+    target_include_directories(scr_pose_capture_test PRIVATE runtime)
+    if(LINUX)
+        target_compile_options(scr_pose_capture_test PRIVATE -include ${CMAKE_SOURCE_DIR}/runtime/platform/compat.h)
+        target_link_options(scr_pose_capture_test PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
+    if(MSVC_FRONTEND)
+        target_compile_options(scr_pose_capture_test PRIVATE /EHsc /utf-8)
+    endif()
+    set_target_properties(scr_pose_capture_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${SCR_OUT_DIR}
+                                                            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
+                                                            RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
 endif()
 
 # ---------------------------------------------------------------- Platform libraries
