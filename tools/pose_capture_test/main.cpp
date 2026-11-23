@@ -45,17 +45,23 @@ PoseSnap MakeComplete(uint16_t nodes, uint64_t seqHint, uint32_t scn, uint32_t m
     s.flags = PoseFlag_Complete | PoseFlag_OwnOk | PoseFlag_HierOk | PoseFlag_WorldOk |
               PoseFlag_ViewOk | PoseFlag_VHatOk | PoseFlag_RelOk;
     s.nodeCount = nodes;
+    s.inPaletteCount = nodes;
     s.nodeCapacity = kPoseMaxNodes;
     s.scnMdlEa = scn;
+    s.resMdlEa = scn + 0x100;
     s.modelGen = modelGen;
     s.shellEa = 0x80b58b00;
     s.bodyEa = 0x90f9c6c0;
     s.instanceKey = s.shellEa ^ s.bodyEa;
     s.seq = seqHint;
+    s.xfbIndex = seqHint;
+    s.simFrameId = seqHint;
     s.vHat = Ident();
     s.vHatOk = 1;
     s.relOk = 1;
     s.relPassCount = nodes;
+    s.root = Ident();
+    s.rootOk = 1;
     for (uint16_t i = 0; i < nodes; i++)
     {
         s.nodes[i].nodeIdx = i;
@@ -163,6 +169,67 @@ int main()
         Expect(cur.xfbIndex == prev.xfbIndex + 2, "sequence gap visible");
         Expect(cur.scnMdlEa == prev.scnMdlEa && cur.modelGen == prev.modelGen,
                "identity stable across gap");
+    }
+
+    // --- Matrix classification ---
+    {
+        Expect(Pose_ClassifyMtx(Ident()).cls == PoseMtx_Rigid, "I is rigid");
+        PoseMtx3x4 u = Ident();
+        u.m[0] = 2;
+        u.m[5] = 2;
+        u.m[10] = 2;
+        Expect(Pose_ClassifyMtx(u).cls == PoseMtx_UniformScale, "uniform scale");
+        PoseMtx3x4 nu = Ident();
+        nu.m[0] = 2;
+        nu.m[5] = 1;
+        nu.m[10] = 1;
+        Expect(Pose_ClassifyMtx(nu).cls == PoseMtx_NonUniform, "non-uniform");
+        PoseMtx3x4 bad{};
+        Expect(Pose_ClassifyMtx(bad).cls == PoseMtx_Singular, "zero singular");
+        PoseMtx3x4 nanM = Ident();
+        nanM.m[0] = NAN;
+        Expect(Pose_ClassifyMtx(nanM).cls == PoseMtx_Invalid, "nan invalid");
+        PoseMtx3x4 shear = Ident();
+        shear.m[1] = 0.5f;  // break orthonormality
+        Expect(Pose_ClassifyMtx(shear).cls == PoseMtx_Shear, "shear");
+    }
+
+    // --- Pair evaluation ---
+    {
+        PoseSnap a = MakeComplete(4, 10, 0x809882e0, 1);
+        PoseSnap b = MakeComplete(4, 11, 0x809882e0, 1);
+        b.nodes[0].world = Translate(0.5f, 0, 0);
+        b.nodes[0].viewPos = Translate(0.5f, 0, 0);
+        PosePairVerdict ok = Pose_EvaluatePair(a, b);
+        Expect(ok.reject == PosePair_Ok, "consecutive pair ok");
+
+        PoseSnap gap = MakeComplete(4, 13, 0x809882e0, 1);
+        Expect(Pose_EvaluatePair(a, gap).reject == PosePair_SeqGap, "seq gap");
+
+        PoseSnap gen = MakeComplete(4, 11, 0x809882e0, 2);
+        Expect(Pose_EvaluatePair(a, gen).reject == PosePair_ModelGen, "model gen");
+
+        PoseSnap own = MakeComplete(4, 11, 0x809882e0, 1);
+        own.shellEa = 0x11111111;
+        own.instanceKey = own.shellEa ^ own.bodyEa;
+        Expect(Pose_EvaluatePair(a, own).reject == PosePair_OwnMismatch, "own mismatch");
+
+        PoseSnap hier = MakeComplete(4, 11, 0x809882e0, 1);
+        hier.nodes[2].parentIdx = 0;
+        Expect(Pose_EvaluatePair(a, hier).reject == PosePair_ParentTable, "parent table");
+
+        PoseSnap tp = MakeComplete(4, 11, 0x809882e0, 1);
+        tp.nodes[0].world = Translate(100.f, 0, 0);
+        tp.nodes[0].viewPos = Translate(100.f, 0, 0);
+        Expect(Pose_EvaluatePair(a, tp).reject == PosePair_Teleport, "teleport");
+
+        PoseSnap inc = a;
+        inc.flags &= ~PoseFlag_Complete;
+        Expect(Pose_EvaluatePair(a, inc).reject == PosePair_Incomplete, "incomplete");
+
+        PoseSnap warm = MakeComplete(4, 11, 0x809882e0, 1);
+        warm.flags |= PoseFlag_Warmup;
+        Expect(Pose_EvaluatePair(a, warm).reject == PosePair_Warmup, "warmup curr");
     }
 
     if (g_fail)

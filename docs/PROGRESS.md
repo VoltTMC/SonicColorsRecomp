@@ -1,5 +1,15 @@
 # Progress log
 
+## 2026-11-23 — A3m: pose qualification + interpolation readiness design
+
+**Goal:** Qualify A3l snapshots for a future interpolation consumer; produce design only (no interp).
+
+**Shipped:** `pose_qualify.*` (`SCR_POSE_QUALIFY`); `Pose_ClassifyMtx` / `Pose_EvaluatePair`; host test extensions; report `docs/A3M_INTERPOLATION_READINESS_AND_DESIGN.md`.
+
+**Evidence (RTX 3080, `a3m_tr1_qualify.log`):** pairs OK 5564/5581; World 100% Rigid; CamCut=15 Teleport=1 ModelGen=1; camDom vs poseDom confirms World⊥camera. Capture+qualify ~60 Hz.
+
+**Gate:** Interpolation implementation milestone **READY (PASS)** for TR1 Sonic-first; **not started** in A3m. Wisp/respawn/other stages UNVERIFIED.
+
 ## 2026-11-23 — A3l: production-bounded pose capture
 
 **Goal:** Coherent World+ViewPos player pose snapshots at ~60 Hz without diagnostic drain; bounded ring; no interpolation.

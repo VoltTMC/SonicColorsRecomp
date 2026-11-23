@@ -61,10 +61,10 @@ bool On()
     int v = s_on.load(std::memory_order_relaxed);
     if (v < 0)
     {
-        v = EnvFlag("SCR_POSE_CAPTURE") ? 1 : 0;
+        v = (EnvFlag("SCR_POSE_CAPTURE") || EnvFlag("SCR_POSE_QUALIFY")) ? 1 : 0;
         s_on.store(v, std::memory_order_relaxed);
         if (v)
-            LOG_INFO("PoseCapture: enabled (SCR_POSE_CAPTURE); ring={} nodes≤{} "
+            LOG_INFO("PoseCapture: enabled (SCR_POSE_CAPTURE/QUALIFY); ring={} nodes≤{} "
                      "bytes/snap≈{}",
                      kPoseRingSlots, kPoseMaxNodes,
                      (unsigned)(sizeof(PoseSnap)));

@@ -26,6 +26,7 @@
 #include "../debug/a3j_model_palette.h"
 #include "../debug/a3k_owner_transform.h"
 #include "../debug/pose_capture.h"
+#include "../debug/pose_qualify.h"
 #include "../input/input_latency.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
@@ -426,6 +427,13 @@ void Overlay_Render(float w, float h)
                 PoseCapture_OverlayLine(pose, sizeof(pose));
                 if (pose[0])
                     ImGui::TextUnformatted(pose);
+            }
+            if (PoseQualify_Enabled())
+            {
+                char pq[192];
+                PoseQualify_OverlayLine(pq, sizeof(pq));
+                if (pq[0])
+                    ImGui::TextUnformatted(pq);
             }
             if (A2b_FifoCaptureEnabled() || A2c_ScratchReplayEnabled())
             {

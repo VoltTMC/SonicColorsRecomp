@@ -1113,6 +1113,23 @@ Opt-in. Coherent World+ViewPos snapshots for the live player model. **No interpo
 | Capture-on ~60 Hz TR1 | PASS | avg ≈59.9 on RTX 3080 |
 | Interp | **Not in A3l** | Snapshot pipeline only |
 
+### Approach A3m — pose qualification + interp readiness design (2026-11-23)
+
+Opt-in validation only. **No interpolation / no extra XFBs.** Full report: `docs/A3M_INTERPOLATION_READINESS_AND_DESIGN.md`.
+
+| Switch | Role |
+|--------|------|
+| `SCR_POSE_QUALIFY=1` | Pair + matrix-class counters (enables A3l capture) |
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Pair OK rate TR1 | PASS | 5564/5581 |
+| Matrix class | PASS | World Rigid; badCls=0 |
+| Camera separation | PASS | World canonical; \(V̂\) separate; A3b XF ≠ \(V̂\) |
+| Timing | PASS | XFB-tied; guest ~60 Hz |
+| Capture+qualify ~60 Hz | PASS | RTX 3080 |
+| Interp implementation | **Not started** | Design READY for separate milestone |
+
 ### Approach A3a — draw-level transform attribution + scratch substitution (2026-11-21)
 
 Opt-in diagnostics only. **No interpolation, no second XFB, no unique-FPS claim.**

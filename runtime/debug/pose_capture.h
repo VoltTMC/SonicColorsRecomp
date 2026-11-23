@@ -65,9 +65,9 @@ enum PoseReject : uint16_t
 
 struct PoseNode
 {
-    uint16_t nodeIdx = 0;     // matrix / palette index (0..nView-1)
+    uint16_t nodeIdx = 0;     // ResDic index (stable within modelGen)
     int16_t parentIdx = -1;   // ResDic parent index; -1 = root/none
-    uint16_t mtxID = 0xFFFF;
+    uint16_t mtxID = 0xFFFF;  // palette / World index when < nView
     uint8_t worldOk = 0;
     uint8_t viewOk = 0;
     PoseMtx3x4 world{};
@@ -138,6 +138,65 @@ bool Pose_MtxFinite(const PoseMtx3x4& m);
 bool Pose_DeriveVHat(const PoseMtx3x4& view0, const PoseMtx3x4& world0, PoseMtx3x4& vHat);
 bool Pose_ValidateNodeRel(const PoseMtx3x4& vHat, const PoseMtx3x4& world, const PoseMtx3x4& view,
                           float tol, float* outRes);
+
+// Transform class for future TRS suitability (no interpolation performed).
+enum PoseMtxClass : uint8_t
+{
+    PoseMtx_Invalid = 0,     // non-finite
+    PoseMtx_Singular = 1,    // |det| too small
+    PoseMtx_Shear = 2,       // non-orthogonal after scale removal
+    PoseMtx_NonUniform = 3,  // orthogonal axes, unequal scale
+    PoseMtx_UniformScale = 4,
+    PoseMtx_Rigid = 5,       // near-orthonormal, |scale|≈1
+    PoseMtx_Reflection = 6,  // det < 0 (may combine with scale flags via bits)
+};
+
+struct PoseMtxClassInfo
+{
+    PoseMtxClass cls = PoseMtx_Invalid;
+    float det = 0;
+    float scale[3]{};
+    float orthoErr = 0;  // max |dot| of normalized columns
+    uint8_t reflected = 0;
+};
+
+PoseMtxClassInfo Pose_ClassifyMtx(const PoseMtx3x4& m);
+
+// Pair suitability (host + runtime qualify). Does not generate poses.
+enum PosePairReject : uint16_t
+{
+    PosePair_Ok = 0,
+    PosePair_MissingPrev = 1,
+    PosePair_Incomplete = 2,
+    PosePair_OwnMismatch = 3,
+    PosePair_ScnMismatch = 4,
+    PosePair_ModelGen = 5,
+    PosePair_NodeCount = 6,
+    PosePair_ParentTable = 7,
+    PosePair_SeqGap = 8,
+    PosePair_XfbGap = 9,
+    PosePair_Teleport = 10,
+    PosePair_CamCut = 11,
+    PosePair_BadClass = 12,
+    PosePair_Warmup = 13,
+};
+
+struct PosePairVerdict
+{
+    PosePairReject reject = PosePair_MissingPrev;
+    uint16_t parentMismatches = 0;
+    float worldTDelta = 0;  // |Δ translation| of World[ref]
+    float vHatTDelta = 0;
+    float viewTDelta = 0;
+    uint8_t seqGap = 0;
+    uint8_t xfbGap = 0;
+};
+
+// Teleport / camera-cut thresholds (guest world units / V̂ translation).
+constexpr float kPoseTeleportWorldT = 25.f;
+constexpr float kPoseCamCutVHatT = 40.f;
+
+PosePairVerdict Pose_EvaluatePair(const PoseSnap& prev, const PoseSnap& curr);
 
 // Synthetic ring helpers for host tests (independent of guest capture).
 struct PoseRingTest
