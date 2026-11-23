@@ -51,16 +51,19 @@ bool EnvOn()
     {
         const char* v = std::getenv("SCR_A1B_POSE_CAPTURE");
         c = (v && v[0] && v[0] != '0') ? 1 : 0;
-        // A3f ownership/palette needs the same shell→body identity sources.
+        // A3f/A3g ownership/palette need the same shell→body identity sources.
         if (!c)
         {
             const char* t = std::getenv("SCR_A3F_PLAYER_TRACE");
             const char* p = std::getenv("SCR_A3F_PALETTE_CAPTURE");
-            if ((t && t[0] && t[0] != '0') || (p && p[0] && p[0] != '0'))
+            const char* g = std::getenv("SCR_A3G_POSE_AGGREGATE");
+            const char* h = std::getenv("SCR_A3G_HIERARCHY_TRACE");
+            if ((t && t[0] && t[0] != '0') || (p && p[0] && p[0] != '0') ||
+                (g && g[0] && g[0] != '0') || (h && h[0] && h[0] != '0'))
                 c = 1;
         }
         if (c)
-            LOG_INFO("A1b: pose capture enabled (SCR_A1B_POSE_CAPTURE or A3f identity); "
+            LOG_INFO("A1b: pose capture enabled (SCR_A1B_POSE_CAPTURE or A3f/A3g identity); "
                      "no extra unique XFB");
     }
     return c != 0;

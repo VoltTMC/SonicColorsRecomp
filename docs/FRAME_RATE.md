@@ -243,6 +243,7 @@ Opt-in immutable snapshots at completed sim-frame boundaries for future host int
 | A3d | Full-scene archive coverage audit | Category matrix + obs/cap/complete | **Done (audit)** |
 | A3e | Dense-frame archive scalability + player palette | Raised caps + soft-arm; palette stable; A3e-dense MATCH | **Done (experiment)** |
 | A3f | Player draw ownership + skeletal-palette provenance | Guest chain + eye-near skeletal PROVEN; 66308a11 REJECTED | **Done (experiment)** |
+| A3g | Multi-draw pose aggregation + hierarchy reconstruction | Nearest eye-near draws → pose; view/body known; bone parents unresolved | **Done (experiment)** |
 | A3 | Interpolated second XFB without guest update | `unique_xfb` >60 behind debug flag | Later |
 | A4 | Quality gate; promote to uncapped | Honest unique>60 in production | Later |
 
@@ -948,6 +949,64 @@ PlayerGetPos / PlayerGetWorldMtxPtr / BoostPluginTick(r4)
 Log: `out/phase31_a3f_tr1_dense_nv.log`. Use dense A3a caps for busy TR1 or player meshes may miss the 1536 store.
 
 **Not claimed:** complete character skeletal palette; single stable mesh ID for all Sonic draws; interpolation.
+
+### Approach A3g — player multi-draw pose aggregation + hierarchy (2026-11-23)
+
+Opt-in. Aggregates **all** eye-near multi-row direct PNMTX draws for the verified A3f player instance into one per-frame pose. Reconstructs what hierarchy evidence allows (view + body); does **not** invent a bone tree. **No interpolation / second XFB / unique-FPS.**
+
+| Switch | Role |
+|--------|------|
+| `SCR_A3G_POSE_AGGREGATE=1` | Multi-draw aggregation ring (128 draws / 384 obs caps) |
+| `SCR_A3G_HIERARCHY_TRACE=1` | View invert → modelApprox; View×BodyWorld root probe |
+| `SCR_A3G_POSE_DUMP=1` | Denser bounded logs |
+| (+ A3a / A1b / dense A3a) | Draw store + shell→body identity |
+
+#### Identity scheme
+
+| Layer | Key |
+|-------|-----|
+| Player instance | `hash(shellEa, bodyEa)` — primary; survives geomSig churn |
+| Draw | `structKey` (VCD/array/prim/vat/vtx/rows — **no** geomSig) |
+| Transform obs | `obsKey = hash(structKey, rowIdx)` — temporal correspondence |
+| Geometry | `geomSig` recorded but **not** used as identity |
+
+Membership: `posMtxDir && mtxN≥2` and view-space bone T within **12** of `V·playerPos`. When candidates exceed the draw cap, **nearest** draws are kept; overflow counted.
+
+#### Duplicate policy
+
+| Signal | Meaning |
+|--------|---------|
+| Same XF `rowIdx` in different draws | `DuplicateRow` — slot reuse, not proof of same bone |
+| Same `contentHash` across draws | `DuplicateHash` — values match; still not sufficient alone |
+| Same `obsKey`, different hash | `Conflict` — retained separately |
+
+#### Hierarchy (PARTIAL)
+
+```
+View V (A1b first PNMTX0) — PASS
+Body world W (body+0x0C) — present; T often ~0 — PARTIAL as root
+ModelApprox ≈ inv(V)·M for each obs — PASS when V invertible
+Bone parent links — UNRESOLVED (no guest skeleton tree)
+RootCandidate (M ≈ V·W) — typically 0 in TR1 (body T mismatch)
+```
+
+GX convention: 3×4 row-major, column vectors; draw-time M is **model×view**.
+
+#### Evidence (RTX 3080, `a2g_tr1_enter.txt`, dense A3a)
+
+| Item | Status | Notes (`phase32_a3g_tr1_nv4.log`) |
+|------|--------|-----------------------------------|
+| Device | PASS | NVIDIA GeForce RTX 3080 |
+| Multi-draw association | PASS | 128 nearest of ~646 eye-near skeletal; ovf reported |
+| Unique obsKeys | PARTIAL | ~334–369 stored (cap 384); more exist beyond overflow |
+| Consecutive same instance | PASS | `samePrev=1` for settled frames |
+| Interp-ready (decompose) | PARTIAL | High READY after match; some UNSUP (non-rigid) |
+| Full bone hierarchy | FAIL / N/A | Parents unresolved — explicit |
+| Flags-off | PASS | ~60 Hz |
+| A2e/A2f MATCH | PASS | preserved |
+| Native Windows GPU | UNVERIFIED | |
+
+**Not claimed:** complete Sonic skeleton; interpolation-ready full pose; zero overflow on densest frames.
 
 ### Approach A3a — draw-level transform attribution + scratch substitution (2026-11-21)
 

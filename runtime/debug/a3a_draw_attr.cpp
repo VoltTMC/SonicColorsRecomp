@@ -4,6 +4,7 @@
 #include "a3e_budgets.h"
 #include "a3e_player_palette.h"
 #include "a3f_player_provenance.h"
+#include "a3g_pose_aggregate.h"
 #include "../gx/vertex_loader.h"
 #include "../gx/gx_state.h"
 #include "../log.h"
@@ -511,6 +512,7 @@ void A3a_OnXfbCopy()
     A3e_NoteObservedDraws(s_curr.drawCount);
     A3e_PlayerPalette_OnFrame(s_curr, s_havePrev ? &s_prev : nullptr);
     A3f_OnFrame(s_curr, s_havePrev ? &s_prev : nullptr);
+    A3g_OnFrame(s_curr, s_havePrev ? &s_prev : nullptr);
     DumpFrameLocked();
     ResetBuild();
 }

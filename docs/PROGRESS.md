@@ -1,5 +1,17 @@
 # Progress log
 
+## 2026-11-23 — A3g: player multi-draw pose aggregation + hierarchy reconstruction
+
+**Goal:** Aggregate A3f’s per-draw player matrices into a coherent per-frame pose; reconstruct hierarchy as far as evidence allows; assess interp readiness. No interpolation / second XFB / unique-FPS.
+
+**Shipped:** `a3g_pose_aggregate.*` (`SCR_A3G_POSE_AGGREGATE`, `SCR_A3G_HIERARCHY_TRACE`, `SCR_A3G_POSE_DUMP`); `playerInstanceKey=hash(shell,body)`; nearest-128 eye-near skeletal draws; `obsKey` temporal match; duplicate row/hash/conflict flags; `inv(V)·M` modelApprox; A3b decompose → READY/UNSUP/UNMATCH; overlay.
+
+**Evidence (RTX 3080, `phase32_a3g_tr1_nv4.log`):** stg110 via `a2g_tr1_enter.txt`; inst stable `27a5990d` (shell `80b58b00` / body `90f9c6c0`); draws=128 +ovf≈518 (honest); uniq obs≈350; `samePrev=1`; interpReady high after settle; roots=0; bone parents **unresolved**. Completeness **PARTIAL**.
+
+**Perf:** flags-off ~60 Hz; dense+A3g busy TR1 diag-bound. A2e/A2f MATCH; `regression_smoke` OK; MinGW links; Win GPU **UNVERIFIED**.
+
+**Next:** Guest bone-tree / palette source hooks; stratified keep beyond 128 — still before interpolation / second XFB.
+
 ## 2026-11-21 — A3f: player draw ownership + skeletal-palette provenance
 
 **Goal:** Prove (or reject) draw-time association between the guest player instance and A3a skinned candidates; classify PNMTXIDX matrices; capture consecutive palettes. No interpolation / second XFB / unique-FPS.

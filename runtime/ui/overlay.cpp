@@ -20,6 +20,7 @@
 #include "../debug/a3e_budgets.h"
 #include "../debug/a3e_player_palette.h"
 #include "../debug/a3f_player_provenance.h"
+#include "../debug/a3g_pose_aggregate.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
 #include "../tas/tas.h"
@@ -370,6 +371,13 @@ void Overlay_Render(float w, float h)
                 A3f_OverlayLine(a3f, sizeof(a3f));
                 if (a3f[0])
                     ImGui::TextUnformatted(a3f);
+            }
+            if (A3g_PoseAggregateEnabled() || A3g_HierarchyTraceEnabled())
+            {
+                char a3g[160];
+                A3g_OverlayLine(a3g, sizeof(a3g));
+                if (a3g[0])
+                    ImGui::TextUnformatted(a3g);
             }
             if (A2b_FifoCaptureEnabled() || A2c_ScratchReplayEnabled())
             {
