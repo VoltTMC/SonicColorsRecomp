@@ -53,6 +53,9 @@ PlayerSingletonPtr           data 808F3378
 #   G3dProc itself (805B8DC0/805BBF40) is NOT hooked — vtable/interrupt call sites faulted under PPC_OVERRIDE.
 #   ViewPos provenance is joined via this+0xF4 against A3h indexed-XF palette bases.
 ScnMdlSimpleCalcWorld        func 805B87D0
+# A3j: ViewA/B/C (805AE820/805AE340/805AE000) and G3dProc are NOT hooked —
+#   PPC_OVERRIDE late-faults (guest EA 818000a8). Provenance via CalcWorld this
+#   fields (+0xF4 ViewPos, +0xF8 ViewNrm, +0xFC ViewEnv) + A3h palette join.
 # MSL sprintf — Music Mods watches scripts/%s_mission.lua (and friends) for live stage loads
 sprintf                      func 80379820
 

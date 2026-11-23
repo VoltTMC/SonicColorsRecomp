@@ -245,6 +245,8 @@ Opt-in immutable snapshots at completed sim-frame boundaries for future host int
 | A3f | Player draw ownership + skeletal-palette provenance | Guest chain + eye-near skeletal PROVEN; 66308a11 REJECTED | **Done (experiment)** |
 | A3g | Multi-draw pose aggregation + hierarchy reconstruction | Nearest eye-near draws → pose; view/body known; bone parents unresolved | **Done (experiment)** |
 | A3h | Guest skeleton hierarchy + GX palette provenance | nw4r ResNode parents; indexed XF→EA; A3g 646/768; player ScnMdl PARTIAL | **Done (experiment)** |
+| A3i | Live Sonic ScnMdl + CalcWorld provenance | CalcWorld `this`; ViewPos join; twin pal PARTIAL | **Done (experiment)** |
+| A3j | Ownership + dual-palette (ViewPos/ViewEnv) | Group A+B → `809882e0`; call-time own; `M=V·W` open | **Done (experiment)** |
 | A3 | Interpolated second XFB without guest update | `unique_xfb` >60 behind debug flag | Later |
 | A4 | Quality gate; promote to uncapped | Honest unique>60 in production | Later |
 
@@ -1051,6 +1053,26 @@ Opt-in. Hooks Colors nw4r `ScnMdlSimple` **CalcWorld** (`805B87D0`); joins A3h p
 | High-hit ViewPos→ScnMdl | PARTIAL | e.g. `8098afe0`→`809882e0`; ~624 twin unresolved |
 | `M = V·W` | UNRESOLVED | |
 | Flags-off ~60 Hz | PASS | |
+| Interp readiness | **No** | |
+
+### Approach A3j — dual-palette + ownership provenance (2026-11-23)
+
+Opt-in. Observes via existing CalcWorld hook only (no View/G3dProc override). Joins A3h pals to ViewPos **and** ViewEnv (`+0xFC`) with double-buffer slots. Full report: `docs/A3J_PLAYER_MODEL_AND_PALETTE_PROVENANCE.md`.
+
+| Switch | Role |
+|--------|------|
+| `SCR_A3J_PLAYER_MODEL_OWNER=1` | Call-time association + CModelImpl/BFS search |
+| `SCR_A3J_PALETTE_A_TRACE=1` | ViewPos multi-buffer |
+| `SCR_A3J_PALETTE_B_TRACE=1` | ViewEnv / ViewNrm |
+| `SCR_A3J_ROOT_COMPOSITION=1` | Body/world/view T samples |
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Group A `8098afe0`/`8098d420` | PASS | ViewPos slots of `809882e0` |
+| Group B `80992ee0`/`80995320` | PASS | ViewEnv slots of **same** ScnMdl |
+| Call-time player↔ScnMdl | PASS | Stored body pointer still UNRESOLVED |
+| `M = V·W` | UNRESOLVED | |
+| Flags-off ~60 Hz | PASS | dense ~30 Hz |
 | Interp readiness | **No** | |
 
 ### Approach A3a — draw-level transform attribution + scratch substitution (2026-11-21)

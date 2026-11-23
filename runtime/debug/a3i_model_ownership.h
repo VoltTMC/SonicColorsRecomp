@@ -97,6 +97,8 @@ struct A3iModelRec
     uint32_t resMdlEa = 0;
     uint32_t worldMtxEa = 0;
     uint32_t viewPosEa = 0;
+    uint32_t viewNrmEa = 0;      // this+0xF8 (A3j)
+    uint32_t viewEnvEa = 0;      // this+0xFC (A3j)
     uint16_t numViewMtx = 0;
     uint16_t worldCalls = 0;
     uint16_t viewCalls = 0;

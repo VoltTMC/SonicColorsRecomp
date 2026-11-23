@@ -1,5 +1,17 @@
 # Progress log
 
+## 2026-11-23 — A3j: player model ownership + dual-palette provenance
+
+**Goal:** Close body/component→ScnMdl ownership, resolve high-hit palette groups A (`8098afe0`) and B (`80992ee0`/`80995320`), and bound root composition. No interpolation.
+
+**Shipped:** `a3j_model_palette.*` (`SCR_A3J_PLAYER_MODEL_OWNER`, `SCR_A3J_PALETTE_A_TRACE`, `SCR_A3J_PALETTE_B_TRACE`, `SCR_A3J_ROOT_COMPOSITION`); A3i/A3h double-buffer + ViewNrm/ViewEnv joins; report `docs/A3J_PLAYER_MODEL_AND_PALETTE_PROVENANCE.md`. No G3dProc/View/Construct `PPC_OVERRIDE` (fault class `818000a8`).
+
+**Evidence (RTX 3080, `a3j_tr1_capture4.log`):** ScnMdl `809882e0` `nView=193` — ViewPos=`8098afe0` (group A + slot1 `8098d420`), ViewEnv=`80992ee0` (group B + slot1 `80995320`), ViewNrm=`8098f860`; `b100=2` double-buffer. Call-time CalcWorld under live shell/body **PASS**; stored `body→ScnMdl*` **UNRESOLVED**. `M=V·W` **UNRESOLVED**.
+
+**Perf:** flags-off ~60 Hz; dense diag ~30 Hz. Win GPU **UNVERIFIED**.
+
+**Interp gate:** **Not ready** — need stored ownership path + closed root composition.
+
 ## 2026-11-23 — A3i: live Sonic ScnMdl ownership + world/view provenance
 
 **Goal:** Hook nw4r world/view calc (or Colors equiv.), capture `r3=this` under live `shell→body→inst`, join high-hit indexed-XF pals to producing ScnMdl/stage. No interpolation.

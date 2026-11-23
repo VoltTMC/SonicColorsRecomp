@@ -207,17 +207,36 @@ bool LooksLikeScnMdlSimple(uint32_t scnEa, uint32_t paletteBase, uint8_t* outKin
         if (outNum) *outNum = num;
         return true;
     }
-    // Draw path may set CP array base to a sub-range of the view/world array.
-    const uint32_t viewBytes = (uint32_t)num * 0x30u;
-    if (num >= 4 && paletteBase >= viewArr && paletteBase < viewArr + viewBytes &&
-        ((paletteBase - viewArr) % 0x30u) == 0)
+    // ViewNrm / tertiary arrays (ScnMdlSimple +0xF8 / +0xFC) — dual high-hit palettes.
+    const uint32_t viewNrm = GuestCanon(Read32(scnEa + 0xF8));
+    const uint32_t viewEnv = GuestCanon(Read32(scnEa + 0xFC));
+    if (viewNrm && viewNrm == paletteBase)
     {
         if (outKind) *outKind = 1;
         if (outNum) *outNum = num;
         return true;
     }
-    if (num >= 4 && paletteBase >= worldArr && paletteBase < worldArr + viewBytes &&
-        ((paletteBase - worldArr) % 0x30u) == 0)
+    if (viewEnv && viewEnv == paletteBase)
+    {
+        if (outKind) *outKind = 1;
+        if (outNum) *outNum = num;
+        return true;
+    }
+    // Draw path may set CP array base to a sub-range / double-buffer slot.
+    // Slot size is align32(n*0x30); G3dProc uses up to 2 slots (A3j TR1 evidence).
+    const uint32_t slot = ((uint32_t)num * 0x30u + 31u) & ~31u;
+    const uint32_t viewBytes = slot * 2u;
+    auto inSlots = [&](uint32_t base) -> bool {
+        return base && num >= 4 && paletteBase >= base && paletteBase < base + viewBytes &&
+               ((paletteBase - base) % (slot ? slot : 0x30u)) == 0;
+    };
+    if (inSlots(viewArr) || inSlots(viewNrm) || inSlots(viewEnv))
+    {
+        if (outKind) *outKind = 1;
+        if (outNum) *outNum = num;
+        return true;
+    }
+    if (inSlots(worldArr))
     {
         if (outKind) *outKind = 2;
         if (outNum) *outNum = num;

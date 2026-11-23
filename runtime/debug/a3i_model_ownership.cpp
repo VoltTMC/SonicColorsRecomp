@@ -1,5 +1,6 @@
 // Approach A3i — live Sonic ScnMdl ownership + world/view calculation provenance.
 #include "a3i_model_ownership.h"
+#include "a3j_model_palette.h"
 #include "a1b_pose_capture.h"
 #include "../game_addrs.h"
 #include "../kernel/memory.h"
@@ -353,6 +354,10 @@ void BuildModels(A3iFrameSnap& snap)
         if (!m->resMdlEa) m->resMdlEa = c.resMdlEa;
         if (!m->worldMtxEa) m->worldMtxEa = c.worldMtxEa;
         if (!m->viewPosEa) m->viewPosEa = c.viewPosEa;
+        if (!m->viewNrmEa && GuestOk(c.scnMdlEa + 0xF8))
+            m->viewNrmEa = GuestCanon(Read32(c.scnMdlEa + 0xF8));
+        if (!m->viewEnvEa && GuestOk(c.scnMdlEa + 0xFC))
+            m->viewEnvEa = GuestCanon(Read32(c.scnMdlEa + 0xFC));
         if (!m->numViewMtx) m->numViewMtx = c.numViewMtx;
         m->shellEa = c.shellEa;
         m->bodyEa = c.bodyEa;
@@ -444,17 +449,22 @@ void JoinPalettes(A3iFrameSnap& snap, const A3hFrameSnap* a3h)
         {
             A3iModelRec& m = snap.models[mi];
             uint8_t kind = 0;
-            const uint32_t span =
-                m.numViewMtx ? (uint32_t)m.numViewMtx * 0x30u : 0x30u * 64u;
-            if (m.viewPosEa &&
-                (m.viewPosEa == ap.baseEa ||
-                 (ap.baseEa >= m.viewPosEa && ap.baseEa < m.viewPosEa + span &&
-                  ((ap.baseEa - m.viewPosEa) % 0x30u) == 0)))
+            // Double-buffer: G3dProc writes ViewPos + k*align32(n*0x30); slot1 was
+            // previously missed when span == n*0x30 (strict < excluded the twin).
+            const uint32_t raw = m.numViewMtx ? (uint32_t)m.numViewMtx * 0x30u : 0x30u * 64u;
+            const uint32_t slot = (raw + 31u) & ~31u;
+            const uint32_t span = slot * 2u;
+            auto inSlots = [&](uint32_t base) -> bool {
+                return base &&
+                       (base == ap.baseEa ||
+                        (ap.baseEa >= base && ap.baseEa < base + span &&
+                         ((ap.baseEa - base) % (slot ? slot : 0x30u)) == 0));
+            };
+            if (inSlots(m.viewPosEa))
                 kind = 1;
-            else if (m.worldMtxEa &&
-                     (m.worldMtxEa == ap.baseEa ||
-                      (ap.baseEa >= m.worldMtxEa && ap.baseEa < m.worldMtxEa + span &&
-                       ((ap.baseEa - m.worldMtxEa) % 0x30u) == 0)))
+            else if (inSlots(m.viewNrmEa) || inSlots(m.viewEnvEa))
+                kind = 1;  // view-family (Nrm/Env); still stage ViewDraw
+            else if (inSlots(m.worldMtxEa))
                 kind = 2;
             if (!kind) continue;
 
@@ -579,10 +589,11 @@ void DumpSnap(const A3iFrameSnap& snap)
     for (uint16_t i = 0; i < nDump; i++)
     {
         const A3iModelRec& m = snap.models[i];
-        LOG_INFO("A3i mdl[{}] scn={:08x} res={:08x} W={:08x} V={:08x} n={} "
-                 "wC={} vC={} own={} path={}/{:x}",
-                 i, m.scnMdlEa, m.resMdlEa, m.worldMtxEa, m.viewPosEa, m.numViewMtx,
-                 m.worldCalls, m.viewCalls, m.ownClass, m.pathHolderKind, m.pathOffset);
+        LOG_INFO("A3i mdl[{}] scn={:08x} res={:08x} W={:08x} Vp={:08x} Vn={:08x} Ve={:08x} "
+                 "n={} wC={} vC={} own={} path={}/{:x}",
+                 i, m.scnMdlEa, m.resMdlEa, m.worldMtxEa, m.viewPosEa, m.viewNrmEa,
+                 m.viewEnvEa, m.numViewMtx, m.worldCalls, m.viewCalls, m.ownClass,
+                 m.pathHolderKind, m.pathOffset);
     }
     const uint16_t nPal = snap.palLinkCount < 8 ? snap.palLinkCount : 8;
     for (uint16_t i = 0; i < nPal; i++)
@@ -742,5 +753,7 @@ PPC_OVERRIDE(ScnMdlSimpleCalcWorld)
     const uint32_t param = ctx.r[4];
     if (AnyOn() && (WorldOn() || OwnOn() || ViewOn() || PalOn()))
         A3i_OnCalcWorld(th, param);
+    if (A3j_AnyEnabled())
+        A3j_OnCalcWorld(th, param);
     PPC_ORIGINAL(ScnMdlSimpleCalcWorld);
 }
