@@ -1190,6 +1190,18 @@ Opt-in lean capture (`SCR_A2B_PROD` / auto with decoupled). Restores ~60 Hz sim 
 | Full-scene mid camera | PARTIAL | `pose=0` on logged UNIQUEs (see A3q) |
 | Win GPU | UNVERIFIED | |
 
+### Approach A3s — cached / async GX replay (2026-11-23)
+
+Profiled mid `GX_ReplayCommands`: Flush dominates (~14–19 ms); decode ~2 ms. Shipped partial XF + Flush bind-cache + iso lockless pose; declined full predecoded plan / deferred CL / async worker. Report: `docs/A3S_CACHED_AND_ASYNC_GX_REPLAY.md`.
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Mid critical path &lt;~8 ms | **FAIL** | Still ~17–30 ms dense TR1 |
+| Soft budget sim ~60 | PASS | unique_mid ~5/s poseOk+gx |
+| Ignore-budget 1:1 | PARTIAL | ~20–27 Hz |
+| 60+60 unique | **FAIL** | Flush / full-scene cost |
+| Win GPU | UNVERIFIED | MinGW link OK |
+
 ### Approach A3r — sustained unique mid throughput (2026-11-23)
 
 Production mid scheduling on the A3q-correct path. Report: `docs/A3R_SUSTAINED_UNIQUE_RENDER_THROUGHPUT.md`.

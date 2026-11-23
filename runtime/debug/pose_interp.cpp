@@ -1,6 +1,7 @@
 // Approach A3n/A3o — live TR1 Sonic pose interpolation (SCR_POSE_INTERP).
 #include "pose_interp.h"
 #include "pose_qualify.h"
+#include "../gx/gx_state.h"
 #include "../kernel/memory.h"  // CanonAddr, Read32, Read16
 #include "../log.h"
 #include "../perf.h"
@@ -364,7 +365,11 @@ bool PoseInterp_OverrideIndexed(uint32_t guestEa, uint32_t index, uint32_t strid
     if (!On() || !outMtx12) return false;
     if (stride != 0x30 && stride != 48) return false;
 
-    std::lock_guard<std::mutex> lk(s_mu);
+    // A3s: under scratch isolation the caller holds GX_SyncGPU — single-threaded,
+    // so skip the mutex (hundreds of indexed XF loads per mid).
+    const bool iso = Render_ReplayIsolationActive();
+    std::unique_lock<std::mutex> lk(s_mu, std::defer_lock);
+    if (!iso) lk.lock();
     if (!s_published.active) return false;
     if (index >= s_published.nView || index >= (uint32_t)kPoseMaxNodes) return false;
     if (!s_published.valid[index])

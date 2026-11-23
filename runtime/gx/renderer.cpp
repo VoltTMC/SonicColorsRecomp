@@ -33,6 +33,7 @@
 
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <d3dcompiler.h>
 #include <format>
 #include <unordered_map>
@@ -273,6 +274,48 @@ static Topo s_topo = Topo::Tri;
 static VertexLayout s_batchLayout;
 static uint32_t s_batchComponents = 0;
 static bool s_xfDirty = true;
+static uint32_t s_xfDirtyBegin = 0;  // inclusive float index into xfmem
+static uint32_t s_xfDirtyEnd = 0;    // exclusive; 0/0 ⇒ full 0x680 upload
+// A3s mid-stage CPU timers (ns); reset via Render_MidProfReset.
+static uint64_t s_midFlushNs = 0, s_midXfUploadNs = 0, s_midDrawDecodeNs = 0;
+static uint64_t s_midFlushCount = 0, s_midDrawCount = 0, s_midDrawIndexed = 0;
+static int s_midProf = -1;
+// A3s: skip redundant D3D11 binds across consecutive Flush() calls.
+static ID3D11VertexShader* s_boundVS = nullptr;
+static ID3D11PixelShader* s_boundPS = nullptr;
+static Topo s_boundTopo = Topo::Tri;
+static uint32_t s_boundCull = ~0u;
+static uint32_t s_boundUsedMaps = ~0u;
+static ID3D11ShaderResourceView* s_boundSrvs[8]{};
+static ID3D11SamplerState* s_boundSamps[8]{};
+static float s_boundVp[4] = { -1, -1, -1, -1 };
+static int s_boundScissor[4] = { -1, -1, -1, -1 };
+
+static bool MidProfOn()
+{
+    if (s_midProf < 0)
+    {
+        const char* e = std::getenv("SCR_MID_PROFILE");
+        s_midProf = (e && e[0] && e[0] != '0') ? 1 : 0;
+    }
+    return s_midProf != 0;
+}
+
+static void MarkXfDirtyRange(uint32_t addr, uint32_t count)
+{
+    s_xfDirty = true;
+    if (addr >= 0x680u) return;
+    uint32_t end = addr + count;
+    if (end > 0x680u) end = 0x680u;
+    if (s_xfDirtyEnd == 0 && s_xfDirtyBegin == 0)
+    {
+        s_xfDirtyBegin = addr;
+        s_xfDirtyEnd = end;
+        return;
+    }
+    if (addr < s_xfDirtyBegin) s_xfDirtyBegin = addr;
+    if (end > s_xfDirtyEnd) s_xfDirtyEnd = end;
+}
 static std::vector<uint8_t> s_skip;
 
 // ------------------------------------------------------------------ textures
@@ -1513,7 +1556,29 @@ static void SetEFBTarget()
 
 void Render_SetReplayIsolation(bool on) { s_replayIsolation = on; }
 bool Render_ReplayIsolationActive() { return s_replayIsolation; }
-void Render_ForceXfDirty() { s_xfDirty = true; }
+void Render_ForceXfDirty()
+{
+    s_xfDirty = true;
+    s_xfDirtyBegin = 0;
+    s_xfDirtyEnd = 0x680u;
+}
+
+void Render_MidProfReset()
+{
+    s_midFlushNs = s_midXfUploadNs = s_midDrawDecodeNs = 0;
+    s_midFlushCount = s_midDrawCount = s_midDrawIndexed = 0;
+}
+
+void Render_MidProfGet(uint64_t* flushNs, uint64_t* xfUploadNs, uint64_t* drawDecodeNs,
+                       uint64_t* flushCount, uint64_t* drawCount, uint64_t* drawIndexed)
+{
+    if (flushNs) *flushNs = s_midFlushNs;
+    if (xfUploadNs) *xfUploadNs = s_midXfUploadNs;
+    if (drawDecodeNs) *drawDecodeNs = s_midDrawDecodeNs;
+    if (flushCount) *flushCount = s_midFlushCount;
+    if (drawCount) *drawCount = s_midDrawCount;
+    if (drawIndexed) *drawIndexed = s_midDrawIndexed;
+}
 
 void Render_ResetHostDrawState()
 {
@@ -1522,7 +1587,21 @@ void Render_ResetHostDrawState()
     s_indices.clear();
     s_skip.clear();
     s_xfDirty = true;
+    s_xfDirtyBegin = 0;
+    s_xfDirtyEnd = 0x680u;
     s_batchComponents = 0;
+    s_boundVS = nullptr;
+    s_boundPS = nullptr;
+    s_boundTopo = Topo::Tri;
+    s_boundCull = ~0u;
+    s_boundUsedMaps = ~0u;
+    s_boundVp[0] = s_boundVp[1] = s_boundVp[2] = s_boundVp[3] = -1.f;
+    s_boundScissor[0] = s_boundScissor[1] = s_boundScissor[2] = s_boundScissor[3] = -1;
+    for (int i = 0; i < 8; i++)
+    {
+        s_boundSrvs[i] = nullptr;
+        s_boundSamps[i] = nullptr;
+    }
 }
 
 uint8_t* Render_TmemPtr() { return s_tmem; }
@@ -2157,6 +2236,7 @@ static void Flush()
         s_indices.clear();
         return;
     }
+    const uint64_t tFlush0 = MidProfOn() ? Platform_PerfCounter() : 0;
     uint32_t cull = (BP(0x00) >> 14) & 3;
     if (cull == 3 && s_topo == Topo::Tri)
     {
@@ -2178,11 +2258,35 @@ static void Flush()
         return;
     }
 
-    // XF memory
+    // XF memory — A3s: upload only the dirty float range when possible (0x680 SRV).
     if (s_xfDirty)
     {
-        g_ctx->UpdateSubresource(s_xfBuf, 0, nullptr, g_gx.xfmem, 0, 0);
+        const uint64_t t0 = MidProfOn() ? Platform_PerfCounter() : 0;
+        uint32_t b = s_xfDirtyBegin, e = s_xfDirtyEnd;
+        if (e == 0 || e <= b || e > 0x680u || b >= 0x680u)
+        {
+            g_ctx->UpdateSubresource(s_xfBuf, 0, nullptr, g_gx.xfmem, 0, 0);
+        }
+        else
+        {
+            D3D11_BOX box{};
+            box.left = b * 4u;
+            box.right = e * 4u;
+            box.top = 0;
+            box.bottom = 1;
+            box.front = 0;
+            box.back = 1;
+            g_ctx->UpdateSubresource(s_xfBuf, 0, &box, &g_gx.xfmem[b], 0, 0);
+        }
         s_xfDirty = false;
+        s_xfDirtyBegin = 0;
+        s_xfDirtyEnd = 0;
+        if (MidProfOn() && t0)
+        {
+            const uint64_t freq = Platform_PerfFrequency();
+            if (freq)
+                s_midXfUploadNs += (Platform_PerfCounter() - t0) * 1000000000ull / freq;
+        }
     }
 
     // viewport
@@ -2211,7 +2315,15 @@ static void Flush()
                      AsFloat(pp[0]), AsFloat(pp[1]), AsFloat(pp[2]), AsFloat(pp[3]), AsFloat(pp[4]), AsFloat(pp[5]));
         }
     }
-    g_ctx->RSSetViewports(1, &vp);
+    if (vp.TopLeftX != s_boundVp[0] || vp.TopLeftY != s_boundVp[1] || vp.Width != s_boundVp[2] ||
+        vp.Height != s_boundVp[3])
+    {
+        g_ctx->RSSetViewports(1, &vp);
+        s_boundVp[0] = vp.TopLeftX;
+        s_boundVp[1] = vp.TopLeftY;
+        s_boundVp[2] = vp.Width;
+        s_boundVp[3] = vp.Height;
+    }
 
     // scissor
     uint32_t tl = BP(0x20), br = BP(0x21);
@@ -2220,7 +2332,15 @@ static void Flush()
     D3D11_RECT sr{ std::max(0, sx0) * s_scale, std::max(0, sy0) * s_scale, std::min(EFB_W, sx1) * s_scale, std::min(EFB_H, sy1) * s_scale };
     if (sr.right < sr.left) sr.right = sr.left;
     if (sr.bottom < sr.top) sr.bottom = sr.top;
-    g_ctx->RSSetScissorRects(1, &sr);
+    if (sr.left != s_boundScissor[0] || sr.top != s_boundScissor[1] || sr.right != s_boundScissor[2] ||
+        sr.bottom != s_boundScissor[3])
+    {
+        g_ctx->RSSetScissorRects(1, &sr);
+        s_boundScissor[0] = (int)sr.left;
+        s_boundScissor[1] = (int)sr.top;
+        s_boundScissor[2] = (int)sr.right;
+        s_boundScissor[3] = (int)sr.bottom;
+    }
 
     VSConstants vc;
     FillVSConstants(vc, &flipX, &flipY);
@@ -2252,6 +2372,9 @@ static void Flush()
     PSConstants pc;
     FillPSConstants(pc, texW, texH);
     UpdateCB(s_psCB, pc);
+    const bool texBindChanged = (usedMaps != s_boundUsedMaps) ||
+                                std::memcmp(srvs, s_boundSrvs, sizeof(srvs)) != 0 ||
+                                std::memcmp(samps, s_boundSamps, sizeof(samps)) != 0;
     if (Capturing())
         CaptureLog(std::format("  psconst fogF=({},{},{},{}) fogI=({},{},{},{}) depth=({},{}) range0=({},{},{},{})", pc.fogF[0], pc.fogF[1], pc.fogF[2], pc.fogF[3],
                                pc.fogI[0], pc.fogI[1], pc.fogI[2], pc.fogI[3], pc.depthParams[0], pc.depthParams[1], pc.fogRange[0][0], pc.fogRange[0][1],
@@ -2283,16 +2406,40 @@ static void Flush()
     g_ctx->IASetInputLayout(s_layout);
     g_ctx->IASetVertexBuffers(0, 1, &s_vb, &stride, &offset);
     g_ctx->IASetIndexBuffer(s_ib, DXGI_FORMAT_R32_UINT, ibOffset);
-    g_ctx->IASetPrimitiveTopology(s_topo == Topo::Tri ? D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST
-                                  : s_topo == Topo::Line ? D3D11_PRIMITIVE_TOPOLOGY_LINELIST : D3D11_PRIMITIVE_TOPOLOGY_POINTLIST);
-    g_ctx->VSSetShader(vs, nullptr, 0);
+    if (s_topo != s_boundTopo)
+    {
+        g_ctx->IASetPrimitiveTopology(s_topo == Topo::Tri ? D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST
+                                      : s_topo == Topo::Line ? D3D11_PRIMITIVE_TOPOLOGY_LINELIST
+                                                            : D3D11_PRIMITIVE_TOPOLOGY_POINTLIST);
+        s_boundTopo = s_topo;
+    }
+    if (vs != s_boundVS)
+    {
+        g_ctx->VSSetShader(vs, nullptr, 0);
+        s_boundVS = vs;
+    }
     g_ctx->VSSetConstantBuffers(0, 1, &s_vsCB);
     g_ctx->VSSetShaderResources(0, 1, &s_xfSRV);
-    g_ctx->PSSetShader(ps, nullptr, 0);
+    if (ps != s_boundPS)
+    {
+        g_ctx->PSSetShader(ps, nullptr, 0);
+        s_boundPS = ps;
+    }
     g_ctx->PSSetConstantBuffers(0, 1, &s_psCB);
-    g_ctx->PSSetShaderResources(0, 8, srvs);
-    g_ctx->PSSetSamplers(0, 8, samps);
-    g_ctx->RSSetState(GetRasterState(s_topo == Topo::Tri && !g_dbgNoCull ? cull : 0));
+    if (texBindChanged)
+    {
+        g_ctx->PSSetShaderResources(0, 8, srvs);
+        g_ctx->PSSetSamplers(0, 8, samps);
+        s_boundUsedMaps = usedMaps;
+        std::memcpy(s_boundSrvs, srvs, sizeof(srvs));
+        std::memcpy(s_boundSamps, samps, sizeof(samps));
+    }
+    const uint32_t cullKey = (s_topo == Topo::Tri && !g_dbgNoCull) ? cull : 0;
+    if (cullKey != s_boundCull)
+    {
+        g_ctx->RSSetState(GetRasterState(cullKey));
+        s_boundCull = cullKey;
+    }
     g_ctx->OMSetBlendState(GetBlendState(), nullptr, 0xFFFFFFFF);
     g_ctx->OMSetDepthStencilState(GetDepthState(), 0);
     SetEFBTarget();
@@ -2343,6 +2490,7 @@ static void Flush()
     }
     g_ctx->DrawIndexed((UINT)s_indices.size(), 0, 0);
     s_drawCalls++;
+    s_midDrawIndexed++;
     if (Capturing())
     {
         static int step = 0;
@@ -2356,6 +2504,13 @@ static void Flush()
 
     s_verts.clear();
     s_indices.clear();
+    if (MidProfOn() && tFlush0)
+    {
+        const uint64_t freq = Platform_PerfFrequency();
+        if (freq)
+            s_midFlushNs += (Platform_PerfCounter() - tFlush0) * 1000000000ull / freq;
+        s_midFlushCount++;
+    }
 }
 
 // ------------------------------------------------------------------ GX callbacks
@@ -2371,7 +2526,15 @@ void Render_Draw(int prim, int vat, uint32_t count, const uint8_t* data, const V
 
     uint32_t base = (uint32_t)s_verts.size();
     s_verts.resize(base + count);
+    const uint64_t tDec0 = MidProfOn() ? Platform_PerfCounter() : 0;
     VertexLoader_Decode(layout, data, count, s_verts.data() + base, s_skip);
+    if (MidProfOn() && tDec0)
+    {
+        const uint64_t freq = Platform_PerfFrequency();
+        if (freq)
+            s_midDrawDecodeNs += (Platform_PerfCounter() - tDec0) * 1000000000ull / freq;
+        s_midDrawCount++;
+    }
     const bool checkSkip = !s_skip.empty();
     // reserve the worst case and write indices through a pointer
     size_t start = s_indices.size();
@@ -2428,7 +2591,7 @@ void Render_Flush() { Flush(); }
 
 void Render_OnXF(uint32_t addr, uint32_t count, bool indexed)
 {
-    if (addr < 0x1000) s_xfDirty = true;
+    if (addr < 0x1000) MarkXfDirtyRange(addr, count);
     // A1b: first full pos-matrix-0 upload of the XFB frame ≈ guest view/modelview seed.
     if (A1b_PoseCaptureEnabled() && addr == 0 && count >= 12)
     {

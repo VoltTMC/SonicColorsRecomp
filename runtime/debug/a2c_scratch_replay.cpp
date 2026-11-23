@@ -1764,12 +1764,15 @@ bool A2c_DecoupledMidPresent(float alpha, uint32_t* outColorHash, uint32_t* outD
     if (A3b_CameraInterpEnabled() && !A3b_CameraSuspended())
         A3b_BeginScratchCamera(alpha, false);
 
+    Render_MidProfReset();
     const uint64_t tReplay0 = Platform_PerfCounter();
     const uint64_t gx0 = PoseInterp_GxOverrideCount();
     GX_ReplayCommands(pkt.cmd.data(), pass.passBytes);
     const uint64_t gxConsumed = PoseInterp_GxOverrideCount() - gx0;
     if (outGxOverrides) *outGxOverrides = gxConsumed;
     const uint64_t tReplay1 = Platform_PerfCounter();
+    uint64_t flushNs = 0, xfNs = 0, decNs = 0, flushN = 0, drawN = 0, dixN = 0;
+    Render_MidProfGet(&flushNs, &xfNs, &decNs, &flushN, &drawN, &dixN);
 
     if (A3b_ScratchCameraActive()) A3b_EndScratchCamera();
 
@@ -1783,11 +1786,13 @@ bool A2c_DecoupledMidPresent(float alpha, uint32_t* outColorHash, uint32_t* outD
         const double inv = freq ? (1000.0 / (double)freq) : 0.0;
         std::snprintf(detail, detailN,
                       "%s %s draws=%u hash=%08x α=%.3f gx=%llu replay=%.1fms present=%.1fms "
-                      "total=%.1fms",
+                      "total=%.1fms flush=%.1fms/%llu xfUp=%.1fms decode=%.1fms/%llu dix=%llu",
                       ok ? "mid-OK" : "mid-FAIL", A2c_FamilyName(pass.family), pass.drawCount,
                       colorHash, alpha, (unsigned long long)gxConsumed,
                       (tReplay1 - tReplay0) * inv, (tPres1 - tPres0) * inv,
-                      (tPres1 - tAll0) * inv);
+                      (tPres1 - tAll0) * inv, flushNs / 1.0e6, (unsigned long long)flushN,
+                      xfNs / 1.0e6, decNs / 1.0e6, (unsigned long long)drawN,
+                      (unsigned long long)dixN);
     }
 
     cleanup();

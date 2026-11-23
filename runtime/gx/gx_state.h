@@ -149,6 +149,11 @@ uint32_t Render_HashScratchBlack();
 bool Render_PresentScratchUniqueMid(uint32_t* outColorHash);
 uint64_t Render_UniqueMidPresentTotal();
 
+// A3s: mid-stage CPU timers (active when SCR_MID_PROFILE=1).
+void Render_MidProfReset();
+void Render_MidProfGet(uint64_t* flushNs, uint64_t* xfUploadNs, uint64_t* drawDecodeNs,
+                       uint64_t* flushCount, uint64_t* drawCount, uint64_t* drawIndexed);
+
 struct RenderEfbCompare
 {
     uint32_t width = 0, height = 0;

@@ -307,9 +307,9 @@ bool TryUniqueMid(float alpha, uint64_t targetTicks)
         NoteMidCost(ns);
         if (MidProfileOn() && (s_logN < 8 || (s_logN % 180) == 0))
             LOG_INFO("DecoupledPresent midProfile id={} ok={} poseOk={} gx={} midMs={:.2f} "
-                     "emaMs={:.2f}",
+                     "emaMs={:.2f} | {}",
                      corr, ok ? 1 : 0, poseOk ? 1 : 0, (unsigned long long)gxConsumed,
-                     ns / 1.0e6, s_midCostEma.load(std::memory_order_relaxed) / 1.0e6);
+                     ns / 1.0e6, s_midCostEma.load(std::memory_order_relaxed) / 1.0e6, detail);
     }
     return ok;
 }

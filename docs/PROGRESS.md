@@ -1,5 +1,17 @@
 # Progress log
 
+## 2026-11-23 — A3s: cached / async GX replay investigation (PARTIAL)
+
+**Goal:** Reduce mid `GX_ReplayCommands` critical path from ~17–21 ms toward &lt;~8 ms; evaluate predecoded/cached replay and async only if profiling justifies; preserve A3q pose + A3p archives; approach 60+60 only with evidence.
+
+**Shipped:** `SCR_MID_PROFILE` stage timers (flush / xfUp / decode / dix); partial XF dirty-range upload; Flush bind-cache (VS/PS/topo/cull/vp/scissor/SRV/sampler); lockless `PoseInterp_OverrideIndexed` under replay isolation; report `docs/A3S_CACHED_AND_ASYNC_GX_REPLAY.md`.
+
+**Not shipped (evidence):** Full predecoded FIFO plan (decode only ~2 ms); D3D11 deferred CL reuse (dynamic XF/pose); async worker (does not shrink Flush on single immediate context).
+
+**Evidence (RTX 3080):** Flush ≈75–85% of mid wall (~14–19 ms); decode ~2 ms; xfUp ~0.1 ms. Soft budget: sim≈60, unique_mid≈5/s poseOk+gx. Ignore-budget: ~20–27 Hz 1:1. **&lt;8 ms FAIL; 60+60 FAIL.**
+
+**Gate:** Diagnosis **PASS**; small opts **PASS**; mid &lt;8 ms / sustained 2× **FAIL**. Win GPU **UNVERIFIED**.
+
 ## 2026-11-23 — A3r: sustained unique mid throughput (PARTIAL)
 
 **Goal:** ~60 sim + ~60 genuine scratch mids/s with A3q pose injection; no TRACE required.
