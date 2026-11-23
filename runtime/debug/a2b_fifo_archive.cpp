@@ -1187,6 +1187,13 @@ void A2b_NoteDraw()
     s_build.drawCount++;
 }
 
+uint32_t A2b_CurrentCmdBytes()
+{
+    if (!EnvOn() || !CaptureActive()) return 0;
+    std::lock_guard lk(s_mu);
+    return (uint32_t)s_build.cmd.size();
+}
+
 void A2b_OnSimFrameEnd()
 {
     A2gNat_OnGuestFrame();  // independent of FIFO capture

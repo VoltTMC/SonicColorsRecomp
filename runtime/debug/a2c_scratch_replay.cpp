@@ -7,6 +7,7 @@
 #include "a3c_env_capture.h"
 #include "a3d_scene_coverage.h"
 #include "a3e_budgets.h"
+#include "a3u_player_composite.h"
 #include "../gx/gx_state.h"
 #include "../gx/texture_decode.h"
 #include "../kernel/memory.h"
@@ -1743,17 +1744,37 @@ bool A2c_DecoupledMidPresent(float alpha, uint32_t* outColorHash, uint32_t* outD
     };
 
     uint32_t sw = 0, sh = 0;
+    const bool a3u = A3u_Enabled();
+    uint32_t a3uFifoOff = 0;
+    bool a3uSeg = false;
+    if (a3u)
+    {
+        a3uSeg = A3u_PrepareMid(pkt.summary.xfbIndex, &a3uFifoOff, nullptr);
+        // A3u replaces full-scene scratch — never fall back to A3t dense replay.
+        if (!a3uSeg)
+        {
+            if (detail && detailN)
+                std::snprintf(detail, detailN, "A3u no bg/seg");
+            A3u_NoteMidResult(false, 0, 0, 0, "no bg/seg");
+            cleanup();
+            return false;
+        }
+    }
+
     g_gx = pkt.gxStart;
     Render_ResetHostDrawState();
     bool began = false;
-    if (pkt.efbIncomingValid && Render_EfbIncomingValid(pkt.efbIncomingSlot))
+    if (a3uSeg)
+        began = A3u_ScratchBeginFromBg(&sw, &sh);
+    if (!began && !a3u && pkt.efbIncomingValid && Render_EfbIncomingValid(pkt.efbIncomingSlot))
         began = Render_ScratchBeginFromIncoming(pkt.efbIncomingSlot, &sw, &sh);
-    if (!began && A2b_ProdMode())
+    if (!began && !a3u && A2b_ProdMode())
         began = Render_ScratchBeginCleared(&sw, &sh);
     if (!began)
     {
         if (detail && detailN)
             std::snprintf(detail, detailN, "scratch begin failed");
+        if (a3u) A3u_NoteMidResult(false, 0, 0, 0, "bg begin failed");
         cleanup();
         return false;
     }
@@ -1761,16 +1782,33 @@ bool A2c_DecoupledMidPresent(float alpha, uint32_t* outColorHash, uint32_t* outD
     // Curr-pose archive → baseIsPrev=false. Camera delta toward α when A3b on.
     // A3q: A3b XF viewMtx is not V̂ — only use when explicitly enabled; PoseInterp
     // owns player ViewPos. Environment remains archived sample-held view state.
-    if (A3b_CameraInterpEnabled() && !A3b_CameraSuspended())
+    // A3u: sample-held background camera — do not apply A3b XF view substitution.
+    if (!a3uSeg && A3b_CameraInterpEnabled() && !A3b_CameraSuspended())
         A3b_BeginScratchCamera(alpha, false);
+
+    const uint8_t* replayPtr = pkt.cmd.data();
+    size_t replayBytes = pass.passBytes;
+    if (a3uSeg)
+    {
+        if (const GXState* gxP = (const GXState*)A3u_GxAtPlayer())
+            g_gx = *gxP;
+        if (a3uFifoOff < pass.passBytes)
+        {
+            replayPtr = pkt.cmd.data() + a3uFifoOff;
+            replayBytes = pass.passBytes - a3uFifoOff;
+        }
+        A3u_BeginPlayerOnlyMid();
+    }
 
     Render_MidProfReset();
     Render_SubmitProfReset();
     const uint64_t tReplay0 = Platform_PerfCounter();
     const uint64_t gx0 = PoseInterp_GxOverrideCount();
     Render_MidGpuTimingBegin();
-    GX_ReplayCommands(pkt.cmd.data(), pass.passBytes);
+    GX_ReplayCommands(replayPtr, replayBytes);
+    Render_Flush();
     Render_MidGpuTimingEnd();
+    if (a3uSeg) A3u_EndPlayerOnlyMid();
     const uint64_t gxConsumed = PoseInterp_GxOverrideCount() - gx0;
     if (outGxOverrides) *outGxOverrides = gxConsumed;
     const uint64_t tReplay1 = Platform_PerfCounter();
@@ -1783,25 +1821,41 @@ bool A2c_DecoupledMidPresent(float alpha, uint32_t* outColorHash, uint32_t* outD
 
     if (A3b_ScratchCameraActive()) A3b_EndScratchCamera();
 
+    // A3u: require a real player pass (pose consumed + draws). Empty dix would present
+    // background-only (missing Sonic) — fail closed to the normal guest XFB.
+    if (a3uSeg && (dixN == 0 || gxConsumed == 0))
+    {
+        if (detail && detailN)
+            std::snprintf(detail, detailN, "A3u empty player pass dix=%llu gx=%llu",
+                          (unsigned long long)dixN, (unsigned long long)gxConsumed);
+        A3u_NoteMidResult(false, (uint32_t)dixN,
+                          (float)((Platform_PerfCounter() - tAll0) * (freq ? 1000.0 / (double)freq : 0.0)),
+                          (float)(gpuNs / 1.0e6), "empty player pass");
+        cleanup();
+        return false;
+    }
+
     const uint64_t tPres0 = Platform_PerfCounter();
     ok = Render_PresentScratchUniqueMid(&colorHash);
     const uint64_t tPres1 = Platform_PerfCounter();
     if (outColorHash) *outColorHash = colorHash;
-    if (outDraws) *outDraws = pass.drawCount;
+    if (outDraws) *outDraws = a3uSeg ? (uint32_t)dixN : pass.drawCount;
+    const double inv = freq ? (1000.0 / (double)freq) : 0.0;
+    const float cpuMs = (float)((tPres1 - tAll0) * inv);
+    const float gpuMs = (float)(gpuNs / 1.0e6);
+    if (a3u)
+        A3u_NoteMidResult(ok && a3uSeg, (uint32_t)dixN, cpuMs, gpuMs,
+                          a3uSeg ? (ok ? "player-seg" : "present fail") : "no bg/seg");
     if (detail && detailN)
     {
-        const double inv = freq ? (1000.0 / (double)freq) : 0.0;
         std::snprintf(detail, detailN,
-                      "%s %s draws=%u α=%.3f gx=%llu replay=%.1fms flush=%.1fms/%llu prep=%.1fms "
-                      "map=%.1fms dixApi=%.1fms/%llu cbSk=%llu/%llu bindSk=%llu/%llu gpu=%.2fms",
-                      ok ? "mid-OK" : "mid-FAIL", A2c_FamilyName(pass.family), pass.drawCount,
-                      alpha, (unsigned long long)gxConsumed, (tReplay1 - tReplay0) * inv,
-                      flushNs / 1.0e6, (unsigned long long)flushN, prepNs / 1.0e6,
-                      sub.mapNs / 1.0e6, sub.drawIndexedNs / 1.0e6,
-                      (unsigned long long)sub.drawIndexedN,
-                      (unsigned long long)sub.cbSkipN, (unsigned long long)(sub.cbSkipN + sub.cbUploadN),
-                      (unsigned long long)sub.bindSkipped,
-                      (unsigned long long)(sub.bindSkipped + sub.bindCalls), gpuNs / 1.0e6);
+                      "%s %s%s draws=%u α=%.3f gx=%llu replay=%.1fms flush=%.1fms/%llu prep=%.1fms "
+                      "dix=%llu gpu=%.2fms fifoOff=%u",
+                      ok ? "mid-OK" : "mid-FAIL", A2c_FamilyName(pass.family),
+                      a3uSeg ? "+A3u" : "", a3uSeg ? (uint32_t)dixN : pass.drawCount, alpha,
+                      (unsigned long long)gxConsumed, (tReplay1 - tReplay0) * inv, flushNs / 1.0e6,
+                      (unsigned long long)flushN, prepNs / 1.0e6, (unsigned long long)dixN, gpuMs,
+                      a3uFifoOff);
     }
 
     cleanup();

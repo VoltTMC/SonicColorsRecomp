@@ -104,6 +104,7 @@ std::unique_lock<std::mutex> GX_SyncGPU();
 void Render_SetReplayIsolation(bool on);
 bool Render_ReplayIsolationActive();
 void Render_ForceXfDirty();
+void Render_Flush();  // submit pending host draw batch
 void Render_ResetHostDrawState();  // flush batches; force XF upload next draw
 
 // Incoming EFB snapshot slots (GPU CopyResource; independent of live EFB).
@@ -148,6 +149,10 @@ uint32_t Render_HashScratchBlack();
 // scratch/device unavailable. outColorHash optional fingerprint of presented image.
 bool Render_PresentScratchUniqueMid(uint32_t* outColorHash);
 uint64_t Render_UniqueMidPresentTotal();
+
+// A3u: retained pre-player EFB colour+depth ring (slot 0..3).
+bool Render_A3uCapturePrePlayer(int slot);
+bool Render_A3uBeginScratchFromBg(int slot, uint32_t* outW, uint32_t* outH);
 
 // A3s: mid-stage CPU timers (active when SCR_MID_PROFILE=1).
 void Render_MidProfReset();

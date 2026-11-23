@@ -30,6 +30,7 @@
 #include "../debug/a2c_scratch_replay.h"
 #include "../debug/a3a_draw_attr.h"
 #include "../debug/a3b_camera_interp.h"
+#include "../debug/a3u_player_composite.h"
 
 #include <chrono>
 #include <cstdlib>
@@ -218,6 +219,11 @@ static ID3D11Texture2D* s_scratchDepth = nullptr;
 static ID3D11DepthStencilView* s_scratchDSV = nullptr;
 static bool s_replayIsolation = false;
 static bool s_scratchSkipEfbTexCopy = false;  // A2g selftest: keep retained gens
+
+// A3u: retained pre-player colour+depth (no Sonic pixels).
+static constexpr int kA3uBgSlots = 4;
+static ID3D11Texture2D* s_a3uBgColor[kA3uBgSlots]{};
+static ID3D11Texture2D* s_a3uBgDepth[kA3uBgSlots]{};
 
 // Incoming EFB snapshot ring (lossless GPU copies at pass entry).
 static constexpr int kEfbInSlots = 4;
@@ -1974,6 +1980,48 @@ bool Render_ScratchBeginCleared(uint32_t* outW, uint32_t* outH)
     return true;
 }
 
+bool Render_A3uCapturePrePlayer(int slot)
+{
+    if (!s_ready || !g_ctx || !g_device || !s_efbColor || !s_efbDepth) return false;
+    if (slot < 0 || slot >= kA3uBgSlots) return false;
+    D3D11_TEXTURE2D_DESC td{};
+    s_efbColor->GetDesc(&td);
+    if (!s_a3uBgColor[slot])
+    {
+        if (FAILED(g_device->CreateTexture2D(&td, nullptr, &s_a3uBgColor[slot]))) return false;
+    }
+    if (!s_a3uBgDepth[slot])
+    {
+        D3D11_TEXTURE2D_DESC dd{};
+        s_efbDepth->GetDesc(&dd);
+        if (FAILED(g_device->CreateTexture2D(&dd, nullptr, &s_a3uBgDepth[slot]))) return false;
+    }
+    UnbindOMTargets();
+    InvalidateHostBindCache();
+    g_ctx->CopyResource(s_a3uBgColor[slot], s_efbColor);
+    g_ctx->CopyResource(s_a3uBgDepth[slot], s_efbDepth);
+    SetEFBTarget();
+    return true;
+}
+
+bool Render_A3uBeginScratchFromBg(int slot, uint32_t* outW, uint32_t* outH)
+{
+    if (slot < 0 || slot >= kA3uBgSlots || !s_a3uBgColor[slot] || !s_a3uBgDepth[slot]) return false;
+    if (!EnsureScratchTargets()) return false;
+    DropReplayTexCaches(false);
+    Render_ResetHostDrawState();
+    UnbindOMTargets();
+    InvalidateHostBindCache();
+    g_ctx->CopyResource(s_scratchColor, s_a3uBgColor[slot]);
+    g_ctx->CopyResource(s_scratchDepth, s_a3uBgDepth[slot]);
+    s_replayIsolation = true;
+    SetEFBTarget();
+    const uint32_t w = EFB_W * s_scale, h = EFB_H * s_scale;
+    if (outW) *outW = w;
+    if (outH) *outH = h;
+    return true;
+}
+
 void Render_SetScratchSkipEfbTexCopy(bool skip) { s_scratchSkipEfbTexCopy = skip; }
 bool Render_ScratchSkipEfbTexCopy() { return s_scratchSkipEfbTexCopy; }
 
@@ -2850,6 +2898,17 @@ void Render_Draw(int prim, int vat, uint32_t count, const uint8_t* data, const V
             s_midDrawDecodeNs += (Platform_PerfCounter() - tDec0) * 1000000000ull / freq;
         s_midDrawCount++;
     }
+    const uint8_t defRow = (uint8_t)(g_gx.xfregs[XF_MATINDEX_A] & 63);
+    const bool direct = layout.posMtxIdx != 0;
+    const uint8_t* mtxBase = count ? (const uint8_t*)&s_verts[base].mtx[0] : nullptr;
+    if (A3u_PlayerOnlyMidActive() &&
+        A3u_ShouldSkipDraw(direct, defRow, mtxBase, count, (uint32_t)sizeof(HostVertex)))
+    {
+        s_verts.resize(base);
+        return;
+    }
+    if (!s_replayIsolation)
+        A3u_OnDrawClassify(direct, defRow, mtxBase, count, (uint32_t)sizeof(HostVertex));
     const bool checkSkip = !s_skip.empty();
     // reserve the worst case and write indices through a pointer
     size_t start = s_indices.size();
@@ -3003,6 +3062,9 @@ static ID3D11DepthStencilState* s_clearDS[2];
 
 static void ClearEFB(int x0, int y0, int x1, int y1)
 {
+    // A3u player-only mid: scratch already holds retained pre-player colour+depth.
+    // Do not wipe that background with archived clear ops in the player segment.
+    if (A3u_PlayerOnlyMidActive()) return;
     bool colorUpd = (BP(0x41) >> 3) & 1;
     bool alphaUpd = ((BP(0x41) >> 4) & 1) && PixelFormat() == 1;
     bool zUpd = (BP(0x40) >> 4) & 1;

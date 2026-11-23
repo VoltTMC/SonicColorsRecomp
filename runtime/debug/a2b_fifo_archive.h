@@ -269,6 +269,8 @@ void A2b_OnEfbCopy(uint32_t destAddr, uint32_t ctl, uint32_t sx, uint32_t sy, ui
 void A2b_OnEfbCopySampled(uint32_t destAddr, uint64_t genId, uint32_t createFrame, uint64_t createXfb,
                           bool crossFrame);
 void A2b_NoteDraw();
+// Bytes appended to the in-progress archive cmd buffer (0 if inactive).
+uint32_t A2b_CurrentCmdBytes();
 void A2b_OnSimFrameEnd();
 void A2b_OnXfbCopy();
 // Call after post-XFB EFB clear (pass-entry state for the next archived frame).

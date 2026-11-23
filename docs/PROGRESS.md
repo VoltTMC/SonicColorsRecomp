@@ -1,5 +1,15 @@
 # Progress log
 
+## 2026-11-23 — A3u: player-only mid compositing (PARTIAL)
+
+**Goal:** Replace full-scene scratch mid with retained pre-player EFB colour+depth + Sonic-only replay; beat A3t’s ~14–20 ms full-scratch GPU; no old-pose ghost.
+
+**Shipped:** `a3u_player_composite.*`; ViewPos XF matrix-index ownership (+ clear on overwrite); pre-player EFB colour/depth ring; mid restore + player-segment filter; empty-pass fail-closed; `SCR_A3U_PLAYER_COMPOSITE` / `_AUDIT` (default off); `docs/A3U_PLAYER_ONLY_MID_COMPOSITING.md`; `scr_a3u_classify_test`.
+
+**Evidence (RTX 3080 / DXVK):** Player ≈1500 draws/XFB; **after ≈23k** (`contig=0`). Accepted mid: dix≈40–72, gx≈110–181, **GPU ≈1.3–1.9 ms**, CPU ≈4.5–5.5 ms. Soft budget: sim≈60, unique_mid≈6–8/s. Ignore-budget: ~36+16–20. Post-player layer omitted from mid.
+
+**Gate:** Bg without Sonic + depth **PASS**; player-only cheaper than A3t **PASS**; normal path unchanged when off **PASS**; full mid-frame equivalence / 60+60 / full-scene 2× **FAIL** (post-player sample-held). Win GPU **UNVERIFIED**.
+
 ## 2026-11-23 — A3t: D3D11 immediate-context submission optimisation (PARTIAL)
 
 **Goal:** Cut Flush/D3D11 mid submission from ~14–19 ms toward &lt;~8 ms; measure full-scene GPU independently; preserve A3q/A3p.

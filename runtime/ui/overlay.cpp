@@ -29,6 +29,7 @@
 #include "../debug/pose_qualify.h"
 #include "../debug/pose_interp.h"
 #include "../debug/decoupled_present.h"
+#include "../debug/a3u_player_composite.h"
 #include "../input/input_latency.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
@@ -450,6 +451,13 @@ void Overlay_Render(float w, float h)
                 DecoupledPresent_OverlayLine(dp, sizeof(dp));
                 if (dp[0])
                     ImGui::TextUnformatted(dp);
+            }
+            if (A3u_Enabled() || A3u_AuditOn())
+            {
+                char a3u[192];
+                A3u_OverlayLine(a3u, sizeof(a3u));
+                if (a3u[0])
+                    ImGui::TextUnformatted(a3u);
             }
             if (A2b_FifoCaptureEnabled() || A2c_ScratchReplayEnabled())
             {

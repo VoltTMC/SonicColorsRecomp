@@ -23,6 +23,7 @@
 #include "debug/pose_qualify.h"
 #include "debug/pose_interp.h"
 #include "debug/decoupled_present.h"
+#include "debug/a3u_player_composite.h"
 
 #include <atomic>
 #include <algorithm>
@@ -366,6 +367,7 @@ void Perf_OnXfbCopy()
     PoseCapture_OnXfb();  // no-op unless SCR_POSE_CAPTURE/QUALIFY/INTERP
     PoseQualify_OnXfb();  // no-op unless SCR_POSE_QUALIFY=1
     PoseInterp_OnXfb();   // no-op unless SCR_POSE_INTERP=1
+    A3u_OnXfb();          // no-op unless SCR_A3U_PLAYER_COMPOSITE/AUDIT
     DecoupledPresent_OnXfb();  // no-op unless SCR_DECOUPLED_PRESENT=1
     A3b_OnXfbCopy();  // no-op unless SCR_A3B_CAMERA_INTERP=1
     A3c_OnXfbCopy();  // no-op unless SCR_A3C_ENV_CAPTURE/INTERP=1

@@ -4,6 +4,7 @@
 #include "../debug/a2c_scratch_replay.h"
 #include "../debug/a3h_skeleton_palette.h"
 #include "../debug/pose_interp.h"
+#include "../debug/a3u_player_composite.h"
 #include "../hw/hw.h"
 #include "../kernel/memory.h"
 #include "../log.h"
@@ -263,11 +264,14 @@ static void LoadIndexedXF(int array, uint32_t word)
         }
         for (uint32_t i = 12; i < size; i++)
             g_gx.xfmem[(addr + i) & 0xFFF] = BE32(src + 4 * i);
+        A3u_NotePlayerXfRow(addr, size);
     }
     else
     {
         for (uint32_t i = 0; i < size; i++)
             g_gx.xfmem[(addr + i) & 0xFFF] = BE32(src + 4 * i);
+        // Live + mid: track ViewPos→XF ownership (clears bit on non-ViewPos overwrite).
+        A3u_OnIndexedXf(guestEa, addr, size);
     }
     Render_OnXF(addr, size, true);
     A3h_OnIndexedXf(guestEa, base, index, stride, addr, size);

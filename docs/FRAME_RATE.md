@@ -1190,6 +1190,19 @@ Opt-in lean capture (`SCR_A2B_PROD` / auto with decoupled). Restores ~60 Hz sim 
 | Full-scene mid camera | PARTIAL | `pose=0` on logged UNIQUEs (see A3q) |
 | Win GPU | UNVERIFIED | |
 
+### Approach A3u — player-only mid compositing (2026-11-23)
+
+Retained pre-player EFB colour+depth + ViewPos-owned Sonic replay for extra mids (sample-held environment/camera). Opt-in `SCR_A3U_PLAYER_COMPOSITE`. Report: `docs/A3U_PLAYER_ONLY_MID_COMPOSITING.md`.
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Bg without old Sonic + depth | PASS | Capture before first ViewPos XF |
+| Mid GPU vs A3t 14–20 ms | PASS | ~1.3–1.9 ms accepted player pass |
+| Soft budget sim ~60 | PASS | unique_mid ~6–8/s poseOk+gx |
+| Post-player in mid | **FAIL** | ~23k draws after Sonic omitted |
+| 60+60 / full-scene 2× | **FAIL** | retained-env + Sonic only |
+| Win GPU | UNVERIFIED | MinGW link OK |
+
 ### Approach A3t — D3D11 submission optimisation (2026-11-23)
 
 Profiled SCR `Flush()` (host draw submit, not `ID3D11DeviceContext::Flush`). Prep Fill+GetTexture ≈12–15 ms; full scratch GPU ≈14–20 ms (async timestamps). Report: `docs/A3T_D3D11_SUBMISSION_OPTIMISATION.md`.
