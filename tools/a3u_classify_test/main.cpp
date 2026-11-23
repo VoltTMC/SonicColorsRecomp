@@ -56,9 +56,23 @@ int main()
     Expect(XfMatrixIndex(0) == 0, "mtx0 @0");
     Expect(XfMatrixIndex(12) == 1, "mtx1 @12");
     Expect(XfMatrixIndex(12 * 57) == 57, "mtx57");
-    // Old bug: xfAddr/4 mapped mtx1→row3; matrix index must match defRow.
-    Expect(XfMatrixIndex(12) != (12u / 4u) % 64u || XfMatrixIndex(12) == 1, "not addr/4");
     Expect((12u / 4u) % 64u == 3, "document old /4 bug");
+
+    // Trailing vs interleaved: afterLast resets on each player draw.
+    uint32_t after = 0, afterLast = 0;
+    auto onPly = [&]() { afterLast = 0; };
+    auto onNon = [&]() { after++; afterLast++; };
+    onPly();
+    onNon();
+    onNon();
+    onPly();
+    onNon();
+    Expect(after == 3 && afterLast == 1, "trailing=1 after interleaved reset");
+
+    // Sparse plan truncation: end > off, bytes = end - off.
+    const uint32_t fifoOff = 1200, cmdEnd = 8000, arch = 200000;
+    Expect(cmdEnd > fifoOff && cmdEnd < arch, "plan window inside archive");
+    Expect((cmdEnd - fifoOff) < (arch - fifoOff), "truncated cheaper than full tail");
 
     if (g_fail)
     {

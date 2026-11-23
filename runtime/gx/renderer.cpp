@@ -2887,6 +2887,18 @@ void Render_Draw(int prim, int vat, uint32_t count, const uint8_t* data, const V
     s_topo = topo;
     s_batchComponents = comps;
 
+    // A3v: skip non-player draws BEFORE vertex decode during player-only mid.
+    // Interleaved env draws (~23k) were dominating mid CPU via Decode.
+    const uint8_t defRow = (uint8_t)(g_gx.xfregs[XF_MATINDEX_A] & 63);
+    const bool direct = layout.posMtxIdx != 0;
+    if (A3u_PlayerOnlyMidActive())
+    {
+        const uint8_t* rawMtx = (direct && count && layout.size) ? data : nullptr;
+        const uint32_t rawStride = direct ? layout.size : 0;
+        if (A3u_ShouldSkipDraw(direct, defRow, rawMtx, count, rawStride))
+            return;
+    }
+
     uint32_t base = (uint32_t)s_verts.size();
     s_verts.resize(base + count);
     const uint64_t tDec0 = MidProfOn() ? Platform_PerfCounter() : 0;
@@ -2898,15 +2910,7 @@ void Render_Draw(int prim, int vat, uint32_t count, const uint8_t* data, const V
             s_midDrawDecodeNs += (Platform_PerfCounter() - tDec0) * 1000000000ull / freq;
         s_midDrawCount++;
     }
-    const uint8_t defRow = (uint8_t)(g_gx.xfregs[XF_MATINDEX_A] & 63);
-    const bool direct = layout.posMtxIdx != 0;
     const uint8_t* mtxBase = count ? (const uint8_t*)&s_verts[base].mtx[0] : nullptr;
-    if (A3u_PlayerOnlyMidActive() &&
-        A3u_ShouldSkipDraw(direct, defRow, mtxBase, count, (uint32_t)sizeof(HostVertex)))
-    {
-        s_verts.resize(base);
-        return;
-    }
     if (!s_replayIsolation)
         A3u_OnDrawClassify(direct, defRow, mtxBase, count, (uint32_t)sizeof(HostVertex));
     const bool checkSkip = !s_skip.empty();

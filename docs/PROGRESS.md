@@ -1,5 +1,15 @@
 # Progress log
 
+## 2026-11-23 — A3v: production player composite / occlusion / cadence (PARTIAL)
+
+**Goal:** Reusable player plan, classify post-player occlusion, fix soft-budget 6–8/s without IGNORE_BUDGET; keep sim ~60.
+
+**Shipped:** Truncation plan `[fifoOff,playerCmdEnd)`; pre-decode skip for non-player mid draws; SyncGPU-excluded work EMA + tighter A3u reserve; occlusion/budget/plan traces; `docs/A3V_PRODUCTION_PLAYER_COMPOSITE.md`.
+
+**Evidence (RTX 3080):** Mid CPU **~1.6–1.8 ms** (was ~4.5); soft unique_mid **~4–10/s** (peak ~9.7) at sim≈60; ignore-budget ~29+16. Interleaved ~23k draws = occlusion candidates (sample-held on mid). Trailing ~127 truncated.
+
+**Gate:** Plan reuse **PASS**; scheduler diagnosis **PASS**; mid cheaper **PASS**; 60+60 **FAIL**; mid≠full occlusion **FAIL** (documented). Win GPU **UNVERIFIED**.
+
 ## 2026-11-23 — A3u: player-only mid compositing (PARTIAL)
 
 **Goal:** Replace full-scene scratch mid with retained pre-player EFB colour+depth + Sonic-only replay; beat A3t’s ~14–20 ms full-scratch GPU; no old-pose ghost.

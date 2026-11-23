@@ -1190,6 +1190,20 @@ Opt-in lean capture (`SCR_A2B_PROD` / auto with decoupled). Restores ~60 Hz sim 
 | Full-scene mid camera | PARTIAL | `pose=0` on logged UNIQUEs (see A3q) |
 | Win GPU | UNVERIFIED | |
 
+### Approach A3v — production player composite (2026-11-23)
+
+Truncation plan + pre-decode skip + SyncGPU-excluded soft budget. Report: `docs/A3V_PRODUCTION_PLAYER_COMPOSITE.md`.
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Reusable plan window | PASS | `[fifoOff,playerCmdEnd)`; O(1) |
+| Mid CPU vs A3u ~4.5 ms | PASS | **~1.6–1.8 ms** (skip before decode) |
+| Soft unique_mid @60 Hz | PARTIAL | **~4–10/s** (peak ~9.7); not 60 |
+| 6–8/s diagnosis | PASS | EMA+SyncGPU+residual wait |
+| Interleaved occlusion on mid | **FAIL** | ~23k skipped; sample-held |
+| 60+60 / full-scene 2× | **FAIL** | env sample-held |
+| Win GPU | UNVERIFIED | MinGW link OK |
+
 ### Approach A3u — player-only mid compositing (2026-11-23)
 
 Retained pre-player EFB colour+depth + ViewPos-owned Sonic replay for extra mids (sample-held environment/camera). Opt-in `SCR_A3U_PLAYER_COMPOSITE`. Report: `docs/A3U_PLAYER_ONLY_MID_COMPOSITING.md`.

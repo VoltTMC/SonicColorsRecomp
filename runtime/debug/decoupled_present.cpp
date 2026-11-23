@@ -3,6 +3,7 @@
 #include "a2b_fifo_archive.h"
 #include "a2c_scratch_replay.h"
 #include "a3b_camera_interp.h"
+#include "a3u_player_composite.h"
 #include "pose_capture.h"
 #include "pose_interp.h"
 #include "../gx/gx_state.h"
@@ -24,6 +25,7 @@ std::atomic<int> s_trace{ -1 };
 std::atomic<int> s_midPoseTrace{ -1 };
 std::atomic<int> s_midProfile{ -1 };
 std::atomic<int> s_ignoreBudget{ -1 };
+std::atomic<int> s_budgetTrace{ -1 };
 std::mutex s_mu;
 DecoupledPresentStats s_st{};
 float s_rate = 2.f;
@@ -35,8 +37,9 @@ uint32_t s_logN = 0;
 char s_lastDetail[192]{};
 std::atomic<uint64_t> s_corrId{ 1 };
 std::atomic<uint32_t> s_diagForceMid{ 0 };  // set on GPU/XFB thread; consumed on guest pace
-// EMA of mid wall time (ticks) for soft budget decisions.
+// EMA of mid *work* ns (excludes GX_SyncGPU wait) for soft budget decisions.
 std::atomic<uint64_t> s_midCostEma{ 0 };
+std::atomic<uint64_t> s_midSyncEma{ 0 };
 constexpr uint32_t kMidTraceCap = 32;
 MidPoseTrace s_midTrace[kMidTraceCap]{};
 uint32_t s_midTraceN = 0;
@@ -128,6 +131,17 @@ bool IgnoreBudget()
     return v != 0;
 }
 
+bool BudgetTraceOn()
+{
+    int v = s_budgetTrace.load(std::memory_order_relaxed);
+    if (v < 0)
+    {
+        v = EnvFlag("SCR_A3U_BUDGET_TRACE") ? 1 : 0;
+        s_budgetTrace.store(v, std::memory_order_relaxed);
+    }
+    return v != 0;
+}
+
 void RecordMidTrace(const MidPoseTrace& t)
 {
     std::lock_guard<std::mutex> lk(s_mu);
@@ -152,15 +166,28 @@ void NoteAlpha(float a)
     if (a > s_st.alphaMax) s_st.alphaMax = a;
 }
 
-void NoteMidCost(uint64_t ns)
+void NoteMidCost(uint64_t totalNs, uint64_t syncNs)
 {
-    s_st.midNsTotal += ns;
-    if (ns > s_st.midNsPeak) s_st.midNsPeak = ns;
-    s_st.lastMidMs = (float)(ns / 1.0e6);
-    // EMA ≈ 7/8 old + 1/8 new (in ns, stored as ticks-equivalent via Platform).
-    const uint64_t prev = s_midCostEma.load(std::memory_order_relaxed);
-    const uint64_t next = prev ? (prev * 7 + ns) / 8 : ns;
-    s_midCostEma.store(next, std::memory_order_relaxed);
+    s_st.midNsTotal += totalNs;
+    if (totalNs > s_st.midNsPeak) s_st.midNsPeak = totalNs;
+    s_st.lastMidMs = (float)(totalNs / 1.0e6);
+    // Budget EMA uses work excluding SyncGPU — guest GPU drain was poisoning the
+    // soft budget (~12 ms cap + reserve) and limiting unique_mid to ~6–8/s.
+    const uint64_t workNs = (totalNs > syncNs) ? (totalNs - syncNs) : totalNs;
+    // Ignore sub-0.5 ms failures (empty pass / not-ready) so EMA does not collapse to ~0.
+    if (workNs >= 500000ull)
+    {
+        const uint64_t prev = s_midCostEma.load(std::memory_order_relaxed);
+        const uint64_t next = prev ? (prev * 7 + workNs) / 8 : workNs;
+        s_midCostEma.store(next, std::memory_order_relaxed);
+        if (A3u_Enabled())
+            A3u_NoteWorkMs((float)(workNs / 1.0e6));
+    }
+    if (syncNs)
+    {
+        const uint64_t sp = s_midSyncEma.load(std::memory_order_relaxed);
+        s_midSyncEma.store(sp ? (sp * 7 + syncNs) / 8 : syncNs, std::memory_order_relaxed);
+    }
 }
 
 void RestorePublishedPose()
@@ -232,7 +259,7 @@ bool TryUniqueMid(float alpha, uint64_t targetTicks)
         if (MidPoseTraceOn()) RecordMidTrace(tr);
         const uint64_t freq = Platform_PerfFrequency();
         if (freq)
-            NoteMidCost((Platform_PerfCounter() - t0) * 1000000000ull / freq);
+            NoteMidCost((Platform_PerfCounter() - t0) * 1000000000ull / freq, 0);
         return false;
     }
 
@@ -240,8 +267,10 @@ bool TryUniqueMid(float alpha, uint64_t targetTicks)
     if (A2b_GetCurrentSummary(sum)) tr.archiveXfb = (uint32_t)sum.xfbIndex;
     s_st.midSelected++;
 
-    // Hold GPU idle for scratch replay + present.
+    // Hold GPU idle for scratch replay + present. Sync wait is excluded from budget EMA.
+    const uint64_t tSync0 = Platform_PerfCounter();
     auto gpuLock = GX_SyncGPU();
+    const uint64_t tSync1 = Platform_PerfCounter();
     const bool ok =
         A2c_DecoupledMidPresent(alpha, &hash, &draws, detail, sizeof(detail), &gxConsumed);
     (void)gpuLock;
@@ -304,12 +333,14 @@ bool TryUniqueMid(float alpha, uint64_t targetTicks)
     if (freq)
     {
         const uint64_t ns = (Platform_PerfCounter() - t0) * 1000000000ull / freq;
-        NoteMidCost(ns);
+        const uint64_t syncNs = (tSync1 - tSync0) * 1000000000ull / freq;
+        NoteMidCost(ns, syncNs);
         if (MidProfileOn() && (s_logN < 8 || (s_logN % 180) == 0))
             LOG_INFO("DecoupledPresent midProfile id={} ok={} poseOk={} gx={} midMs={:.2f} "
-                     "emaMs={:.2f} | {}",
+                     "syncMs={:.2f} workEmaMs={:.2f} | {}",
                      corr, ok ? 1 : 0, poseOk ? 1 : 0, (unsigned long long)gxConsumed,
-                     ns / 1.0e6, s_midCostEma.load(std::memory_order_relaxed) / 1.0e6, detail);
+                     ns / 1.0e6, syncNs / 1.0e6,
+                     s_midCostEma.load(std::memory_order_relaxed) / 1.0e6, detail);
     }
     return ok;
 }
@@ -328,27 +359,39 @@ bool AttemptOwedMid(uint64_t nowTicks, uint64_t freq, uint64_t simDeadlineTicks,
     if (honorBudget && freq)
     {
         uint64_t emaNs = s_midCostEma.load(std::memory_order_relaxed);
-        // Cap EMA so a single pathological mid cannot permanently suppress attempts.
-        constexpr uint64_t kEmaCapNs = 12000000ull;  // 12 ms
-        if (emaNs > kEmaCapNs) emaNs = kEmaCapNs;
+        // Seed from last A3u work measurement when EMA is cold.
+        if (emaNs == 0 && A3u_Enabled() && A3u_LastWorkMs() > 0.f)
+            emaNs = (uint64_t)(A3u_LastWorkMs() * 1.0e6);
+
+        // A3u player-only work is ~2–5 ms; keep the full-scene 12 ms cap for non-A3u.
+        const uint64_t emaCapNs = A3u_Enabled() ? 7000000ull : 12000000ull;
+        if (emaNs > emaCapNs) emaNs = emaCapNs;
 
         const uint64_t remain =
             (simDeadlineTicks && nowTicks < simDeadlineTicks) ? (simDeadlineTicks - nowTicks) : 0;
         const uint64_t remainNs = remain * 1000000000ull / freq;
-        constexpr uint64_t kReserveNs = 2000000ull;
+        // Tighter reserve for A3u — previous 2 ms reserve + SyncGPU-inflated EMA
+        // rejected most attempts after guest work left ~5–8 ms.
+        const uint64_t reserveNs = A3u_Enabled() ? 500000ull : 2000000ull;
 
-        // Sparse probe: every 60th owed attempt refreshes EMA even when over budget,
-        // so dense TR1 still demonstrates poseOk mids without claiming 2×.
         static uint32_t s_probe = 0;
-        const bool probe = (++s_probe % 60u) == 0u;
+        const uint32_t probePeriod = A3u_Enabled() ? 30u : 60u;
+        const bool probe = (++s_probe % probePeriod) == 0u;
 
-        if (!probe && emaNs > 0 && remainNs < emaNs + kReserveNs)
+        if (!probe && emaNs > 0 && remainNs < emaNs + reserveNs)
         {
             s_st.midSkipBudget++;
-            // Decay EMA so future residual wait / cheaper scenes can recover.
             s_midCostEma.store((emaNs * 15) / 16, std::memory_order_relaxed);
+            if (BudgetTraceOn() && (s_st.midSkipBudget <= 8 || (s_st.midSkipBudget % 120) == 0))
+                LOG_INFO("A3v budgetSkip remain={:.2f}ms workEma={:.2f}ms reserve={:.2f}ms "
+                         "syncEma={:.2f}ms",
+                         remainNs / 1.0e6, emaNs / 1.0e6, reserveNs / 1.0e6,
+                         s_midSyncEma.load(std::memory_order_relaxed) / 1.0e6);
             return false;
         }
+        if (BudgetTraceOn() && probe)
+            LOG_INFO("A3v budgetProbe remain={:.2f}ms workEma={:.2f}ms", remainNs / 1.0e6,
+                     emaNs / 1.0e6);
     }
 
     const uint64_t lat = LatencyTicks(freq);
@@ -446,8 +489,11 @@ void DecoupledPresent_OnPaceWait(uint64_t nowTicks, uint64_t simDeadlineTicks, u
         return;
     }
 
-    const uint64_t period =
-        (midsWanted > 0) ? ((freq / 60ull) / (midsWanted + 1ull)) : (freq / 120ull);
+    // A3u: allow denser mid attempts in the pace wait (player pass is cheap).
+    const uint64_t period = A3u_Enabled()
+                                ? (freq / 120ull)
+                                : ((midsWanted > 0) ? ((freq / 60ull) / (midsWanted + 1ull))
+                                                    : (freq / 120ull));
     if (s_lastPresentTicks && nowTicks < s_lastPresentTicks + period)
     {
         s_st.missedDeadline++;

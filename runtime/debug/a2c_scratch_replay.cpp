@@ -1788,12 +1788,24 @@ bool A2c_DecoupledMidPresent(float alpha, uint32_t* outColorHash, uint32_t* outD
 
     const uint8_t* replayPtr = pkt.cmd.data();
     size_t replayBytes = pass.passBytes;
+    bool a3uSparse = false;
     if (a3uSeg)
     {
         if (const GXState* gxP = (const GXState*)A3u_GxAtPlayer())
             g_gx = *gxP;
-        if (a3uFifoOff < pass.passBytes)
+        const uint8_t* planPtr = nullptr;
+        size_t planBytes = 0;
+        if (A3u_EnsureSparsePlan(pkt.summary.xfbIndex, pkt.cmd.data(), pkt.cmd.size(), &planPtr,
+                                 &planBytes) &&
+            planPtr && planBytes > 0)
         {
+            replayPtr = planPtr;
+            replayBytes = planBytes;
+            a3uSparse = true;
+        }
+        else if (a3uFifoOff < pass.passBytes)
+        {
+            // Fallback: truncated/full segment from fifoOff (still skip non-player draws).
             replayPtr = pkt.cmd.data() + a3uFifoOff;
             replayBytes = pass.passBytes - a3uFifoOff;
         }
@@ -1849,13 +1861,14 @@ bool A2c_DecoupledMidPresent(float alpha, uint32_t* outColorHash, uint32_t* outD
     if (detail && detailN)
     {
         std::snprintf(detail, detailN,
-                      "%s %s%s draws=%u α=%.3f gx=%llu replay=%.1fms flush=%.1fms/%llu prep=%.1fms "
-                      "dix=%llu gpu=%.2fms fifoOff=%u",
+                      "%s %s%s%s draws=%u α=%.3f gx=%llu replay=%.1fms flush=%.1fms/%llu "
+                      "prep=%.1fms dix=%llu gpu=%.2fms fifoOff=%u planB=%zu",
                       ok ? "mid-OK" : "mid-FAIL", A2c_FamilyName(pass.family),
-                      a3uSeg ? "+A3u" : "", a3uSeg ? (uint32_t)dixN : pass.drawCount, alpha,
+                      a3uSeg ? "+A3u" : "", a3uSparse ? "/plan" : "",
+                      a3uSeg ? (uint32_t)dixN : pass.drawCount, alpha,
                       (unsigned long long)gxConsumed, (tReplay1 - tReplay0) * inv, flushNs / 1.0e6,
                       (unsigned long long)flushN, prepNs / 1.0e6, (unsigned long long)dixN, gpuMs,
-                      a3uFifoOff);
+                      a3uFifoOff, a3uSparse ? replayBytes : (size_t)0);
     }
 
     cleanup();

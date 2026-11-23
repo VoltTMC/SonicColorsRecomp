@@ -1,4 +1,4 @@
-// Approach A3u — pre-player EFB background + player-only mid segment replay.
+// Approach A3u/A3v — pre-player EFB + sparse player-only mid plan.
 #include "a3u_player_composite.h"
 #include "a2b_fifo_archive.h"
 #include "pose_capture.h"
@@ -6,6 +6,7 @@
 #include "../kernel/memory.h"
 #include "../log.h"
 #include "../perf.h"
+#include "../platform/platform.h"
 
 #include <atomic>
 #include <cstdio>
@@ -17,39 +18,49 @@ namespace
 {
 
 constexpr int kBgSlots = 4;
+constexpr size_t kPlanMaxBytes = 4u << 20;  // 4 MiB sparse plan cap
 
 std::atomic<int> s_on{ -1 };
 std::atomic<int> s_audit{ -1 };
+std::atomic<int> s_planProf{ -1 };
+std::atomic<int> s_occTrace{ -1 };
 std::mutex s_mu;
 A3uStats s_st{};
+float s_lastWorkMs = 0.f;
 
 struct BgSlot
 {
     uint64_t xfbIndex = 0;
     uint64_t simFrame = 0;
     uint32_t fifoOff = 0;
+    uint32_t playerCmdEnd = 0;
     uint32_t scnMdlEa = 0;
     uint32_t viewBaseEa = 0;
     GXState gx{};
     bool valid = false;
     bool hasGx = false;
+    // Truncation window cached once per bg slot (no byte copy — points into archive).
+    uint32_t planEnd = 0;  // exclusive; 0 = unset
+    uint64_t planBuildNs = 0;
+    bool planReady = false;
 };
 
 BgSlot s_slots[kBgSlots]{};
 int s_write = 0;
 
-// Per-XFB live classification.
 uint64_t s_xfbTag = ~0ull;
-uint32_t s_drawsBefore = 0, s_drawsPlayer = 0, s_drawsAfter = 0;
+uint32_t s_drawsBefore = 0, s_drawsPlayer = 0, s_drawsAfter = 0, s_drawsAfterLast = 0;
+uint32_t s_afterOpaque = 0, s_afterBlend = 0, s_afterOther = 0;
 uint32_t s_firstPlayerSeq = 0, s_lastPlayerSeq = 0;
 uint32_t s_drawSeq = 0;
 bool s_seenNonPlayerAfter = false;
 bool s_bgCaptured = false;
 bool s_inPlayerSpan = false;
-uint64_t s_playerRowMask = 0;  // XF pos-matrix row indices (0..63) from ViewPos loads
+uint64_t s_playerRowMask = 0;
 uint32_t s_viewBase0 = 0, s_viewBase1 = 0, s_viewActive = 0;
 uint32_t s_scnEa = 0;
 uint32_t s_fifoOffAtCapture = 0;
+uint32_t s_lastPlayerCmdEnd = 0;
 GXState s_gxAtCapture{};
 bool s_haveGxCapture = false;
 
@@ -64,7 +75,7 @@ bool EnvOn()
         const char* e = std::getenv("SCR_A3U_PLAYER_COMPOSITE");
         v = (e && e[0] && e[0] != '0') ? 1 : 0;
         s_on.store(v, std::memory_order_relaxed);
-        if (v) LOG_INFO("A3u: player-only mid composite enabled (SCR_A3U_PLAYER_COMPOSITE)");
+        if (v) LOG_INFO("A3u/A3v: player-only mid composite enabled (SCR_A3U_PLAYER_COMPOSITE)");
     }
     return v != 0;
 }
@@ -81,12 +92,35 @@ bool AuditOn()
     return v != 0 || EnvOn();
 }
 
+bool PlanProfOn()
+{
+    int v = s_planProf.load(std::memory_order_relaxed);
+    if (v < 0)
+    {
+        const char* e = std::getenv("SCR_A3U_PLAN_PROFILE");
+        v = (e && e[0] && e[0] != '0') ? 1 : 0;
+        s_planProf.store(v, std::memory_order_relaxed);
+    }
+    return v != 0;
+}
+
+bool OccTraceOn()
+{
+    int v = s_occTrace.load(std::memory_order_relaxed);
+    if (v < 0)
+    {
+        const char* e = std::getenv("SCR_A3U_OCCLUSION_TRACE");
+        v = (e && e[0] && e[0] != '0') ? 1 : 0;
+        s_occTrace.store(v, std::memory_order_relaxed);
+    }
+    return v != 0;
+}
+
 void RefreshViewBases()
 {
     PoseSnap snap{};
     if (!PoseCapture_GetLatest(snap) || !snap.scnMdlEa) return;
     s_scnEa = snap.scnMdlEa;
-    // ViewPos pointer at ScnMdl+0xF4 (kPoseScn_ViewPos); dual-buffered by slotBytes.
     const uint32_t view = CanonAddr(Read32(snap.scnMdlEa + kPoseScn_ViewPos));
     if (!view) return;
     s_viewBase0 = view;
@@ -104,7 +138,7 @@ bool EaInViewPos(uint32_t guestEa)
         if (!base) return false;
         const uint32_t bytes =
             (s_viewBase1 > base) ? (s_viewBase1 - base) : (193u * 0x30u);
-        return ea >= base && ea < base + bytes + 0x30u;  // allow last matrix
+        return ea >= base && ea < base + bytes + 0x30u;
     };
     return in(s_viewBase0) || in(s_viewBase1) || in(s_viewActive);
 }
@@ -119,18 +153,29 @@ bool DrawUsesPlayerRows(bool posMtxDirect, uint8_t defRow, const uint8_t* hostVt
     const uint32_t n = vtxCount < 32 ? vtxCount : 32;
     for (uint32_t i = 0; i < n; i++)
     {
-        // HostVertex::mtx[0] is first byte after pos[3]+pad — caller passes mtx field ptr
-        // when available; otherwise we only have defRow path.
         const uint8_t row = hostVtxMtx0[i * vtxStride] & 63;
         if (s_playerRowMask & (1ull << row)) return true;
     }
     return false;
 }
 
+void ClassifyAfterDraw()
+{
+    // Heuristic from live BP at draw time (trailing/interleaved non-player).
+    const uint32_t zm = g_gx.bp[0x40];
+    const uint32_t bm = g_gx.bp[0x41];
+    const bool zEn = (zm & 1) != 0;
+    const bool blendEn = (bm & 1) != 0;
+    if (blendEn) s_afterBlend++;
+    else if (zEn) s_afterOpaque++;
+    else s_afterOther++;
+}
+
 void ResetXfbLocal(uint64_t xfb)
 {
     s_xfbTag = xfb;
-    s_drawsBefore = s_drawsPlayer = s_drawsAfter = 0;
+    s_drawsBefore = s_drawsPlayer = s_drawsAfter = s_drawsAfterLast = 0;
+    s_afterOpaque = s_afterBlend = s_afterOther = 0;
     s_firstPlayerSeq = s_lastPlayerSeq = 0;
     s_drawSeq = 0;
     s_seenNonPlayerAfter = false;
@@ -138,9 +183,12 @@ void ResetXfbLocal(uint64_t xfb)
     s_inPlayerSpan = false;
     s_playerRowMask = 0;
     s_fifoOffAtCapture = 0;
+    s_lastPlayerCmdEnd = 0;
     s_haveGxCapture = false;
     RefreshViewBases();
 }
+
+uint32_t XfMatrixIndex(uint32_t xfAddr) { return (xfAddr / 12u) % 64u; }
 
 }  // namespace
 
@@ -150,7 +198,7 @@ bool A3u_AuditOn() { return AuditOn(); }
 static void TryCapturePrePlayer(uint64_t xfb)
 {
     if (s_bgCaptured || !EnvOn()) return;
-    Render_Flush();  // finish any pending env draws before snapshot
+    Render_Flush();
     const int slot = s_write % kBgSlots;
     if (!Render_A3uCapturePrePlayer(slot))
     {
@@ -166,11 +214,14 @@ static void TryCapturePrePlayer(uint64_t xfb)
         b.xfbIndex = xfb;
         b.simFrame = Perf_GuestFrameIndex();
         b.fifoOff = s_fifoOffAtCapture;
+        b.playerCmdEnd = 0;
         b.scnMdlEa = s_scnEa;
         b.viewBaseEa = s_viewBase0;
         b.gx = s_gxAtCapture;
         b.hasGx = true;
         b.valid = true;
+        b.planEnd = 0;
+        b.planReady = false;
         s_write++;
         s_st.bgCaptureOk++;
         s_st.scnMdlEa = s_scnEa;
@@ -184,23 +235,15 @@ static void TryCapturePrePlayer(uint64_t xfb)
                  (unsigned long long)s_playerRowMask);
 }
 
-static uint32_t XfMatrixIndex(uint32_t xfAddr)
-{
-    // GX pos matrix N occupies XF words [N*12, N*12+12).
-    return (xfAddr / 12u) % 64u;
-}
-
 void A3u_OnIndexedXf(uint32_t guestEa, uint32_t xfAddr, uint32_t floatCount)
 {
     if (!EnvOn() && !AuditOn()) return;
     if (floatCount < 12 || xfAddr >= 0x1000) return;
     const uint32_t row = XfMatrixIndex(xfAddr);
-    // Mid player-only: maintain row ownership as archived XF loads replay.
     if (s_playerOnlyMid)
     {
         if (!EaInViewPos(guestEa))
             s_playerRowMask &= ~(1ull << row);
-        // PoseInterp path uses NotePlayerXfRow; guest ViewPos still marks rows.
         else
             s_playerRowMask |= (1ull << row);
         return;
@@ -210,13 +253,11 @@ void A3u_OnIndexedXf(uint32_t guestEa, uint32_t xfAddr, uint32_t floatCount)
     if (xfb != s_xfbTag) ResetXfbLocal(xfb);
     if (!EaInViewPos(guestEa))
     {
-        // Non-ViewPos load into this matrix slot — no longer player-owned.
         s_playerRowMask &= ~(1ull << row);
         return;
     }
     const bool first = (s_playerRowMask == 0);
     s_playerRowMask |= (1ull << row);
-    // First ViewPos→XF load: environment draws before this point are flushed+captured.
     if (first) TryCapturePrePlayer(xfb);
 }
 
@@ -241,6 +282,8 @@ bool A3u_OnDrawClassify(bool posMtxDirect, uint8_t defRow, const uint8_t* hostVt
         }
         s_lastPlayerSeq = seq;
         s_drawsPlayer++;
+        s_drawsAfterLast = 0;  // trailing resets whenever a player draw appears
+        s_lastPlayerCmdEnd = A2b_CurrentCmdBytes();
         return true;
     }
 
@@ -248,6 +291,8 @@ bool A3u_OnDrawClassify(bool posMtxDirect, uint8_t defRow, const uint8_t* hostVt
     {
         s_seenNonPlayerAfter = true;
         s_drawsAfter++;
+        s_drawsAfterLast++;
+        ClassifyAfterDraw();
     }
     else
         s_drawsBefore++;
@@ -262,15 +307,36 @@ void A3u_OnXfb()
     s_st.drawsBefore = s_drawsBefore;
     s_st.drawsPlayer = s_drawsPlayer;
     s_st.drawsAfter = s_drawsAfter;
+    s_st.drawsAfterLast = s_drawsAfterLast;
+    s_st.afterOpaque = s_afterOpaque;
+    s_st.afterBlend = s_afterBlend;
+    s_st.afterOther = s_afterOther;
     s_st.playerContiguous = (s_drawsPlayer > 0 && !s_seenNonPlayerAfter) ? 1 : 0;
     s_st.bgValid = s_bgCaptured ? 1 : 0;
     s_st.playerFifoOff = s_fifoOffAtCapture;
+    s_st.playerCmdEnd = s_lastPlayerCmdEnd;
+    // Attach playerCmdEnd to the matching bg slot.
+    for (int i = 0; i < kBgSlots; i++)
+    {
+        const int idx = (s_write - 1 - i + kBgSlots * 8) % kBgSlots;
+        if (s_slots[idx].valid && s_slots[idx].xfbIndex == s_xfbTag)
+        {
+            s_slots[idx].playerCmdEnd = s_lastPlayerCmdEnd;
+            break;
+        }
+    }
     if (AuditOn() && s_drawsPlayer > 0 &&
         (s_st.xfbSeen <= 6 || (s_st.xfbSeen % 120) == 0))
-        LOG_INFO("A3u audit xfb={} before={} player={} after={} contig={} bg={} fifoOff={}",
+        LOG_INFO("A3u audit xfb={} before={} player={} after={} afterLast={} "
+                 "occ={}/{}/{} contig={} bg={} fifoOff={} cmdEnd={}",
                  (unsigned long long)s_xfbTag, s_drawsBefore, s_drawsPlayer, s_drawsAfter,
-                 s_st.playerContiguous, s_st.bgValid, s_fifoOffAtCapture);
-    // Next XFB resets via tag mismatch.
+                 s_drawsAfterLast, s_afterOpaque, s_afterBlend, s_afterOther,
+                 s_st.playerContiguous, s_st.bgValid, s_fifoOffAtCapture, s_lastPlayerCmdEnd);
+    if (OccTraceOn() && s_drawsAfterLast > 0 &&
+        (s_st.xfbSeen <= 4 || (s_st.xfbSeen % 180) == 0))
+        LOG_INFO("A3u occlusionTrace trailing={} opaque~{} blend~{} other~{} "
+                 "(sample-held in mid; not replayed)",
+                 s_drawsAfterLast, s_afterOpaque, s_afterBlend, s_afterOther);
     s_xfbTag = ~0ull;
 }
 
@@ -286,8 +352,6 @@ bool A3u_ShouldSkipDraw(bool posMtxDirect, uint8_t defRow, const uint8_t* hostVt
                         uint32_t vtxCount, uint32_t vtxStride)
 {
     if (!s_playerOnlyMid) return false;
-    // During mid, player rows are those overridden by PoseInterp (same mask refreshed
-    // when OverrideIndexed succeeds — see A3u_NotePlayerXfRow).
     return !DrawUsesPlayerRows(posMtxDirect, defRow, hostVtxMtx0, vtxCount, vtxStride);
 }
 
@@ -295,8 +359,7 @@ void A3u_NotePlayerXfRow(uint32_t xfAddr, uint32_t floatCount)
 {
     if (!s_playerOnlyMid && !EnvOn()) return;
     if (floatCount < 12 || xfAddr >= 0x1000) return;
-    const uint32_t row = XfMatrixIndex(xfAddr);
-    s_playerRowMask |= (1ull << row);
+    s_playerRowMask |= (1ull << XfMatrixIndex(xfAddr));
 }
 
 bool A3u_PrepareMid(uint64_t xfbIndex, uint32_t* outFifoOff, uint32_t* outCmdBytes)
@@ -314,7 +377,6 @@ bool A3u_PrepareMid(uint64_t xfbIndex, uint32_t* outFifoOff, uint32_t* outCmdByt
             break;
         }
     }
-    // Prefer exact xfb; else newest valid slot (sample-held bg for nearby mid).
     if (found < 0)
     {
         for (int i = 0; i < kBgSlots; i++)
@@ -333,19 +395,62 @@ bool A3u_PrepareMid(uint64_t xfbIndex, uint32_t* outFifoOff, uint32_t* outCmdByt
         return false;
     }
     const BgSlot& b = s_slots[found];
-    if (!b.hasGx || b.fifoOff == 0)
+    if (!b.hasGx)
     {
-        // fifoOff==0 can be valid if player is first draw — still allow with gx.
-        if (!b.hasGx)
-        {
-            s_st.midFailNoSeg++;
-            return false;
-        }
+        s_st.midFailNoSeg++;
+        return false;
     }
     s_midSlot = found;
     if (outFifoOff) *outFifoOff = b.fifoOff;
-    if (outCmdBytes) *outCmdBytes = 0;  // filled by caller from packet size
-    s_playerRowMask = 0;  // rebuilt by PoseInterp overrides during replay
+    if (outCmdBytes) *outCmdBytes = (b.playerCmdEnd > b.fifoOff) ? (b.playerCmdEnd - b.fifoOff) : 0;
+    s_playerRowMask = 0;
+    return true;
+}
+
+bool A3u_EnsureSparsePlan(uint64_t xfbIndex, const uint8_t* archiveCmd, size_t archiveBytes,
+                          const uint8_t** outPtr, size_t* outBytes)
+{
+    if (outPtr) *outPtr = nullptr;
+    if (outBytes) *outBytes = 0;
+    if (!EnvOn() || !archiveCmd || s_midSlot < 0) return false;
+
+    std::lock_guard lk(s_mu);
+    BgSlot& b = s_slots[s_midSlot];
+    if (!b.valid || !b.hasGx) return false;
+
+    uint32_t off = b.fifoOff;
+    uint32_t end = b.planReady ? b.planEnd : b.playerCmdEnd;
+    if (end == 0 || end <= off)
+        end = (uint32_t)archiveBytes;
+    if (end > archiveBytes) end = (uint32_t)archiveBytes;
+    if (off >= end || off >= archiveBytes) return false;
+
+    if (b.planReady && b.planEnd == end)
+        s_st.planHits++;
+    else
+    {
+        s_st.planMisses++;
+        const uint64_t t0 = Platform_PerfCounter();
+        b.planEnd = end;
+        b.planReady = true;
+        const uint64_t freq = Platform_PerfFrequency();
+        if (freq)
+            b.planBuildNs = (Platform_PerfCounter() - t0) * 1000000000ull / freq;
+        s_st.planBuildNs = b.planBuildNs;
+        if (PlanProfOn() || (AuditOn() && (s_st.planMisses <= 4 || (s_st.planMisses % 60) == 0)))
+            LOG_INFO("A3v sparsePlan xfb={} window={}-{} ({}B) trailCut={} build={:.3f}ms hits={}",
+                     (unsigned long long)b.xfbIndex, off, end, end - off,
+                     (unsigned)(archiveBytes > end ? archiveBytes - end : 0),
+                     b.planBuildNs / 1.0e6, (unsigned long long)s_st.planHits);
+    }
+
+    s_st.planBytes = end - off;
+    s_st.planDrawKept = s_st.drawsPlayer;
+    s_st.planDrawSkipped = s_st.drawsAfterLast;
+    if (outPtr) *outPtr = archiveCmd + off;
+    if (outBytes) *outBytes = end - off;
+    (void)xfbIndex;
+    (void)kPlanMaxBytes;
     return true;
 }
 
@@ -374,14 +479,26 @@ void A3u_NoteMidResult(bool ok, uint32_t dix, float cpuMs, float gpuMs, const ch
     s_st.lastMidCpuMs = cpuMs;
     s_st.lastMidGpuMs = gpuMs;
     if (AuditOn() && (s_st.midAttempt <= 8 || (s_st.midAttempt % 60) == 0))
-        LOG_INFO("A3u mid {} dix={} cpu={:.2f}ms gpu={:.2f}ms | {}",
-                 ok ? "OK" : "FAIL", dix, cpuMs, gpuMs, reason ? reason : "");
+        LOG_INFO("A3u mid {} dix={} cpu={:.2f}ms gpu={:.2f}ms work={:.2f}ms | {}",
+                 ok ? "OK" : "FAIL", dix, cpuMs, gpuMs, s_lastWorkMs, reason ? reason : "");
+}
+
+float A3u_LastWorkMs() { return s_lastWorkMs; }
+void A3u_NoteWorkMs(float workMs)
+{
+    if (workMs > 0.f)
+    {
+        s_lastWorkMs = workMs;
+        std::lock_guard lk(s_mu);
+        s_st.lastWorkMs = workMs;
+    }
 }
 
 void A3u_GetStats(A3uStats& out)
 {
     std::lock_guard lk(s_mu);
     out = s_st;
+    out.lastWorkMs = s_lastWorkMs;
 }
 
 void A3u_OverlayLine(char* buf, size_t bufSize)
@@ -392,8 +509,10 @@ void A3u_OverlayLine(char* buf, size_t bufSize)
     A3uStats s;
     A3u_GetStats(s);
     std::snprintf(buf, bufSize,
-                  "A3u bg=%llu mid=%llu/%llu plyDraw=%u after=%u contig=%u gpu=%.1f",
+                  "A3v bg=%llu mid=%llu/%llu plan=%uB hit=%llu ply=%u trail=%u "
+                  "gpu=%.1f work=%.1f",
                   (unsigned long long)s.bgCaptureOk, (unsigned long long)s.midOk,
-                  (unsigned long long)s.midAttempt, s.drawsPlayer, s.drawsAfter,
-                  s.playerContiguous, s.lastMidGpuMs);
+                  (unsigned long long)s.midAttempt, s.planBytes,
+                  (unsigned long long)s.planHits, s.drawsPlayer, s.drawsAfterLast,
+                  s.lastMidGpuMs, s.lastWorkMs);
 }
