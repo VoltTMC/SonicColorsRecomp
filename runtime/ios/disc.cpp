@@ -1,5 +1,6 @@
 #include "disc.h"
 #include "../audio/music_mod.h"
+#include "movie_mod.h"
 #include "../log.h"
 #include "../mods/mods.h"
 #include "../tas/tas.h"
@@ -286,6 +287,7 @@ bool Disc_ReadPartition(uint64_t offset, uint32_t length, uint8_t* out)
         {
             Tas_OnFileRead(it->path);
             MusicMod_OnDiscPath(it->path);
+            MovieMod_OnDiscPath(it->path);
             extern void A2gNat_OnDiscPathHint(const char*);
             A2gNat_OnDiscPathHint(it->path.c_str());
         }

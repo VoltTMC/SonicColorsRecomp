@@ -83,6 +83,9 @@ struct Config
     int musicFilterVar = 0;     // 0 All, 1 Main, 2 FX
     int musicFilterRepl = 0;    // 0 All, 1 Replaced, 2 Original
     int musicFilterWorld = 0;   // Music Library World combo (0 = All)
+    // [Movie] A3y loose SFD cutscene replacements (userdata/movie/*.sfd)
+    bool movieModsEnabled = true;
+    std::string movieModsDir;   // empty: <user>/movie
 };
 
 extern Config g_config;

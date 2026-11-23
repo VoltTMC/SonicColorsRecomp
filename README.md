@@ -110,7 +110,7 @@ Skip the launcher once data is configured:
 out\SonicColorsRecomp.exe --data game\SNCP8P --skip-launcher
 ```
 
-User data (config, NAND saves, music cache): Windows **installer** → `%APPDATA%\SonicColorsRecomp`; Linux AppImage → `$XDG_DATA_HOME/SonicColorsRecomp`; portable ZIP / `--portable` / `SCR_PORTABLE=1` → next to the exe. See [`docs/WINDOWS_INSTALLER.md`](docs/WINDOWS_INSTALLER.md).
+User data (config, NAND saves, music cache, **movie replacements**): Windows **installer** → `%APPDATA%\SonicColorsRecomp`; Linux AppImage → `$XDG_DATA_HOME/SonicColorsRecomp`; portable ZIP / `--portable` / `SCR_PORTABLE=1` → next to the exe. See [`docs/WINDOWS_INSTALLER.md`](docs/WINDOWS_INSTALLER.md). Cutscene `.sfd` overrides: [`docs/A3Y_MOVIE_REPLACEMENTS.md`](docs/A3Y_MOVIE_REPLACEMENTS.md) (`…/movie/*.sfd`, singular **movie**).
 
 ## Music replacement (file-based)
 

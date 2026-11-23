@@ -14,6 +14,7 @@
 #include "ios/nand_paths.h"
 #include "mods/mods.h"
 #include "audio/music_mod.h"
+#include "ios/movie_mod.h"
 #include "install/install.h"
 #include "install/releases.h"
 #include "install/verify.h"
@@ -69,6 +70,7 @@ static void RunGame()
     AudioOut_ApplyVolumes(g_config.masterVolume, g_config.speakerVolume);
     if (!g_config.audioDevice.empty()) AudioOut_SetDevice(g_config.audioDevice);
     MusicMod_Init();
+    MovieMod_Init();  // A3y: register loose SFD overrides before FST extents are built
     { extern bool g_gpuThread; if (g_gpuThread) GX_StartThread(); }
     if (!Disc_Open(s_dataDir, s_isoPath, Mods_Loaded())) FATAL("cannot open disc data");
     std::filesystem::create_directories(s_nand);
@@ -147,6 +149,7 @@ static void PrintUsage()
         "  --input-latency         Log host acquire→guest publish controller timing\n"
         "  --music-mods DIR        Music replacement directory\n"
         "  --music-debug           Log music-mod decisions\n"
+        "  --movie-mods DIR        Loose SFD cutscene replacement directory\n"
         "  --music-force-stage ID  Force stage id for music cues (e.g. stg110)\n"
         "\n"
         "Shaders (A3w):\n"
@@ -367,6 +370,7 @@ int main(int argc, char** argv)
         else if (a == "--mods" && i + 1 < argc) Mods_SetDirOverride(argv[++i]);
         else if (a == "--music-mods" && i + 1 < argc) MusicMod_SetDir(argv[++i]);
         else if (a == "--music-debug") MusicMod_SetDebug(true);
+        else if (a == "--movie-mods" && i + 1 < argc) MovieMod_SetDir(argv[++i]);
         else if (a == "--music-force-stage" && i + 1 < argc) MusicMod_ForceStage(argv[++i]);
         else if (a == "--mute") { extern bool g_audioMute; g_audioMute = true; }
         else if (a == "--perf") { extern void Perf_SetEnabled(bool); Perf_SetEnabled(true); }

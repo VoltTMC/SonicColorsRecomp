@@ -147,6 +147,11 @@ std::string Config_Text(const Config& c)
     s += std::format("filter_cat = {}\nfilter_var = {}\nfilter_repl = {}\nfilter_world = {}\n",
                      std::clamp(c.musicFilterCat, 0, 7), std::clamp(c.musicFilterVar, 0, 2),
                      std::clamp(c.musicFilterRepl, 0, 2), std::clamp(c.musicFilterWorld, 0, 7));
+    s += "\n[Movie]\n";
+    s += "; loose SFD cutscene replacements (docs/A3Y_MOVIE_REPLACEMENTS.md).\n";
+    s += "; Empty dir → <userdata>/movie (or next to the exe when portable).\n";
+    s += "; Also: mods/<name>/files/movie/*.sfd via the Mods tab.\n";
+    s += std::format("enabled = {}\nmovie_dir = {}\n", Bool(c.movieModsEnabled), c.movieModsDir);
     return s;
 }
 
@@ -760,6 +765,11 @@ void Config_Load(const std::string& path)
             else if (key == "filter_var") c.musicFilterVar = std::clamp(atoi(val.c_str()), 0, 2);
             else if (key == "filter_repl") c.musicFilterRepl = std::clamp(atoi(val.c_str()), 0, 2);
             else if (key == "filter_world") c.musicFilterWorld = std::clamp(atoi(val.c_str()), 0, 7);
+        }
+        else if (section == "movie")
+        {
+            if (key == "enabled") c.movieModsEnabled = ParseBool(val);
+            else if (key == "movie_dir") c.movieModsDir = val;
         }
     }
     AudioOut_ApplyVolumes(g_config.masterVolume, g_config.speakerVolume);

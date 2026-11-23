@@ -1,5 +1,17 @@
 # Progress log
 
+## 2026-11-23 — A3y: loose SFD cutscene replacements
+
+**Goal:** Let users drop replacement `.sfd` cutscenes without modifying extracted game data or rebuilding CPKs (GitHub #2 / Re-Rainbow SFDs).
+
+**Findings:** Movies are loose FST files under `files/movie/` (singular), **not** inside `sonic2010_0.cpk`. Game uses CRI Sofdec (`mwPlyCreateSofdec` / `CMoviePlayer`). Issue #2 used `Data/files/movies` (wrong name / not on FST). Overwriting `files/movie/` with larger files without FST size patch truncates reads.
+
+**Shipped:** `MovieMod_*` host overrides via existing `Disc_RegisterHostOverride` + in-memory FST size/offset patch; drop folder `<userdata>/movie/`; `--movie-mods`; `[Movie]` config; `scr_movie_mod_test`; `docs/A3Y_MOVIE_REPLACEMENTS.md`.
+
+**Re-Rainbow sample probe:** Same filenames; 640×480 MPEG-1 + ADX; some files smaller/larger than originals; `ev350` uses 44.1 kHz dual ADX vs stock 32 kHz — format compatible at container level; in-game Sofdec accept still validated per-file via override path.
+
+**A3v:** still benched/off. **A3w/A3x:** preserved.
+
 ## 2026-11-23 — A3x: graphics regression (stretched geometry / HUD)
 
 **Goal:** Fix live XFB rendering corruption (TR1 env/player/HUD); keep A3w cache and A3v benched/off.
