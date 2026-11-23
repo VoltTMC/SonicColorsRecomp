@@ -6,6 +6,7 @@
 #include "a3f_player_provenance.h"
 #include "a3g_pose_aggregate.h"
 #include "a3h_skeleton_palette.h"
+#include "a3i_model_ownership.h"
 #include "../gx/vertex_loader.h"
 #include "../gx/gx_state.h"
 #include "../log.h"
@@ -515,6 +516,13 @@ void A3a_OnXfbCopy()
     A3f_OnFrame(s_curr, s_havePrev ? &s_prev : nullptr);
     A3g_OnFrame(s_curr, s_havePrev ? &s_prev : nullptr);
     A3h_OnFrame(s_curr, nullptr);  // pulls A3g latest internally when needed
+    {
+        A3gPoseSnap pose{};
+        const A3gPoseSnap* posePtr = A3g_GetLatest(pose) ? &pose : nullptr;
+        A3hFrameSnap a3h{};
+        const A3hFrameSnap* a3hPtr = A3h_GetLatest(a3h) ? &a3h : nullptr;
+        A3i_OnFrame(s_curr, posePtr, a3hPtr);
+    }
     DumpFrameLocked();
     ResetBuild();
 }

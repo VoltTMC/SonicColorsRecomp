@@ -1,5 +1,17 @@
 # Progress log
 
+## 2026-11-23 — A3i: live Sonic ScnMdl ownership + world/view provenance
+
+**Goal:** Hook nw4r world/view calc (or Colors equiv.), capture `r3=this` under live `shell→body→inst`, join high-hit indexed-XF pals to producing ScnMdl/stage. No interpolation.
+
+**Shipped:** `a3i_model_ownership.*` (`SCR_A3I_MODEL_OWNERSHIP`, `SCR_A3I_CALC_WORLD`, `SCR_A3I_CALC_VIEW`, `SCR_A3I_PALETTE_PROVENANCE`); `ScnMdlSimpleCalcWorld` @ `805B87D0` in `game_addrs`; report `docs/A3I_PLAYER_MODEL_PROVENANCE.md`. G3dProc (`805B8DC0`/`805BBF40`) identified but **not** PPC_OVERRIDE’d (faulted under dense TR1).
+
+**Evidence (RTX 3080):** CalcWorld `this` live with shell `80b58b00` / body `90f9c6c0` / inst `27a5990d`; high-hit ViewPos `8098afe0` (~632) → ScnMdl `809882e0` (`nView=193`) **PASS**; twin ~624-hit pals unresolved **PARTIAL**; body→ScnMdl* word **PARTIAL**; `M=V·W` **UNRESOLVED**.
+
+**Perf:** flags-off ~60 Hz; dense A3i+A3h+A3a busy diag-bound. `regression_smoke` OK; MinGW links; Win GPU **UNVERIFIED**.
+
+**Interp gate:** **Not ready** — need proven body/component→ScnMdl pointer + unresolved high-hit twin + root composition.
+
 ## 2026-11-23 — Windows Xbox / SDL gamepad input latency
 
 **Goal:** Investigate GitHub reports of high Xbox controller latency on Windows; fix only with evidence.

@@ -49,6 +49,10 @@ BodyGetWorldMtx              func 80053718
 CameraManagerTick            func 80571720
 # Boot-time type-0x88C0 alloc (fn_80015E84); NOT the player shell (+0x28 chain fails)
 PlayerSingletonPtr           data 808F3378
+# A3i: ScnMdlSimple CalcWorld helper (fn_805B87D0) called from G3dProc task 1; r3=this.
+#   G3dProc itself (805B8DC0/805BBF40) is NOT hooked — vtable/interrupt call sites faulted under PPC_OVERRIDE.
+#   ViewPos provenance is joined via this+0xF4 against A3h indexed-XF palette bases.
+ScnMdlSimpleCalcWorld        func 805B87D0
 # MSL sprintf — Music Mods watches scripts/%s_mission.lua (and friends) for live stage loads
 sprintf                      func 80379820
 

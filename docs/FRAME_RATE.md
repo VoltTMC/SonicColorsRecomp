@@ -1032,6 +1032,27 @@ Opt-in. Connects A3g observations to **nw4r::g3d** `ScnMdlSimple` / `ResNode.toP
 
 **Host bug fixed:** `GuestOk` must not authorize `Read32` on non-canonical EAs (e.g. `0x4011fc14`); was misreported as `CameraManagerTick` SIGSEGV.
 
+### Approach A3i — player ScnMdl ownership + CalcWorld/ViewPos provenance (2026-11-23)
+
+Opt-in. Hooks Colors nw4r `ScnMdlSimple` **CalcWorld** (`805B87D0`); joins A3h pals to `this+0xEC`/`+0xF4`. **No interpolation.** Full report: `docs/A3I_PLAYER_MODEL_PROVENANCE.md`.
+
+| Switch | Role |
+|--------|------|
+| `SCR_A3I_MODEL_OWNERSHIP=1` | CalcWorld `this` ↔ live shell/body |
+| `SCR_A3I_CALC_WORLD=1` | WorldMtxArray capture |
+| `SCR_A3I_CALC_VIEW=1` | ViewPos join evidence |
+| `SCR_A3I_PALETTE_PROVENANCE=1` | A3h pal → ScnMdl/stage |
+
+| Item | Status | Notes |
+|------|--------|-------|
+| G3dProc @ `805B8DC0` identified | PASS | task1→CalcWorld; task5 ViewPos; **not hooked** |
+| CalcWorld `this` under live player | PASS | |
+| Body→ScnMdl* pointer | PARTIAL | PaletteMatch only so far |
+| High-hit ViewPos→ScnMdl | PARTIAL | e.g. `8098afe0`→`809882e0`; ~624 twin unresolved |
+| `M = V·W` | UNRESOLVED | |
+| Flags-off ~60 Hz | PASS | |
+| Interp readiness | **No** | |
+
 ### Approach A3a — draw-level transform attribution + scratch substitution (2026-11-21)
 
 Opt-in diagnostics only. **No interpolation, no second XFB, no unique-FPS claim.**

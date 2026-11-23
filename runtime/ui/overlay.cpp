@@ -22,6 +22,7 @@
 #include "../debug/a3f_player_provenance.h"
 #include "../debug/a3g_pose_aggregate.h"
 #include "../debug/a3h_skeleton_palette.h"
+#include "../debug/a3i_model_ownership.h"
 #include "../input/input_latency.h"
 #include "../platform/platform.h"
 #include "../platform/ui.h"
@@ -394,6 +395,13 @@ void Overlay_Render(float w, float h)
                 A3h_OverlayLine(a3h, sizeof(a3h));
                 if (a3h[0])
                     ImGui::TextUnformatted(a3h);
+            }
+            if (A3i_AnyEnabled())
+            {
+                char a3i[192];
+                A3i_OverlayLine(a3i, sizeof(a3i));
+                if (a3i[0])
+                    ImGui::TextUnformatted(a3i);
             }
             if (A2b_FifoCaptureEnabled() || A2c_ScratchReplayEnabled())
             {

@@ -16,6 +16,7 @@
 #include "debug/a3b_camera_interp.h"
 #include "debug/a3c_env_capture.h"
 #include "debug/a3d_scene_coverage.h"
+#include "debug/a3i_model_ownership.h"
 
 #include <atomic>
 #include <algorithm>
@@ -340,7 +341,8 @@ void Perf_OnXfbCopy()
     A1b_OnXfbCopy();  // no-op unless SCR_A1B_POSE_CAPTURE=1
     A1c_OnXfbCopy();  // no-op unless SCR_A1C_GX_CAPTURE=1
     A2b_OnXfbCopy();  // no-op unless SCR_A2B_FIFO_CAPTURE=1
-    A3a_OnXfbCopy();  // no-op unless SCR_A3A_DRAW_ATTR=1
+    A3a_OnXfbCopy();  // no-op unless SCR_A3A_DRAW_ATTR=1 (also drains A3i when A3a on)
+    A3i_OnXfbCopyStandalone();  // drains A3i when enabled without A3a
     A3b_OnXfbCopy();  // no-op unless SCR_A3B_CAMERA_INTERP=1
     A3c_OnXfbCopy();  // no-op unless SCR_A3C_ENV_CAPTURE/INTERP=1
     A3d_OnXfbCopy();  // no-op unless SCR_A3D_SCENE_COVERAGE=1
