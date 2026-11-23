@@ -638,6 +638,16 @@ add_custom_command(TARGET SonicColorsRecomp POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy ${SCR_DEPS_PREFIX}/zlib/src/scr_zlib/LICENSE ${SCR_OUT_DIR}/licenses/zlib-LICENSE.txt
     COMMAND ${CMAKE_COMMAND} -E copy ${SCR_DEPS_PREFIX}/xz/src/scr_lzma/COPYING.0BSD ${SCR_OUT_DIR}/licenses/liblzma-COPYING.0BSD.txt
     VERBATIM)
+# A3z: keep a complete portable DXBC cache next to the built exe so normal launches
+# preload without --precompile-shaders. Prefer tracked data/shadercache.
+if(EXISTS ${CMAKE_SOURCE_DIR}/data/shadercache/vs_keys.bin)
+    add_custom_command(TARGET SonicColorsRecomp POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${SCR_OUT_DIR}/shadercache
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/data/shadercache
+                ${SCR_OUT_DIR}/shadercache
+        COMMENT "Sync data/shadercache → ${SCR_OUT_DIR}/shadercache"
+        VERBATIM)
+endif()
 if(WIN32)
     target_compile_definitions(SonicColorsRecomp PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
 endif()

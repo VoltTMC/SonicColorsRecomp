@@ -38,7 +38,7 @@ The launcher installs from **your own** disc image (ISO / RVZ / WIA / WBFS). Do 
 
 Useful flags: `--help`, `--version`, `--portable`, `--check-updates`, `--download-update`, `--save-diagnostics`, `--list-gamepads`, `--verify-data`, `--prepare --game <disc>`.
 If the game goes black after a graphics driver update, try System → Clear shader cache.
-Offline shader prep (A3w): packages can ship portable DXBC via `--precompile-shaders`; see [`docs/A3W_OFFLINE_SHADER_PRECOMPILATION.md`](docs/A3W_OFFLINE_SHADER_PRECOMPILATION.md). Device Vulkan/DXVK pipeline caches are **not** universal.
+Precompiled shaders (A3w/A3z): the packaged portable DXBC cache under `shadercache/` loads **automatically** at startup (no flags). `--precompile-shaders` is for building/updating that cache. Diagnostics: `--no-shader-preload`. See [`docs/A3W_OFFLINE_SHADER_PRECOMPILATION.md`](docs/A3W_OFFLINE_SHADER_PRECOMPILATION.md). Device Vulkan/DXVK pipeline caches are **not** universal.
 
 ## Status (2026-11-20)
 

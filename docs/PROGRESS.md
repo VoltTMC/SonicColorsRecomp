@@ -1,5 +1,15 @@
 # Progress log
 
+## 2026-11-23 — A3z: automatic shader-cache preload by default
+
+**Goal:** Normal launches load the A3w portable DXBC cache with no CLI flags; keep `--precompile-shaders` for cache generation only.
+
+**Shipped:** Tracked `data/shadercache/` (640 `.cso` + keys + manifest); CMake POST_BUILD sync to `out[/out-windows]/shadercache`; package scripts (`package_linux.sh`, `package.ps1`, `package_windows_cross.sh`, `package_windows_installer.sh`) copy the full tree; clearer startup logs + timing; `--no-shader-preload` / `SCR_SHADER_PRELOAD=0`. Runtime miss fallback unchanged.
+
+**Evidence (RTX 3080 / `tools/run_nvidia_clean.sh` / Wayland):** Full preload **330 VS + 6793 PS in ~287–295 ms**, title `cmp=0/0` mem-miss 0; disabled/empty/missing boot with runtime fallback (`cmp` rises on title/TR1); corrupt manifest still preloads blobs via source-hash; TR1 `stg110` reached with full and empty cache. MinGW build + `out-windows/shadercache` 640 `.cso` OK. Win GPU **UNVERIFIED**.
+
+**Docs:** README + `docs/A3W_OFFLINE_SHADER_PRECOMPILATION.md` updated.
+
 ## 2026-11-23 — A3y: loose SFD cutscene replacements
 
 **Goal:** Let users drop replacement `.sfd` cutscenes without modifying extracted game data or rebuilding CPKs (GitHub #2 / Re-Rainbow SFDs).

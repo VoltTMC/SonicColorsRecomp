@@ -153,8 +153,9 @@ static void PrintUsage()
         "  --music-force-stage ID  Force stage id for music cues (e.g. stg110)\n"
         "\n"
         "Shaders (A3w):\n"
-        "  --precompile-shaders DIR  Offline HLSL→DXBC for keys in DIR (packaging)\n"
+        "  --precompile-shaders DIR  Offline HLSL→DXBC for keys in DIR (packaging / cache build)\n"
         "  --shader-cache-report DIR Report key/.cso/manifest coverage for DIR\n"
+        "  --no-shader-preload       Skip startup DXBC preload (diagnostics; SCR_SHADER_PRELOAD=0)\n"
         "  SCR_SHADER_COLLECT=1      Append area-tagged keys under shadercache/collect/\n"
         "  SCR_SHADER_COLLECT_AREA=  Optional area tag (title, menu, tr1, …)\n"
         "\n"
@@ -371,6 +372,11 @@ int main(int argc, char** argv)
         else if (a == "--music-mods" && i + 1 < argc) MusicMod_SetDir(argv[++i]);
         else if (a == "--music-debug") MusicMod_SetDebug(true);
         else if (a == "--movie-mods" && i + 1 < argc) MovieMod_SetDir(argv[++i]);
+        else if (a == "--no-shader-preload")
+        {
+            extern bool g_shaderPreload;
+            g_shaderPreload = false;
+        }
         else if (a == "--music-force-stage" && i + 1 < argc) MusicMod_ForceStage(argv[++i]);
         else if (a == "--mute") { extern bool g_audioMute; g_audioMute = true; }
         else if (a == "--perf") { extern void Perf_SetEnabled(bool); Perf_SetEnabled(true); }

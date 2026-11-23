@@ -76,11 +76,28 @@ if [ -f "$root/docs/windows-native-checklist.md" ]; then
     cp -f "$root/docs/windows-native-checklist.md" "$stage/docs/"
 fi
 
-for k in vs_keys.bin ps_keys.bin; do
-    for src in "$root/data/shadercache/$k" "$out/shadercache/$k"; do
-        [ -f "$src" ] && cp -f "$src" "$stage/shadercache/" && break
-    done
-done
+# A3z: ship full portable DXBC cache (keys + .cso + manifest).
+pick_cache() {
+    if [ -f "$root/data/shadercache/vs_keys.bin" ] && compgen -G "$root/data/shadercache/*.cso" > /dev/null; then
+        echo "$root/data/shadercache"; return
+    fi
+    if [ -f "$out/shadercache/vs_keys.bin" ] && compgen -G "$out/shadercache/*.cso" > /dev/null; then
+        echo "$out/shadercache"; return
+    fi
+    echo ""
+}
+src_cache=$(pick_cache)
+if [ -n "$src_cache" ]; then
+    cp -f "$src_cache"/*.cso "$src_cache"/*_keys.bin "$src_cache"/manifest.json "$stage/shadercache/" 2>/dev/null || true
+    n_cso=$(find "$stage/shadercache" -maxdepth 1 -name '*.cso' | wc -l)
+    echo "shader cache: packaged $n_cso .cso from $src_cache → $stage/shadercache"
+    if [ "$n_cso" -lt 1 ]; then
+        echo "error: shader cache copy produced no .cso files" >&2
+        exit 1
+    fi
+else
+    echo "warning: no full shader cache (data/shadercache or out/shadercache); first play may hitch" >&2
+fi
 
 shopt -s nullglob
 for dll in "$out"/*.dll; do

@@ -148,15 +148,21 @@ Runtime `CheckCacheManifestOnStartup` / `ShaderCache_ManifestCompatible`:
 
 ---
 
-## 5. Runtime behaviour
+## 5. Runtime behaviour (A3z — automatic by default)
 
-1. `Renderer_Init` → workers + `PreloadShaders`  
-2. Manifest check (user dir, then shipped `shadercache/` next to exe)  
-3. Load keys → `LoadCachedBlob` → `Create*Shader` (or async compile)  
+**Normal launches preload the packaged cache with no CLI flags.** Users do not run `--precompile-shaders`.
+
+1. `Renderer_Init` → workers + `PreloadShaders` (unless `--no-shader-preload` / `SCR_SHADER_PRELOAD=0`)  
+2. Manifest check (user `shadercache/`, then shipped `shadercache/` next to the exe / AppImage `usr/bin`)  
+3. Load keys → `LoadCachedBlob` → `Create*Shader` (or async compile for missing blobs)  
 4. First-use miss: generate HLSL → disk blob if present → else compile (async by default) → remember key  
-5. Stats: mem hit/miss, disk hit/miss, compile counts, blend/depth/raster create vs hit  
+5. Concise log: manifest path, VS/PS preload counts, elapsed ms, fallback reminder  
 
-Missing or corrupt cache **never** blocks boot.
+Missing, empty, or corrupt cache **never** blocks boot — runtime HLSL→DXBC remains enabled.
+
+**Packaged location:** `data/shadercache/` in the repo (keys + `.cso` + `manifest.json`) is copied next to the binary as `shadercache/` by CMake POST_BUILD and by `tools/package_linux.sh` / `tools/package.ps1` / `tools/package_windows_cross.sh` / `tools/package_windows_installer.sh`.
+
+**`--precompile-shaders <dir>`** remains a **developer / packaging** tool to (re)build DXBC offline — not a normal launch requirement.
 
 ---
 
@@ -195,12 +201,14 @@ Confirmed adapter: `NVIDIA GeForce RTX 3080` (DXVK v3.1.1, driver 620.73.4). Not
 
 | Scenario | Preload | First ~10s ShCache (`--perf`) | Runtime HLSL compiles |
 |---|---|---|---|
-| Empty `shadercache/` | none | `vs=0/…+6 ps=0/…+8 disk=0/13 cmp=5/8 man=0` | **yes** (title path) |
-| Full portable cache | **330 VS + 6793 PS** | `vs=330/…+0 ps=6793/…+0 disk=1/0 cmp=0/0 man=1` | **none** |
-| Offline `--precompile-shaders` (already warm) | — | — | 0 compiled / 0 failed in ~0.05 s |
+| Empty / missing `shadercache/` | none (0.0 ms) | `vs=0/…+6 ps=0/…+8 disk=0/13 cmp=5/8 man=0` | **yes** (title path) |
+| `--no-shader-preload` (cache present) | skipped | mem-misses until create-on-use; man=1 | async / first-use |
+| Full portable cache (A3z default) | **330 VS + 6793 PS in ~287–295 ms** | `vs=330/…+0 ps=6793/…+0 disk=1/0 cmp=0/0 man=1` | **none** |
+| Corrupt `manifest.json` (blobs intact) | still **330 / 6793** via source-hash | cmp=0/0 | **none** |
+| Offline `--precompile-shaders` (already warm) | — | — | 0 compiled / 0 failed |
 | Cache report | — | — | 330 unique VS keys, 6793 unique PS keys, **640** DXBC `.cso` (7.12 MiB) |
 
-Title-screen boot (~25 s wall timeout): sim≈60, underruns 0 on both; full cache shows **zero mem-miss and zero compile** after preload. Empty cache compiles on first use (async). DXVK/Vulkan PSO cost is outside this portable layer.
+Title-screen / TR1 (`stg110`) boot (~25–100 s wall timeout): full cache shows **zero mem-miss and zero compile** after preload; empty cache compiles on first use (async). Wall time is dominated by guest boot, not the ~0.3 s preload. DXVK/Vulkan PSO cost is outside this portable layer.
 
 ---
 

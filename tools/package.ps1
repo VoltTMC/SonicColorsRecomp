@@ -93,32 +93,27 @@ Optional:
   mods\<name>\...  file-replacement mods (or use Mods > Get mods in the launcher)
 "@ | Set-Content (Join-Path $dist "game\ABOUT_THIS_FOLDER.txt")
 
-# Optional precompiled shader cache (skips first-run HLSL compile when keys exist).
+# A3z: ship the full validated portable DXBC cache (keys + .cso + manifest).
+# Prefer data\shadercache, then out\shadercache. Do not recompile at package time
+# when a complete cache is already present — players preload automatically at startup.
 $dstCache = Join-Path $dist "shadercache"
 New-Item -ItemType Directory -Force $dstCache | Out-Null
-Get-ChildItem $dstCache -Filter *.cso -ErrorAction SilentlyContinue | Remove-Item
-$haveKeys = $false
-foreach ($k in "vs_keys.bin", "ps_keys.bin") {
-    $bytes = [byte[]]@()
-    foreach ($src in @(
-            (Join-Path $root "data\shadercache\$k"),
-            (Join-Path $root "out\shadercache\$k"),
-            (Join-Path $dstCache $k))) {
-        if (Test-Path $src) { $bytes += [IO.File]::ReadAllBytes($src); $haveKeys = $true }
-    }
-    if ($bytes.Length -gt 0) {
-        [IO.File]::WriteAllBytes((Join-Path $dstCache $k), $bytes)
-    }
+Get-ChildItem $dstCache -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
+$srcCache = $null
+foreach ($cand in @(
+        (Join-Path $root "data\shadercache"),
+        (Join-Path $root "out\shadercache"))) {
+    $vs = Join-Path $cand "vs_keys.bin"
+    $cso = Get-ChildItem $cand -Filter *.cso -ErrorAction SilentlyContinue
+    if ((Test-Path $vs) -and $cso -and $cso.Count -gt 0) { $srcCache = $cand; break }
 }
-if ($haveKeys) {
-    & $exe --precompile-shaders $dstCache
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning "shader precompilation failed (package still usable; first run may hitch while compiling)"
-    }
-    $man = Join-Path $root "out\shadercache\manifest.json"
-    if (Test-Path $man) { Copy-Item -Force $man (Join-Path $dstCache "manifest.json") }
+if ($srcCache) {
+    Copy-Item -Force (Join-Path $srcCache "*") $dstCache
+    $n = (Get-ChildItem $dstCache -Filter *.cso).Count
+    Write-Host "shader cache: packaged $n .cso from $srcCache"
+    if ($n -lt 1) { throw "shader cache copy produced no .cso files" }
 } else {
-    Write-Host "no shader keys found — skipping precompile (first play may hitch while compiling)"
+    Write-Warning "no full shader cache (data/shadercache or out/shadercache); first play may hitch while compiling"
 }
 
 Write-Host "packaged to $dist"

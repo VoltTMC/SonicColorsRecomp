@@ -5,7 +5,8 @@
 #
 #   tools/package_linux.sh [-b build dir] [-c shader cache dir] [-v version]
 #   tools/package_linux.sh -S                      # stage AppDir only
-#   tools/package_linux.sh -A dist/AppDir -c DIR   # finish AppImage from staged dir
+#   tools/package_linux.sh -A dist/AppDir [-c DIR] # finish AppImage from staged dir
+# Shader cache: -c DIR, else data/shadercache, else out/shadercache (full .cso required).
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 build=$root/build/linux-clang cache="" version="${SCR_VERSION:-${BKR_VERSION:-}}" stageOnly=0 appdir=""
@@ -94,14 +95,30 @@ fi
 bin=$appdir/usr/bin
 chmod +x "$appdir/AppRun" "$bin/$APP"
 
-# shader cache (optional — empty keys are fine for first-run compile)
-if [ -n "$cache" ]; then
-    cp "$cache"/*.cso "$cache"/*_keys.bin "$cache"/manifest.json "$bin/shadercache/" 2>/dev/null || true
-elif [ -d "$root/data/shadercache" ]; then
-    cp "$root"/data/shadercache/*_keys.bin "$root"/data/shadercache/manifest.json "$bin/shadercache/" 2>/dev/null || true
-    if compgen -G "$bin/shadercache/*_keys.bin" > /dev/null; then
-        "$bin/$APP" --precompile-shaders "$bin/shadercache" || true
+# A3z: ship the full validated portable DXBC cache next to the binary.
+# Prefer explicit -c, then data/shadercache (tracked), then out/shadercache (dev).
+# Do not ship keys-only and hope players compile — preload is automatic at startup.
+pick_cache() {
+    if [ -n "$cache" ] && [ -d "$cache" ]; then echo "$cache"; return; fi
+    if [ -f "$root/data/shadercache/vs_keys.bin" ] && compgen -G "$root/data/shadercache/*.cso" > /dev/null; then
+        echo "$root/data/shadercache"; return
     fi
+    if [ -f "$root/out/shadercache/vs_keys.bin" ] && compgen -G "$root/out/shadercache/*.cso" > /dev/null; then
+        echo "$root/out/shadercache"; return
+    fi
+    echo ""
+}
+src_cache=$(pick_cache)
+if [ -n "$src_cache" ]; then
+    cp -f "$src_cache"/*.cso "$src_cache"/*_keys.bin "$src_cache"/manifest.json "$bin/shadercache/" 2>/dev/null || true
+    n_cso=$(find "$bin/shadercache" -maxdepth 1 -name '*.cso' | wc -l)
+    echo "shader cache: packaged $n_cso .cso from $src_cache → $bin/shadercache"
+    if [ "$n_cso" -lt 1 ]; then
+        echo "error: shader cache copy produced no .cso files" >&2
+        exit 1
+    fi
+else
+    echo "warning: no full shader cache (data/shadercache or out/shadercache); AppImage will runtime-compile" >&2
 fi
 
 tools=$build/appimage-tools

@@ -825,6 +825,9 @@ static std::deque<CompileJob> s_compileJobs;
 static std::vector<CompileDone> s_compileDone;
 static std::atomic<int> s_compilePending{ 0 };
 bool g_asyncShaders = true;
+// A3z: startup PreloadShaders() is on by default. Disable for diagnostics
+// (SCR_SHADER_PRELOAD=0 or --no-shader-preload). Offline --precompile-shaders unchanged.
+bool g_shaderPreload = true;
 
 static void CompileWorker()
 {
@@ -914,28 +917,35 @@ static void WriteCacheManifest(uint32_t vsKeys, uint32_t psKeys)
 static void CheckCacheManifestOnStartup()
 {
     ShaderCacheManifest m{};
-    const std::string dir = ShaderCacheDir().string();
-    if (!ShaderCache_ReadManifest(dir, m))
+    std::string usedDir = ShaderCacheDir().string();
+    if (!ShaderCache_ReadManifest(usedDir, m))
     {
-        // Also try shipped cache.
         if (!ShippedShaderCacheDir().empty())
-            (void)ShaderCache_ReadManifest(ShippedShaderCacheDir().string(), m);
+        {
+            usedDir = ShippedShaderCacheDir().string();
+            (void)ShaderCache_ReadManifest(usedDir, m);
+        }
     }
     if (m.schemaVersion == 0 || m.generatorId[0] == '\0')
     {
         // Missing or stub manifest — not an error; runtime compile remains available.
         scr_shader_cache_detail::NoteManifest(false, false);
+        LOG_INFO("shader cache: no packaged/user manifest at {} (or {}); "
+                 "runtime HLSL→DXBC fallback enabled",
+                 ShaderCacheDir().string(),
+                 ShippedShaderCacheDir().empty() ? "(no shipped dir)" : ShippedShaderCacheDir().string());
         return;
     }
     const bool ok =
         ShaderCache_ManifestCompatible(m, (uint32_t)sizeof(VSKey), (uint32_t)sizeof(PSKey));
     scr_shader_cache_detail::NoteManifest(ok, !ok);
     if (!ok)
-        LOG_WARN("shader cache: manifest incompatible (schema={} gen={} vsKeyB={} psKeyB={}); "
+        LOG_WARN("shader cache: manifest incompatible at {} (schema={} gen={} vsKeyB={} psKeyB={}); "
                  "falling back to per-blob source-hash load + runtime compile",
-                 m.schemaVersion, m.generatorId, m.vsKeyBytes, m.psKeyBytes);
+                 usedDir, m.schemaVersion, m.generatorId, m.vsKeyBytes, m.psKeyBytes);
     else
-        LOG_INFO("shader cache: manifest OK ({} DXBC files recorded)", m.csoCount);
+        LOG_INFO("shader cache: manifest OK at {} ({} DXBC files recorded, gen={})",
+                 usedDir, m.csoCount, m.generatorId);
 }
 
 // Creates every shader recorded in shadercache/*_keys.bin. Keys whose blob is missing
@@ -983,14 +993,38 @@ static int PreloadKind(const char* file, std::unordered_map<K, S*, KeyHash<K>>& 
 
 static void PreloadShaders()
 {
+    // Env wins for one-shot diagnostics without restarting config.
+    if (const char* e = std::getenv("SCR_SHADER_PRELOAD"))
+        if (e[0] == '0') g_shaderPreload = false;
+
+    if (!g_shaderPreload)
+    {
+        LOG_INFO("shader cache: startup preload disabled (SCR_SHADER_PRELOAD=0 / --no-shader-preload); "
+                 "runtime compile fallback remains enabled");
+        CheckCacheManifestOnStartup();
+        return;
+    }
+
+    const uint64_t t0 = Platform_PerfCounter();
     CheckCacheManifestOnStartup();
     int nv = PreloadKind("vs_keys.bin", s_vsCache, &GenerateVertexShader, "vs_5_0");
     int np = PreloadKind("ps_keys.bin", s_psCache, &GeneratePixelShader, "ps_5_0");
     scr_shader_cache_detail::NotePreload((uint32_t)nv, (uint32_t)np);
     scr_shader_cache_detail::NoteInMemory((uint32_t)s_vsCache.size(), (uint32_t)s_psCache.size());
-    if (nv || np) LOG_INFO("shader cache: preloaded {} vertex and {} pixel shaders", nv, np);
+    const uint64_t freq = Platform_PerfFrequency();
+    const double ms =
+        (freq && t0) ? (double)(Platform_PerfCounter() - t0) * 1000.0 / (double)freq : 0.0;
+    if (nv || np)
+        LOG_INFO("shader cache: preloaded {} vertex and {} pixel shaders in {:.1f} ms "
+                 "(runtime fallback on for misses)",
+                 nv, np, ms);
+    else
+        LOG_INFO("shader cache: no key lists / no DXBC blobs preloaded ({:.1f} ms); "
+                 "runtime HLSL→DXBC fallback enabled",
+                 ms);
     // Refresh portable manifest after key dedupe rewrite (device PSOs still not shipped).
-    WriteCacheManifest((uint32_t)s_vsCache.size(), (uint32_t)s_psCache.size());
+    if (nv || np)
+        WriteCacheManifest((uint32_t)s_vsCache.size(), (uint32_t)s_psCache.size());
 }
 
 // --precompile-shaders <dir>: compiles every key in <dir>/*_keys.bin that has no blob yet,

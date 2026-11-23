@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "gameId": "SNCP8P",
+  "gameRev": "00",
+  "generatorId": "scr-shadergen-1",
+  "api": "d3d11",
+  "vsTarget": "vs_5_0",
+  "psTarget": "ps_5_0",
+  "vsKeyBytes": 96,
+  "psKeyBytes": 300,
+  "vsKeyCount": 330,
+  "psKeyCount": 6793,
+  "csoCount": 640,
+  "portableDxbc": 1,
+  "deviceSpecificPipelines": 0,
+  "note": "DXBC .cso blobs are portable across D3D11; DXVK/Vulkan PSO caches are device/driver-specific and are not shipped as universal."
+}
