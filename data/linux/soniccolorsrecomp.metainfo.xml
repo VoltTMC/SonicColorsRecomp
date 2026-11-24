@@ -42,6 +42,11 @@
   </recommends>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.4.0" date="2026-11-24">
+      <description>
+        <p>Feature release: automatic portable DXBC shader-cache preload, iGPU Present tuning, native Vulkan GX path (opt-in, partial; D3D11 remains default), NVIDIA Vulkan sync/validation hardening, movie replacements, and graphics topology fixes.</p>
+      </description>
+    </release>
     <release version="0.3.7" date="2026-11-20">
       <description>
         <p>Hotfix: Music original preview uses vgmstream-cli (not the 123 player), managed Windows Music deps install/persist correctly, Check tools works with embed Python, and the Music tab list is much more responsive.</p>

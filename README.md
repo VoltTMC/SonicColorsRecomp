@@ -12,7 +12,7 @@ You must own the game. No disc image or assets are shipped in this repository or
 
 | Issue | State |
 |---|---|
-| Ridiculous input latency when using Xbox controllers on Windows | fixed in next update (v0.4.0) |
+| Ridiculous input latency when using Xbox controllers on Windows | fixed in v0.4.0 |
 | Degraded performance the longer you play | fix in progress |
 | Degraded performance in general | fix in progress |
 | Playing at higher than 30fps introduces some physics issues in certain stages | fix in progress |
