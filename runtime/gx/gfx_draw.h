@@ -1,5 +1,6 @@
 #pragma once
-// A4c: backend-independent GX draw batch. Shared Flush builds this; D3D11/Vulkan consume it.
+// Backend-independent GX draw batch. Shared Flush builds this; D3D11/Vulkan consume it.
+// A4e: carries full VSKey/PSKey TEV IR + multi-texture binds (not Stage-B tex0-only).
 #include "shadergen.h"
 #include "vertex_loader.h"
 
@@ -30,13 +31,16 @@ struct GfxScissor
     int32_t x = 0, y = 0, w = 0, h = 0;
 };
 
-// CPU-side texture bind for the Vulkan Stage-B path (RGBA8, ownership stays with caller).
+// CPU-side texture bind for the Vulkan path (RGBA8, ownership stays with caller).
 struct GfxTexBind
 {
     const uint32_t* rgba = nullptr; // nullptr → unbound / white
     uint32_t w = 1, h = 1;
     uint64_t key = 0;               // cache key (addr|fmt|w|h|…)
     bool use = false;
+    // GX TEX_MODE0 wrap/filter (A4e). wrap: 0=clamp, 1=repeat, 2=mirror, 3=repeat.
+    uint8_t wrapU = 0, wrapV = 0;
+    uint8_t magLinear = 0, minLinear = 0;
 };
 
 struct GfxDrawBatch
@@ -56,8 +60,15 @@ struct GfxDrawBatch
     bool xfDirty = true;
 
     VSConstants vs{};
-    // Stage B: single texture slot (map 0) + modulate with vertex colour.
-    GfxTexBind tex0{};
+    PSConstants ps{};
+    VSKey vsKey{};
+    PSKey psKey{};
+    bool hasShaderKeys = false;
+
+    // Up to 8 GX texture maps. Stages select maps via PSKey tevOrder.
+    GfxTexBind tex[8]{};
+    uint32_t usedMaps = 0; // bitmask of maps referenced by TEV / ind stages
+
     bool depthTest = true;
     bool depthWrite = true;
     bool blendEnable = false;

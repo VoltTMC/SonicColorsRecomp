@@ -1,5 +1,5 @@
 #pragma once
-// A4c Stage B: native Vulkan GX draw path (real HostVertex geometry → VkCmdDrawIndexed).
+// A4e TEV: native Vulkan GX draw path (generated TEV shaders, multi-texture).
 #include "../gfx_draw.h"
 
 #include <cstdint>
@@ -25,6 +25,9 @@ bool VkGx_ClearEfb(int x0, int y0, int x1, int y1, float r, float g, float b, fl
 // Copy EFB region to swapchain and present (XFB path). Coordinates in native GX pixels.
 bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error);
 
+// A4e: synchronous EFB readback to a 24-bit BMP (native GX coords × scale). For --shots / comparisons.
+bool VkGx_SaveEfbBmp(int sx, int sy, int sw, int sh, const char* path, std::string& error);
+
 struct VkGxStats
 {
     uint64_t draws = 0;
@@ -35,6 +38,10 @@ struct VkGxStats
     uint64_t pipelineHits = 0;
     uint64_t pipelineMisses = 0;
     uint64_t shaderModules = 0;
+    uint64_t shaderCacheHits = 0;
+    uint64_t shaderCacheMisses = 0;
+    uint64_t spvCompileOk = 0;
+    uint64_t spvCompileFail = 0;
     uint64_t texUploads = 0;
     uint64_t unsupportedOps = 0;
 };

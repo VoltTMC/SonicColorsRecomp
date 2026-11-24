@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-24 — A4e: GX TEV shader generation & multi-texture (Vulkan)
+
+**Goal:** Faithful GX TEV → Vulkan GLSL/SPIR-V from real `VSKey`/`PSKey`; multi-tex; keep A4d sync/validation; D3D11 default.
+
+**Shipped:** `shadergen_glsl.*`; `vk_spv_compile` (glslangValidator + `shadercache_vk/`); `GfxDrawBatch` multi-tex + keys + `PSConstants`; VkGx 8-sampler descriptors + hashed shader/pipeline caches; Vulkan NDC Y fix; `VkGx_SaveEfbBmp` for `--shots`; docs `A4E_GX_TEV_AND_MULTITEXTURE_PARITY.md`.
+
+**Evidence (RTX 3080):** validation **0** errors; cold SPIR-V **12/0**; title screenshots vs D3D11 MAE≈3.1 after Y-fix; frames≈600 / draws≈42k class. EFB-copy still unsupported. AMD/RADV **deferred**. Win Vulkan GPU **UNVERIFIED**. Vulkan **not** default.
+
 ## 2026-11-24 — A4d: NVIDIA Vulkan validation & sync hardening
 
 **Goal:** Validation-clean real-GX Vulkan on RTX 3080; safe sync/lifetimes; D3D11 default preserved. AMD/RADV deferred.

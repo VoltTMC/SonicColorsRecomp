@@ -723,7 +723,7 @@ void Renderer_Init()
             FATAL("renderer=vulkan: VkGx_Init failed: {}", err);
         s_scale = g_videoConfig.internalScale;
         s_ready = true;
-        LOG_INFO("renderer=vulkan: Stage B GX path active on '{}' (D3D11 not initialised)",
+        LOG_INFO("renderer=vulkan: A4e TEV/multi-tex GX path active on '{}' (D3D11 not initialised)",
                  Vk_SelectedDeviceName());
         return;
     }
@@ -2654,7 +2654,7 @@ static uint32_t s_drawCalls = 0;
 void Render_Flush();
 
 // A4c: shared GX batch → Vulkan (no D3D11 objects cross the boundary).
-static std::vector<uint32_t> s_vkTexDecode;
+static std::vector<uint32_t> s_vkTexDecode[8];
 static bool FlushVulkan()
 {
     if (!VkGx_IsActive()) return false;
@@ -2716,42 +2716,61 @@ static bool FlushVulkan()
     batch.depthWrite = (zm & 0x10) != 0;
     batch.blendEnable = (BP(0x41) & 1) != 0;
 
-    // Stage B: decode tex map 0 when any TEV stage samples it (RAM textures only).
-    PSKey pk{};
-    BuildPSKey(pk);
+    // A4e: full VSKey/PSKey IR + multi-texture decode (RAM textures; EFB-copy deferred).
+    BuildVSKey(batch.vsKey);
+    BuildPSKey(batch.psKey);
+    batch.hasShaderKeys = true;
+
     uint32_t usedMaps = 0;
-    for (uint32_t st = 0; st < pk.numTevStages; st++)
+    for (uint32_t st = 0; st < batch.psKey.numTevStages; st++)
     {
-        uint32_t ord = (pk.tevOrder[st / 2] >> ((st & 1) * 12)) & 0xFFF;
-        if ((ord >> 6) & 1) usedMaps |= 1 << (ord & 7);
+        uint32_t ord = (batch.psKey.tevOrder[st / 2] >> ((st & 1) * 12)) & 0xFFF;
+        if ((ord >> 6) & 1) usedMaps |= 1u << (ord & 7);
     }
-    if (pk.numTexGens == 0) usedMaps = 0;
-    if (usedMaps & 1)
+    for (uint32_t is = 0; is < batch.psKey.numIndStages; is++)
+        usedMaps |= 1u << ((batch.psKey.indOrder >> (6 * is)) & 7);
+    if (batch.psKey.numTexGens == 0) usedMaps = 0;
+    batch.usedMaps = usedMaps;
+
+    uint32_t texW[8] = { 1, 1, 1, 1, 1, 1, 1, 1 }, texH[8] = { 1, 1, 1, 1, 1, 1, 1, 1 };
+    for (int m = 0; m < 8; m++)
     {
-        uint32_t img0 = TexReg(0, 0x88, 0xA8);
-        uint32_t img3 = TexReg(0, 0x94, 0xB4);
-        uint32_t tlutReg = TexReg(0, 0x98, 0xB8);
+        if (!(usedMaps & (1u << m))) continue;
+        uint32_t img0 = TexReg(m, 0x88, 0xA8);
+        uint32_t img3 = TexReg(m, 0x94, 0xB4);
+        uint32_t mode0 = TexReg(m, 0x80, 0xA0);
+        uint32_t tlutReg = TexReg(m, 0x98, 0xB8);
         uint32_t w = (img0 & 0x3FF) + 1;
         uint32_t h = ((img0 >> 10) & 0x3FF) + 1;
         uint32_t fmt = (img0 >> 20) & 15;
         uint32_t addr = (img3 & 0x00FFFFFF) << 5;
         const uint32_t efbKey = EfbCopyKey(addr);
         if (EfbCopyMap().count(efbKey))
-            VkGx_NoteUnsupported("efb-copy-texture");
-        else if (w && h && w <= 1024 && h <= 1024)
         {
-            uint32_t tlutOff = (tlutReg & 0x3FF) << 9;
-            uint32_t tlutFmt = (tlutReg >> 10) & 3;
-            const uint8_t* pal = s_tmem + (tlutOff & (sizeof(s_tmem) - 1));
-            s_vkTexDecode.resize((size_t)w * h);
-            GXTex_Decode(s_vkTexDecode.data(), PhysPtr(addr), w, h, fmt, pal, tlutFmt);
-            batch.tex0.rgba = s_vkTexDecode.data();
-            batch.tex0.w = w;
-            batch.tex0.h = h;
-            batch.tex0.key = (uint64_t)addr | ((uint64_t)fmt << 32) | ((uint64_t)w << 36) | ((uint64_t)h << 47);
-            batch.tex0.use = true;
+            VkGx_NoteUnsupported("efb-copy-texture");
+            continue;
         }
+        if (!w || !h || w > 1024 || h > 1024) continue;
+        uint32_t tlutOff = (tlutReg & 0x3FF) << 9;
+        uint32_t tlutFmt = (tlutReg >> 10) & 3;
+        const uint8_t* pal = s_tmem + (tlutOff & (sizeof(s_tmem) - 1));
+        s_vkTexDecode[m].resize((size_t)w * h);
+        GXTex_Decode(s_vkTexDecode[m].data(), PhysPtr(addr), w, h, fmt, pal, tlutFmt);
+        batch.tex[m].rgba = s_vkTexDecode[m].data();
+        batch.tex[m].w = w;
+        batch.tex[m].h = h;
+        batch.tex[m].key = (uint64_t)addr | ((uint64_t)fmt << 32) | ((uint64_t)w << 36) |
+                            ((uint64_t)h << 47) | ((uint64_t)m << 58);
+        batch.tex[m].use = true;
+        batch.tex[m].wrapU = (uint8_t)(mode0 & 3);
+        batch.tex[m].wrapV = (uint8_t)((mode0 >> 2) & 3);
+        batch.tex[m].magLinear = (uint8_t)((mode0 >> 4) & 1);
+        uint32_t minF = (mode0 >> 5) & 7;
+        batch.tex[m].minLinear = minF >= 4 ? 1 : 0;
+        texW[m] = w;
+        texH[m] = h;
     }
+    FillPSConstants(batch.ps, texW, texH);
 
     // Preserve A3x topology invalidation principle on the Vulkan path too.
     s_boundTopo = Topo::Invalid;
@@ -3694,13 +3713,27 @@ static void DoEFBCopy()
                 g_framesPresented++;
                 extern void Perf_OnXfbCopy();
                 Perf_OnXfbCopy();
+                if (g_screenshotEvery && g_framesPresented >= g_screenshotStart &&
+                    (g_framesPresented % (uint32_t)g_screenshotEvery) == 0)
+                {
+                    char path[96];
+                    snprintf(path, sizeof(path), "out/a4e_vk_shot_%04u.bmp",
+                             g_framesPresented / (uint32_t)g_screenshotEvery);
+                    std::string shotErr;
+                    if (!VkGx_SaveEfbBmp(sx, sy, sw, sh, path, shotErr))
+                        LOG_WARN("vulkan gx screenshot failed: {}", shotErr);
+                    else
+                        LOG_INFO("vulkan gx screenshot {}", path);
+                }
                 static uint32_t s_vkLog = 0;
                 if ((++s_vkLog % 300) == 1)
                 {
                     auto st = VkGx_Stats();
-                    LOG_INFO("vulkan gx: frames={} draws={} verts={} idx={} pipes hit/miss={}/{} texUp={} unsup={}",
+                    LOG_INFO("vulkan gx: frames={} draws={} verts={} idx={} pipes hit/miss={}/{} "
+                             "shader hit/miss={}/{} spv ok/fail={}/{} texUp={} unsup={}",
                              g_framesPresented, st.draws, st.vertices, st.indices, st.pipelineHits,
-                             st.pipelineMisses, st.texUploads, st.unsupportedOps);
+                             st.pipelineMisses, st.shaderCacheHits, st.shaderCacheMisses, st.spvCompileOk,
+                             st.spvCompileFail, st.texUploads, st.unsupportedOps);
                 }
             }
             if (clear) ClearEFB(sx, sy, sx + sw, sy + sh);

@@ -1,9 +1,11 @@
-// A4c Stage B: GX Flush → Vulkan DrawIndexed (real HostVertex geometry).
+// A4e TEV: GX Flush → Vulkan DrawIndexed (generated TEV shaders, 8× texture).
 #include "vk_gx.h"
 #include "vk_device.h"
 #include "vk_spv_embed.h"
+#include "vk_spv_compile.h"
 
 #include "../../log.h"
+#include "../shadergen_glsl.h"
 #include "../vertex_loader.h"
 
 #include <algorithm>
@@ -42,7 +44,8 @@ L(vkCmdBeginRenderPass); L(vkCmdEndRenderPass);
 L(vkCmdBindPipeline); L(vkCmdBindVertexBuffers); L(vkCmdBindIndexBuffer);
 L(vkCmdBindDescriptorSets); L(vkCmdSetViewport); L(vkCmdSetScissor);
 L(vkCmdDrawIndexed); L(vkCmdClearAttachments);
-L(vkCmdPipelineBarrier); L(vkCmdCopyBuffer); L(vkCmdCopyBufferToImage); L(vkCmdBlitImage);
+L(vkCmdPipelineBarrier); L(vkCmdCopyBuffer); L(vkCmdCopyBufferToImage); L(vkCmdCopyImageToBuffer);
+L(vkCmdBlitImage);
 L(vkCreateFence); L(vkDestroyFence); L(vkWaitForFences); L(vkResetFences);
 L(vkResetDescriptorPool);
 L(vkGetPhysicalDeviceMemoryProperties);
@@ -81,7 +84,8 @@ static bool LoadFns()
     LD(vkCmdBindPipeline); LD(vkCmdBindVertexBuffers); LD(vkCmdBindIndexBuffer);
     LD(vkCmdBindDescriptorSets); LD(vkCmdSetViewport); LD(vkCmdSetScissor);
     LD(vkCmdDrawIndexed); LD(vkCmdClearAttachments);
-    LD(vkCmdPipelineBarrier); LD(vkCmdCopyBuffer); LD(vkCmdCopyBufferToImage); LD(vkCmdBlitImage);
+    LD(vkCmdPipelineBarrier); LD(vkCmdCopyBuffer); LD(vkCmdCopyBufferToImage); LD(vkCmdCopyImageToBuffer);
+    LD(vkCmdBlitImage);
     LD(vkCreateFence); LD(vkDestroyFence); LD(vkWaitForFences); LD(vkResetFences);
     LD(vkResetDescriptorPool);
 #undef LD
@@ -114,18 +118,22 @@ struct Img
 struct PipeKey
 {
     uint8_t topo = 0, cull = 0, blend = 0, depthWrite = 1, depthTest = 1;
+    uint64_t vsHash = 0, psHash = 0;
     bool operator==(const PipeKey& o) const
     {
         return topo == o.topo && cull == o.cull && blend == o.blend && depthWrite == o.depthWrite &&
-               depthTest == o.depthTest;
+               depthTest == o.depthTest && vsHash == o.vsHash && psHash == o.psHash;
     }
 };
 struct PipeKeyHash
 {
     size_t operator()(const PipeKey& k) const
     {
-        return (size_t)k.topo | ((size_t)k.cull << 8) | ((size_t)k.blend << 16) |
-               ((size_t)k.depthWrite << 24) | ((size_t)k.depthTest << 25);
+        size_t h = (size_t)k.topo | ((size_t)k.cull << 8) | ((size_t)k.blend << 16) |
+                   ((size_t)k.depthWrite << 24) | ((size_t)k.depthTest << 25);
+        h ^= k.vsHash + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+        h ^= k.psHash + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+        return h;
     }
 };
 
@@ -158,8 +166,10 @@ Img s_efbColor{}, s_efbDepth{};
 VkSampler s_sampNearest = VK_NULL_HANDLE;
 VkSampler s_sampLinear = VK_NULL_HANDLE;
 
-VkShaderModule s_vs = VK_NULL_HANDLE, s_fs = VK_NULL_HANDLE;
 VkShaderModule s_blitVs = VK_NULL_HANDLE, s_blitFs = VK_NULL_HANDLE;
+std::unordered_map<uint64_t, VkShaderModule> s_vsModuleCache;
+std::unordered_map<uint64_t, VkShaderModule> s_fsModuleCache;
+std::unordered_map<uint32_t, VkSampler> s_samplerCache;
 VkDescriptorSetLayout s_dsl = VK_NULL_HANDLE;
 VkPipelineLayout s_pipeLayout = VK_NULL_HANDLE;
 VkDescriptorPool s_descPool = VK_NULL_HANDLE;
@@ -289,6 +299,111 @@ static VkShaderModule MakeModule(const uint32_t* words, uint32_t count)
     if (pfn_vkCreateShaderModule(Vk_GetDevice(), &ci, nullptr, &m) != VK_SUCCESS) return VK_NULL_HANDLE;
     s_stats.shaderModules++;
     return m;
+}
+
+static uint64_t HashKeyBytes(const void* p, size_t n)
+{
+    const uint8_t* b = static_cast<const uint8_t*>(p);
+    uint64_t h = 14695981039346656037ull;
+    for (size_t i = 0; i < n; i++)
+    {
+        h ^= b[i];
+        h *= 1099511628211ull;
+    }
+    return h;
+}
+
+static VkSamplerAddressMode WrapToVk(uint8_t wrap)
+{
+    switch (wrap & 3u)
+    {
+    case 0: return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    case 2: return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+    default: return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    }
+}
+
+static VkSampler GetOrCreateSampler(const GfxTexBind& t)
+{
+    const uint32_t key =
+        (uint32_t)t.wrapU | ((uint32_t)t.wrapV << 2) | ((uint32_t)t.magLinear << 4) | ((uint32_t)t.minLinear << 5);
+    auto it = s_samplerCache.find(key);
+    if (it != s_samplerCache.end()) return it->second;
+    VkSamplerCreateInfo si{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
+    si.magFilter = t.magLinear ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
+    si.minFilter = t.minLinear ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
+    si.addressModeU = WrapToVk(t.wrapU);
+    si.addressModeV = WrapToVk(t.wrapV);
+    si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    VkSampler samp = VK_NULL_HANDLE;
+    if (pfn_vkCreateSampler(Vk_GetDevice(), &si, nullptr, &samp) != VK_SUCCESS)
+        return s_sampNearest;
+    s_samplerCache[key] = samp;
+    return samp;
+}
+
+static bool GetOrCreateShaderModules(const VSKey& vsKey, const PSKey& psKey, VkShaderModule& vsMod,
+                                     VkShaderModule& fsMod, std::string& err)
+{
+    const uint64_t vh = HashKeyBytes(&vsKey, sizeof(vsKey));
+    const uint64_t ph = HashKeyBytes(&psKey, sizeof(psKey));
+
+    {
+        auto it = s_vsModuleCache.find(vh);
+        if (it != s_vsModuleCache.end())
+        {
+            s_stats.shaderCacheHits++;
+            vsMod = it->second;
+        }
+        else
+        {
+            s_stats.shaderCacheMisses++;
+            std::string glsl = GenerateVertexShaderGLSL(vsKey);
+            std::vector<uint32_t> spv;
+            if (!VkSpv_CompileGlsl(glsl, "vert", spv, err))
+            {
+                LOG_ERROR("vulkan gx: VS SPIR-V failed numTexGens={} numColorChans={} dualTex={}: {}", vsKey.numTexGens,
+                          vsKey.numColorChans, vsKey.dualTex, err);
+                return false;
+            }
+            vsMod = MakeModule(spv.data(), (uint32_t)spv.size());
+            if (!vsMod)
+            {
+                err = "vkCreateShaderModule (VS) failed";
+                return false;
+            }
+            s_vsModuleCache[vh] = vsMod;
+        }
+    }
+
+    {
+        auto it = s_fsModuleCache.find(ph);
+        if (it != s_fsModuleCache.end())
+        {
+            s_stats.shaderCacheHits++;
+            fsMod = it->second;
+        }
+        else
+        {
+            s_stats.shaderCacheMisses++;
+            std::string glsl = GeneratePixelShaderGLSL(psKey);
+            std::vector<uint32_t> spv;
+            if (!VkSpv_CompileGlsl(glsl, "frag", spv, err))
+            {
+                LOG_ERROR("vulkan gx: PS SPIR-V failed numTevStages={} numTexGens={} numIndStages={}: {}",
+                          psKey.numTevStages, psKey.numTexGens, psKey.numIndStages, err);
+                return false;
+            }
+            fsMod = MakeModule(spv.data(), (uint32_t)spv.size());
+            if (!fsMod)
+            {
+                err = "vkCreateShaderModule (FS) failed";
+                return false;
+            }
+            s_fsModuleCache[ph] = fsMod;
+        }
+    }
+    return true;
 }
 
 static void Barrier(VkCommandBuffer cmd, VkImage img, VkImageLayout oldL, VkImageLayout newL,
@@ -449,14 +564,22 @@ static VkPipeline GetOrCreatePipe(const PipeKey& key, std::string& error)
     dy.dynamicStateCount = 2;
     dy.pDynamicStates = dyn;
 
+    auto vit = s_vsModuleCache.find(key.vsHash);
+    auto fit = s_fsModuleCache.find(key.psHash);
+    if (vit == s_vsModuleCache.end() || fit == s_fsModuleCache.end())
+    {
+        error = "shader modules missing for pipeline";
+        return VK_NULL_HANDLE;
+    }
+
     VkPipelineShaderStageCreateInfo stages[2]{};
     stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-    stages[0].module = s_vs;
+    stages[0].module = vit->second;
     stages[0].pName = "main";
     stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    stages[1].module = s_fs;
+    stages[1].module = fit->second;
     stages[1].pName = "main";
 
     VkGraphicsPipelineCreateInfo pci{ VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
@@ -569,27 +692,25 @@ static void ResetFrameDescriptors();
 // (Vulkan forbids that without UPDATE_AFTER_BIND). Allocate a fresh set per draw.
 static bool s_allocNeedFlush = false;
 
-static bool AllocDrawDescriptors(VkImageView texView, uint32_t useTex, const VSConstants& vsConst,
-                                   VkDescriptorSet& outSet, std::string& error)
+static bool AllocDrawDescriptors(const GfxDrawBatch& batch, VkImageView views[8], VkSampler samps[8],
+                                 VkDescriptorSet& outSet, std::string& error)
 {
     // Never reset the pool while the current CB still references allocated sets.
     // Exhaustion → signal caller to flushFrame (submit + wait + reset), then retry.
     s_allocNeedFlush = false;
-    // Both VS and PS UBO offsets must respect minUniformBufferOffsetAlignment (NVIDIA: 64).
     constexpr VkDeviceSize kUboAlign = 256;
     auto alignUbo = [](VkDeviceSize v) { return (v + kUboAlign - 1) / kUboAlign * kUboAlign; };
     const VkDeviceSize vsOff = alignUbo(s_dynUboPos);
     const VkDeviceSize psOff = alignUbo(vsOff + sizeof(VSConstants));
-    const VkDeviceSize slotEnd = alignUbo(psOff + 16);
+    const VkDeviceSize slotEnd = alignUbo(psOff + sizeof(PSConstants));
     if (s_descCursor >= s_frameDescSets.size() || slotEnd > s_dynUbo.size)
     {
         s_allocNeedFlush = true;
         error = "per-frame descriptor/dynUbo exhausted (flush required)";
         return false;
     }
-    memcpy((uint8_t*)s_dynUbo.mapped + vsOff, &vsConst, sizeof(VSConstants));
-    uint32_t flags[4] = { useTex, 0, 0, 0 };
-    memcpy((uint8_t*)s_dynUbo.mapped + psOff, flags, sizeof(flags));
+    memcpy((uint8_t*)s_dynUbo.mapped + vsOff, &batch.vs, sizeof(VSConstants));
+    memcpy((uint8_t*)s_dynUbo.mapped + psOff, &batch.ps, sizeof(PSConstants));
     s_dynUboPos = slotEnd;
 
     VkDescriptorSet set = s_frameDescSets[s_descCursor++];
@@ -601,14 +722,17 @@ static bool AllocDrawDescriptors(VkImageView texView, uint32_t useTex, const VSC
     vs.buffer = s_dynUbo.buf;
     vs.offset = vsOff;
     vs.range = sizeof(VSConstants);
-    VkDescriptorImageInfo img{};
-    img.sampler = s_sampLinear;
-    img.imageView = texView;
-    img.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     VkDescriptorBufferInfo ps{};
     ps.buffer = s_dynUbo.buf;
     ps.offset = psOff;
-    ps.range = 16;
+    ps.range = sizeof(PSConstants);
+    VkDescriptorImageInfo imgs[8]{};
+    for (int i = 0; i < 8; i++)
+    {
+        imgs[i].sampler = samps[i];
+        imgs[i].imageView = views[i];
+        imgs[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    }
 
     VkWriteDescriptorSet writes[4]{};
     for (int i = 0; i < 4; i++)
@@ -616,16 +740,19 @@ static bool AllocDrawDescriptors(VkImageView texView, uint32_t useTex, const VSC
         writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         writes[i].dstSet = set;
         writes[i].dstBinding = (uint32_t)i;
-        writes[i].descriptorCount = 1;
     }
     writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[0].descriptorCount = 1;
     writes[0].pBufferInfo = &xf;
     writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writes[1].descriptorCount = 1;
     writes[1].pBufferInfo = &vs;
-    writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writes[2].pImageInfo = &img;
-    writes[3].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    writes[3].pBufferInfo = &ps;
+    writes[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writes[2].descriptorCount = 1;
+    writes[2].pBufferInfo = &ps;
+    writes[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[3].descriptorCount = 8;
+    writes[3].pImageInfo = imgs;
     pfn_vkUpdateDescriptorSets(Vk_GetDevice(), 4, writes, 0, nullptr);
     outSet = set;
     return true;
@@ -889,13 +1016,11 @@ bool VkGx_Init(const VkGxInitOptions& opt, std::string& error)
         pfn_vkCreateSampler(dev, &si, nullptr, &s_sampLinear);
     }
 
-    s_vs = MakeModule(k_gx_vert_spv, k_gx_vert_spv_words);
-    s_fs = MakeModule(k_gx_frag_spv, k_gx_frag_spv_words);
     s_blitVs = MakeModule(k_blit_vert_spv, k_blit_vert_spv_words);
     s_blitFs = MakeModule(k_blit_frag_spv, k_blit_frag_spv_words);
-    if (!s_vs || !s_fs || !s_blitVs || !s_blitFs)
+    if (!s_blitVs || !s_blitFs)
     {
-        error = "shader module creation failed";
+        error = "blit shader module creation failed";
         return false;
     }
 
@@ -910,12 +1035,12 @@ bool VkGx_Init(const VkGxInitOptions& opt, std::string& error)
         binds[1].descriptorCount = 1;
         binds[1].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
         binds[2].binding = 2;
-        binds[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        binds[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         binds[2].descriptorCount = 1;
         binds[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
         binds[3].binding = 3;
-        binds[3].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        binds[3].descriptorCount = 1;
+        binds[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        binds[3].descriptorCount = 8;
         binds[3].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
         VkDescriptorSetLayoutCreateInfo lci{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
         lci.bindingCount = 4;
@@ -937,7 +1062,7 @@ bool VkGx_Init(const VkGxInitOptions& opt, std::string& error)
         VkDescriptorPoolSize sizes[3] = {
             { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kDescSets },
             { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, kDescSets * 2 },
-            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kDescSets },
+            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kDescSets * 8 },
         };
         VkDescriptorPoolCreateInfo dpi{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
         dpi.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
@@ -958,8 +1083,8 @@ bool VkGx_Init(const VkGxInitOptions& opt, std::string& error)
     s_frameIdx = 0;
     s_xfUploaded = false;
     s_stagingPos = 0;
-    LOG_INFO("vulkan gx: Stage B init EFB {}x{} (scale {}) on '{}' — {} SPIR-V modules", s_efbW, s_efbH, s_scale,
-             Vk_SelectedDeviceName(), s_stats.shaderModules);
+    LOG_INFO("vulkan gx: A4e TEV init EFB {}x{} (scale {}) on '{}' — {} embedded SPIR-V (blit)", s_efbW, s_efbH,
+             s_scale, Vk_SelectedDeviceName(), s_stats.shaderModules);
     return true;
 }
 
@@ -997,10 +1122,17 @@ void VkGx_Shutdown()
     if (s_descPool) pfn_vkDestroyDescriptorPool(dev, s_descPool, nullptr);
     if (s_pipeLayout) pfn_vkDestroyPipelineLayout(dev, s_pipeLayout, nullptr);
     if (s_dsl) pfn_vkDestroyDescriptorSetLayout(dev, s_dsl, nullptr);
-    if (s_vs) pfn_vkDestroyShaderModule(dev, s_vs, nullptr);
-    if (s_fs) pfn_vkDestroyShaderModule(dev, s_fs, nullptr);
+    for (auto& kv : s_vsModuleCache)
+        if (kv.second) pfn_vkDestroyShaderModule(dev, kv.second, nullptr);
+    s_vsModuleCache.clear();
+    for (auto& kv : s_fsModuleCache)
+        if (kv.second) pfn_vkDestroyShaderModule(dev, kv.second, nullptr);
+    s_fsModuleCache.clear();
     if (s_blitVs) pfn_vkDestroyShaderModule(dev, s_blitVs, nullptr);
     if (s_blitFs) pfn_vkDestroyShaderModule(dev, s_blitFs, nullptr);
+    for (auto& kv : s_samplerCache)
+        if (kv.second) pfn_vkDestroySampler(dev, kv.second, nullptr);
+    s_samplerCache.clear();
     if (s_sampNearest) pfn_vkDestroySampler(dev, s_sampNearest, nullptr);
     if (s_sampLinear) pfn_vkDestroySampler(dev, s_sampLinear, nullptr);
     if (s_pool) pfn_vkDestroyCommandPool(dev, s_pool, nullptr);
@@ -1009,7 +1141,7 @@ void VkGx_Shutdown()
     s_descPool = VK_NULL_HANDLE;
     s_pipeLayout = VK_NULL_HANDLE;
     s_dsl = VK_NULL_HANDLE;
-    s_vs = s_fs = s_blitVs = s_blitFs = VK_NULL_HANDLE;
+    s_blitVs = s_blitFs = VK_NULL_HANDLE;
     s_sampNearest = s_sampLinear = VK_NULL_HANDLE;
     s_pool = VK_NULL_HANDLE;
     s_presentCmd = VK_NULL_HANDLE;
@@ -1026,6 +1158,11 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
 {
     std::lock_guard lk(s_mu);
     if (!s_active || !batch.indices || batch.indexCount == 0) return true;
+    if (!batch.hasShaderKeys)
+    {
+        VkGx_NoteUnsupported("missing-shader-keys");
+        return true;
+    }
     if (s_deviceLost)
     {
         error = "vulkan device previously lost";
@@ -1039,6 +1176,14 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
         error = "draw exceeds per-frame ring capacity";
         return false;
     }
+
+    const uint64_t vsHash = HashKeyBytes(&batch.vsKey, sizeof(batch.vsKey));
+    const uint64_t psHash = HashKeyBytes(&batch.psKey, sizeof(batch.psKey));
+    VkShaderModule vsMod = VK_NULL_HANDLE, fsMod = VK_NULL_HANDLE;
+    if (!GetOrCreateShaderModules(batch.vsKey, batch.psKey, vsMod, fsMod, error))
+        return true; // skip draw on compile failure
+    (void)vsMod;
+    (void)fsMod;
 
     auto align = [](VkDeviceSize v, VkDeviceSize a) { return (v + a - 1) / a * a; };
         auto flushFrame = [&](FrameSlot& fr) {
@@ -1072,8 +1217,21 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
         vbOff = 0;
     }
 
-    VkImageView texView = s_whiteTex.view;
-    if (!UploadTex(batch.tex0, texView, error)) return false;
+    VkImageView texViews[8]{};
+    VkSampler texSamps[8]{};
+    for (int i = 0; i < 8; i++)
+    {
+        if (batch.usedMaps & (1u << i))
+        {
+            if (!UploadTex(batch.tex[i], texViews[i], error)) return false;
+            texSamps[i] = GetOrCreateSampler(batch.tex[i]);
+        }
+        else
+        {
+            texViews[i] = s_whiteTex.view;
+            texSamps[i] = s_sampNearest;
+        }
+    }
     // UploadTex may have ended the EFB pass / switched recording state on same frame.
     f = &s_frames[s_frameIdx];
     if (!EnsureFrameRecording(*f, error)) return false;
@@ -1094,7 +1252,7 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
         s_stats.uploadBytes += n;
     }
     VkDescriptorSet drawSet = VK_NULL_HANDLE;
-    if (!AllocDrawDescriptors(texView, batch.tex0.use ? 1u : 0u, batch.vs, drawSet, error))
+    if (!AllocDrawDescriptors(batch, texViews, texSamps, drawSet, error))
     {
         if (!s_allocNeedFlush) return false;
         flushFrame(*f);
@@ -1107,7 +1265,7 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
             error = "draw exceeds ring after flush";
             return false;
         }
-        if (!AllocDrawDescriptors(texView, batch.tex0.use ? 1u : 0u, batch.vs, drawSet, error))
+        if (!AllocDrawDescriptors(batch, texViews, texSamps, drawSet, error))
             return false;
     }
 
@@ -1126,6 +1284,8 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
     pk.blend = batch.blendEnable ? 1 : 0;
     pk.depthTest = batch.depthTest ? 1 : 0;
     pk.depthWrite = batch.depthWrite ? 1 : 0;
+    pk.vsHash = vsHash;
+    pk.psHash = psHash;
     VkPipeline pipe = GetOrCreatePipe(pk, error);
     if (!pipe) return false;
 
@@ -1333,8 +1493,127 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
     return true;
 }
 
-VkGxStats VkGx_Stats() { return s_stats; }
-void VkGx_ResetStats() { s_stats = {}; }
+bool VkGx_SaveEfbBmp(int sx, int sy, int sw, int sh, const char* path, std::string& error)
+{
+    std::lock_guard lk(s_mu);
+    if (!s_active || !path || !path[0])
+    {
+        error = "VkGx_SaveEfbBmp: inactive or empty path";
+        return false;
+    }
+    const int x0 = sx * s_scale, y0 = sy * s_scale;
+    const int w = std::max(1, sw * s_scale), h = std::max(1, sh * s_scale);
+    if (x0 < 0 || y0 < 0 || x0 + w > (int)s_efbW || y0 + h > (int)s_efbH)
+    {
+        error = "VkGx_SaveEfbBmp: region out of EFB";
+        return false;
+    }
+    const VkDeviceSize rowPitch = ((VkDeviceSize)w * 4 + 255) & ~VkDeviceSize(255);
+    const VkDeviceSize bytes = rowPitch * (VkDeviceSize)h;
+    Buf staging{};
+    if (!CreateBuf(staging, bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
+    {
+        error = "VkGx_SaveEfbBmp: staging alloc failed";
+        return false;
+    }
+    FrameSlot& fr = s_frames[s_frameIdx];
+    if (fr.recording)
+    {
+        EndEfbPass(fr);
+        pfn_vkEndCommandBuffer(fr.cmd);
+        fr.recording = false;
+        VkSubmitInfo si{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+        si.commandBufferCount = 1;
+        si.pCommandBuffers = &fr.cmd;
+        LoadDev<PFN_vkQueueSubmit>("vkQueueSubmit")(Vk_GetGraphicsQueue(), 1, &si, fr.fence);
+        pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
+    }
+    else
+        pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
+
+    pfn_vkResetFences(Vk_GetDevice(), 1, &fr.fence);
+    pfn_vkResetCommandBuffer(fr.cmd, 0);
+    VkCommandBufferBeginInfo bi{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    pfn_vkBeginCommandBuffer(fr.cmd, &bi);
+    Barrier(fr.cmd, s_efbColor.img, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            VK_IMAGE_ASPECT_COLOR_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+    VkBufferImageCopy region{};
+    region.bufferRowLength = (uint32_t)(rowPitch / 4);
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.layerCount = 1;
+    region.imageOffset = { x0, y0, 0 };
+    region.imageExtent = { (uint32_t)w, (uint32_t)h, 1 };
+    pfn_vkCmdCopyImageToBuffer(fr.cmd, s_efbColor.img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging.buf, 1, &region);
+    Barrier(fr.cmd, s_efbColor.img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            VK_IMAGE_ASPECT_COLOR_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+    pfn_vkEndCommandBuffer(fr.cmd);
+    VkSubmitInfo si{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    si.commandBufferCount = 1;
+    si.pCommandBuffers = &fr.cmd;
+    LoadDev<PFN_vkQueueSubmit>("vkQueueSubmit")(Vk_GetGraphicsQueue(), 1, &si, fr.fence);
+    pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
+
+    // Write 24-bit BMP (BGR). EFB is B8G8R8A8_UNORM — byte order B,G,R,A on little-endian.
+    const int rowBytes = ((w * 3 + 3) & ~3);
+    std::vector<uint8_t> bmp(54 + (size_t)rowBytes * h);
+    auto* hdr = bmp.data();
+    hdr[0] = 'B';
+    hdr[1] = 'M';
+    const uint32_t fileSize = (uint32_t)bmp.size();
+    memcpy(hdr + 2, &fileSize, 4);
+    const uint32_t offBits = 54;
+    memcpy(hdr + 10, &offBits, 4);
+    const uint32_t dib = 40;
+    memcpy(hdr + 14, &dib, 4);
+    memcpy(hdr + 18, &w, 4);
+    const int32_t hm = -h; // top-down
+    memcpy(hdr + 22, &hm, 4);
+    const uint16_t planes = 1, bpp = 24;
+    memcpy(hdr + 26, &planes, 2);
+    memcpy(hdr + 28, &bpp, 2);
+    for (int y = 0; y < h; y++)
+    {
+        const uint8_t* src = (const uint8_t*)staging.mapped + (size_t)y * rowPitch;
+        uint8_t* dst = bmp.data() + 54 + (size_t)y * rowBytes;
+        for (int x = 0; x < w; x++)
+        {
+            dst[x * 3 + 0] = src[x * 4 + 0]; // B
+            dst[x * 3 + 1] = src[x * 4 + 1]; // G
+            dst[x * 3 + 2] = src[x * 4 + 2]; // R
+        }
+    }
+    DestroyBuf(staging);
+    FILE* f = fopen(path, "wb");
+    if (!f)
+    {
+        error = "fopen failed";
+        return false;
+    }
+    fwrite(bmp.data(), 1, bmp.size(), f);
+    fclose(f);
+    return true;
+}
+
+VkGxStats VkGx_Stats()
+{
+    VkGxStats st = s_stats;
+    const VkSpvCompileStats spv = VkSpv_Stats();
+    st.spvCompileOk = spv.compileOk;
+    st.spvCompileFail = spv.compileFail;
+    // Disk SPIR-V cache hits contribute to reported shader cache hits.
+    st.shaderCacheHits += spv.cacheHits;
+    st.shaderCacheMisses += spv.cacheMisses;
+    return st;
+}
+void VkGx_ResetStats()
+{
+    s_stats = {};
+    VkSpv_ResetStats();
+}
 
 void VkGx_NoteUnsupported(const char* op)
 {

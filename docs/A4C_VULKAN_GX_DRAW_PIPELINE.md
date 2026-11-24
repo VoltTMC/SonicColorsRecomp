@@ -1,6 +1,6 @@
 # A4c — Native Vulkan GX Draw Pipeline (Stage B)
 
-**Status (2026-11-24):** Stage B **partial** — real GX `HostVertex` geometry is submitted through native Vulkan (`vkCmdDrawIndexed`). D3D11 remains the **default** gameplay renderer. Title/menus/TR1 are **not** at visual parity yet.
+**Status (2026-11-24):** Stage B **partial** — real GX `HostVertex` geometry is submitted through native Vulkan (`vkCmdDrawIndexed`). **Superseded for shaders/textures by A4e** (`docs/A4E_GX_TEV_AND_MULTITEXTURE_PARITY.md`: generated TEV + multi-tex). D3D11 remains the **default** gameplay renderer. Title/menus/TR1 are **not** at full visual parity yet.
 
 ## Architecture
 
@@ -17,7 +17,7 @@ D3D11 path is unchanged when `--renderer=d3d11` / default.
 | Piece | Role |
 |---|---|
 | `gfx_backend.{h,cpp}` | `d3d11` \| `vulkan` selection (`--renderer`, `SCR_RENDERER`) |
-| `gfx_draw.h` | Backend-independent batch: topology, viewport/scissor, verts/idx, XF, `VSConstants`, tex0 |
+| `gfx_draw.h` | Backend-independent batch: topology, viewport/scissor, verts/idx, XF, `VSConstants`/`PSConstants`, `VSKey`/`PSKey`, `tex[8]` (A4e) |
 | `vk/vk_device.*` | Stage A device/swapchain + Stage B accessors / acquire+present helpers |
 | `vk/vk_gx.*` | EFB, ring VB/IB, SPIR-V modules, pipeline cache, `DrawIndexed`, XFB blit |
 
