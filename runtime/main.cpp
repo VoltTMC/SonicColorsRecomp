@@ -3,6 +3,9 @@
 #include "config.h"
 #include "perf.h"
 #include "gx/video.h"
+#include "gx/gfx_backend.h"
+#include "gx/vk/vk_device.h"
+#include "platform/window.h"
 #include "cpu/cpu.h"
 #include "kernel/memory.h"
 #include "kernel/boot.h"
@@ -159,6 +162,12 @@ static void PrintUsage()
         "  SCR_SHADER_COLLECT=1      Append area-tagged keys under shadercache/collect/\n"
         "  SCR_SHADER_COLLECT_AREA=  Optional area tag (title, menu, tr1, …)\n"
         "\n"
+        "Renderer (A4b):\n"
+        "  --renderer d3d11|vulkan   Host API (default d3d11 until Vulkan GX is ready)\n"
+        "  --list-vulkan-devices     Enumerate Vulkan GPUs and exit\n"
+        "  --vk-smoke [N]            Native Vulkan clear+present smoke (default N=60)\n"
+        "  SCR_RENDERER=             Same as --renderer\n"
+        "\n"
         "Config and saves live under the user/data directory; F1 opens in-game settings,\n"
         "F11 toggles fullscreen. F12 saves a screenshot. See docs/ for music modding and compatibility notes.\n",
         exe);
@@ -178,6 +187,30 @@ int main(int argc, char** argv)
     {
         extern int ShaderCache_ReportDir(const std::string& dir);
         return ShaderCache_ReportDir(argv[2]);
+    }
+    if (argc >= 2 && std::string(argv[1]) == "--list-vulkan-devices")
+        return Vk_PrintDevices();
+    if (argc >= 2 && std::string(argv[1]) == "--vk-smoke")
+    {
+        int frames = 60;
+        if (argc >= 3) frames = std::max(1, atoi(argv[2]));
+        if (!Window_Create(1280, 720, false))
+        {
+            std::fprintf(stderr, "vk-smoke: window create failed\n");
+            return 1;
+        }
+        VkInitOptions opt{};
+        opt.windowHandle = Window_Handle();
+        opt.vsync = false;
+        opt.allowTearing = true;
+        opt.preferredImageCount = 3;
+        if (const char* pref = std::getenv("SCR_VK_DEVICE"))
+            opt.preferDevice = pref;
+        std::string err;
+        const int rc = Vk_SmokePresentFrames(frames, opt, err);
+        if (rc != 0)
+            std::fprintf(stderr, "vk-smoke: %s\n", err.c_str());
+        return rc;
     }
     for (int i = 1; i < argc; i++)
     {
@@ -377,6 +410,8 @@ int main(int argc, char** argv)
             extern bool g_shaderPreload;
             g_shaderPreload = false;
         }
+        else if (a == "--renderer" && i + 1 < argc)
+            Gfx_SetBackend(Gfx_ParseBackend(argv[++i]));
         else if (a == "--music-force-stage" && i + 1 < argc) MusicMod_ForceStage(argv[++i]);
         else if (a == "--mute") { extern bool g_audioMute; g_audioMute = true; }
         else if (a == "--perf") { extern void Perf_SetEnabled(bool); Perf_SetEnabled(true); }

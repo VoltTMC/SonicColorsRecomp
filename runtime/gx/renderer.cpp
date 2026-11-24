@@ -1,5 +1,6 @@
-// GX -> Direct3D 11 renderer.
+// GX -> host renderer (D3D11 today; native Vulkan in A4b stages).
 #include "gx_state.h"
+#include "gfx_backend.h"
 #include "dxbc_fixup.h"
 #include "shadergen.h"
 #include "shader_cache.h"
@@ -694,6 +695,14 @@ static bool InitDevice()
 
 void Renderer_Init()
 {
+    // A4b Stage A: native Vulkan device/swapchain exists (--vk-smoke / --list-vulkan-devices).
+    // Full GX→Vulkan draw path is Stage B+; keep D3D11 for gameplay until parity.
+    if (Gfx_SelectedBackend() == GfxBackendKind::Vulkan)
+    {
+        FATAL("renderer=vulkan: GX Vulkan path is not ready yet (A4b Stage A = device/swapchain only). "
+              "Use --vk-smoke to exercise native Vulkan presentation, or --renderer=d3d11 for gameplay. "
+              "See docs/A4B_NATIVE_VULKAN_RENDERER.md");
+    }
     if (!Video_Init()) FATAL("video init failed");
     if (!InitDevice()) FATAL("renderer init failed");
     if (g_config.texturePack) HiRes_Init(g_config.texturePackDir);

@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-24 — A4b Stage A: native Vulkan device/swapchain bootstrap
+
+**Goal:** Start replacing D3D11/DXVK with a shared native Vulkan backend (Linux + Windows).
+
+**Stage A shipped:** `gfx_backend` (`--renderer`); `runtime/gx/vk/vk_device.*` (instance/device/surface/swapchain/clear-present); `--list-vulkan-devices`; `--vk-smoke`; prefer 3 swapchain images. Dynamic loader (no SDK at runtime). Smoke verified on **RADV 610M** and **RTX 3080** (native Vulkan, not DXVK). Full GX→Vulkan gameplay **not** ready — `--renderer=vulkan` FATAL with docs pointer; D3D11 remains default.
+
+**Docs:** `docs/A4B_NATIVE_VULKAN_RENDERER.md`. A3w/A3x/A4a preserved; A3v still off.
+
 ## 2026-11-23 — A4a: iGPU performance investigation (RADV 610M)
 
 **Goal:** Explain ~37 FPS on integrated GPU; profile normal path; ship measurable opts without A3v.

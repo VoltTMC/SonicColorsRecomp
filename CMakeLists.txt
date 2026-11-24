@@ -439,6 +439,16 @@ endif()
 #   SDL3 (https://libsdl.org, zlib): Linux window/input/audio; Windows/Wine gamepads (HIDAPI
 #     DualShock/DualSense + XInput Xbox). Win32 windowing stays native.
 #   dxvk-native / vkd3d-shader: Linux only.
+# A4b: Vulkan headers on Linux + Windows (loader comes from the GPU driver / SDL).
+if(LINUX OR WIN32)
+    FetchContent_Declare(vulkan_headers
+        URL https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/vulkan-sdk-1.4.341.0.tar.gz
+        URL_HASH SHA256=d73bc5036b6556b741f6985ff600ca720308c5f2850e4a43ceb498bd3de069e7
+        DOWNLOAD_EXTRACT_TIMESTAMP FALSE
+        SOURCE_SUBDIR none)   # headers only: no add_subdirectory
+    FetchContent_MakeAvailable(vulkan_headers)
+endif()
+
 if(LINUX OR WIN32)
     set(SDL_SHARED ON CACHE BOOL "" FORCE)
     set(SDL_STATIC OFF CACHE BOOL "" FORCE)
@@ -483,19 +493,13 @@ if(LINUX)
     target_include_directories(dxvk SYSTEM INTERFACE ${dxvk_native_SOURCE_DIR}/include/dxvk)
     target_link_libraries(dxvk INTERFACE ${DXVK_LIBS})
 
-    # autotools build; needs bison, flex and Perl's JSON module. It wants newer Vulkan and
-    # SPIR-V headers than older distributions have (Khronos, Apache-2.0/MIT, headers only).
-    FetchContent_Declare(vulkan_headers
-        URL https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/vulkan-sdk-1.4.341.0.tar.gz
-        URL_HASH SHA256=d73bc5036b6556b741f6985ff600ca720308c5f2850e4a43ceb498bd3de069e7
-        DOWNLOAD_EXTRACT_TIMESTAMP FALSE
-        SOURCE_SUBDIR none)   # headers only: no add_subdirectory
+    # SPIR-V headers for vkd3d-shader (Khronos, Apache-2.0/MIT, headers only).
     FetchContent_Declare(spirv_headers
         URL https://github.com/KhronosGroup/SPIRV-Headers/archive/refs/tags/vulkan-sdk-1.4.341.0.tar.gz
         URL_HASH SHA256=cab0a654c4917e16367483296b44cdb1d614e3120c721beafcd37e3a8580486c
         DOWNLOAD_EXTRACT_TIMESTAMP FALSE
         SOURCE_SUBDIR none)
-    FetchContent_MakeAvailable(vulkan_headers spirv_headers)
+    FetchContent_MakeAvailable(spirv_headers)
     include(ExternalProject)
     ExternalProject_Add(vkd3d_build
         URL https://dl.winehq.org/vkd3d/source/vkd3d-1.19.tar.xz
@@ -593,6 +597,9 @@ list(APPEND RUNTIME_SOURCES runtime/platform/run_process.cpp)
 list(APPEND RUNTIME_SOURCES runtime/platform/sdl_gamepad.cpp)
 add_executable(SonicColorsRecomp ${RUNTIME_SOURCES})
 target_include_directories(SonicColorsRecomp PRIVATE runtime runtime/cpu generated)
+if(TARGET vulkan_headers OR DEFINED vulkan_headers_SOURCE_DIR)
+    target_include_directories(SonicColorsRecomp PRIVATE ${vulkan_headers_SOURCE_DIR}/include)
+endif()
 target_sources(SonicColorsRecomp PRIVATE $<TARGET_OBJECTS:ppcrecomp>)
 # version shown in the launcher and the overlay, refreshed on every build
 set(SCR_VERSION_CPP ${CMAKE_BINARY_DIR}/scr_version.cpp)
