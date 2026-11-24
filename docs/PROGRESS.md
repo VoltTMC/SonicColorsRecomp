@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-24 — A4d: NVIDIA Vulkan validation & sync hardening
+
+**Goal:** Validation-clean real-GX Vulkan on RTX 3080; safe sync/lifetimes; D3D11 default preserved. AMD/RADV deferred.
+
+**Shipped:** `TRANSFER_DST` swapchain usage; present mutex + dedicated present CB; per-draw descriptors + aligned dyn UBO; staging ring; **per-swapchain-image** `renderFinished` semaphores; `Vk_WaitLastSubmit` (drop per-XFB `DeviceWaitIdle`); `tools/run_nvidia_vk_validation.sh` + `SCR_VK_VALIDATION`; docs `A4D_VULKAN_STABILITY_AND_RADV.md`.
+
+**Evidence (RTX 3080):** Khronos validation **ON** — 0 errors across val2 + 3 restarts; sustained (validation off) **6001** XFB / **4.12M** draws, no present failures. D3D11 still ~60 unique_xfb. MinGW OK. AMD/RADV **unverified/deferred**. Win Vulkan GPU **UNVERIFIED**. Vulkan **not** default.
+
 ## 2026-11-24 — A4c Stage B: native Vulkan GX draw pipeline (partial)
 
 **Goal:** Real GX geometry through Vulkan (not smoke/clear); keep D3D11 default/independent.

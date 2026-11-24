@@ -712,6 +712,8 @@ void Renderer_Init()
         vopt.allowTearing = !g_videoConfig.vsync;
         if (const char* pref = std::getenv("SCR_VK_DEVICE"))
             vopt.preferDevice = pref;
+        if (const char* v = std::getenv("SCR_VK_VALIDATION"))
+            if (v[0] && v[0] != '0') vopt.enableValidation = true;
         std::string err;
         if (!Vk_Init(vopt, err))
             FATAL("renderer=vulkan: Vk_Init failed: {}", err);
@@ -2756,7 +2758,15 @@ static bool FlushVulkan()
 
     std::string err;
     if (!VkGx_Draw(batch, err))
-        LOG_ERROR("vulkan gx draw failed: {}", err);
+    {
+        // A4d: device-lost latches; avoid flooding the log every draw.
+        static bool s_loggedVkDrawFail = false;
+        if (!s_loggedVkDrawFail || err.find("previously lost") == std::string::npos)
+        {
+            LOG_ERROR("vulkan gx draw failed: {}", err);
+            if (err.find("previously lost") != std::string::npos) s_loggedVkDrawFail = true;
+        }
+    }
     s_drawCalls++;
     s_midDrawIndexed++;
     if (FrameProfOn()) s_frameDrawIndexed++;

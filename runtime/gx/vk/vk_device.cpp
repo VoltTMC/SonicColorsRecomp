@@ -7,6 +7,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -46,14 +47,25 @@ std::vector<VkFramebuffer> s_framebuffers;
 VkRenderPass s_renderPass = VK_NULL_HANDLE;
 VkCommandPool s_cmdPool = VK_NULL_HANDLE;
 VkCommandBuffer s_cmd = VK_NULL_HANDLE;
-VkSemaphore s_imageAvailable = VK_NULL_HANDLE;
-VkSemaphore s_renderFinished = VK_NULL_HANDLE;
-VkFence s_inFlight = VK_NULL_HANDLE;
+// A4d: per-frame sync (binary semaphores must not be reused until the wait completes).
+constexpr uint32_t kSyncFrames = 3;
+VkSemaphore s_imageAvailable[kSyncFrames]{};
+// A4d: binary semaphores waited by present must be per swapchain image.
+std::vector<VkSemaphore> s_renderFinished;
+VkFence s_inFlight[kSyncFrames]{};
+uint32_t s_syncFrame = 0;
+uint64_t s_presentSerial = 0;
 VkDeviceInfo s_selected{};
 uint32_t s_imageCount = 0;
 uint32_t s_preferredImageCount = 3;
 bool s_vsync = false;
 bool s_allowTearing = true;
+bool s_swapTransferDst = false;
+bool s_validationWanted = false;
+bool s_validationEnabled = false;
+VkDebugUtilsMessengerEXT s_debugMessenger = VK_NULL_HANDLE;
+PFN_vkCreateDebugUtilsMessengerEXT pfn_vkCreateDebugUtilsMessengerEXT = nullptr;
+PFN_vkDestroyDebugUtilsMessengerEXT pfn_vkDestroyDebugUtilsMessengerEXT = nullptr;
 #if defined(_WIN32)
 HWND s_hwnd = nullptr;
 #else
@@ -224,6 +236,51 @@ static VkDeviceInfo FromProps(const VkPhysicalDeviceProperties& p)
     return d;
 }
 
+static VKAPI_ATTR VkBool32 VKAPI_CALL DebugUtilsCallback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+                                                         VkDebugUtilsMessageTypeFlagsEXT /*types*/,
+                                                         const VkDebugUtilsMessengerCallbackDataEXT* data,
+                                                         void* /*user*/)
+{
+    const char* sev = "info";
+    if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) sev = "error";
+    else if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) sev = "warn";
+    else if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT) sev = "verbose";
+    if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)
+        LOG_ERROR("vulkan validation [{}]: {}", sev, data && data->pMessage ? data->pMessage : "(null)");
+    else if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+        LOG_WARN("vulkan validation [{}]: {}", sev, data && data->pMessage ? data->pMessage : "(null)");
+    else
+        LOG_INFO("vulkan validation [{}]: {}", sev, data && data->pMessage ? data->pMessage : "(null)");
+    return VK_FALSE;
+}
+
+static bool InstanceHasLayer(const char* name)
+{
+    auto enumExt = LoadInst<PFN_vkEnumerateInstanceLayerProperties>(VK_NULL_HANDLE, "vkEnumerateInstanceLayerProperties");
+    if (!enumExt) return false;
+    uint32_t n = 0;
+    enumExt(&n, nullptr);
+    std::vector<VkLayerProperties> props(n);
+    enumExt(&n, props.data());
+    for (auto& p : props)
+        if (std::strcmp(p.layerName, name) == 0) return true;
+    return false;
+}
+
+static bool InstanceHasExt(const char* name)
+{
+    auto enumExt =
+        LoadInst<PFN_vkEnumerateInstanceExtensionProperties>(VK_NULL_HANDLE, "vkEnumerateInstanceExtensionProperties");
+    if (!enumExt) return false;
+    uint32_t n = 0;
+    enumExt(nullptr, &n, nullptr);
+    std::vector<VkExtensionProperties> props(n);
+    enumExt(nullptr, &n, props.data());
+    for (auto& p : props)
+        if (std::strcmp(p.extensionName, name) == 0) return true;
+    return false;
+}
+
 static bool CreateInstance(bool needSurface, std::string& error)
 {
     if (!LoadLoader(error)) return false;
@@ -250,12 +307,29 @@ static bool CreateInstance(bool needSurface, std::string& error)
     }
 #endif
 
+    std::vector<const char*> layers;
+    s_validationEnabled = false;
+    if (s_validationWanted)
+    {
+        if (InstanceHasLayer("VK_LAYER_KHRONOS_validation"))
+        {
+            layers.push_back("VK_LAYER_KHRONOS_validation");
+            s_validationEnabled = true;
+        }
+        else
+            LOG_WARN("vulkan: SCR_VK_VALIDATION requested but VK_LAYER_KHRONOS_validation is unavailable");
+        if (InstanceHasExt(VK_EXT_DEBUG_UTILS_EXTENSION_NAME))
+            exts.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+        else if (s_validationEnabled)
+            LOG_WARN("vulkan: validation enabled but VK_EXT_debug_utils is unavailable");
+    }
+
     VkApplicationInfo app{};
     app.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     app.pApplicationName = "SonicColorsRecomp";
-    app.applicationVersion = VK_MAKE_VERSION(0, 4, 2);
-    app.pEngineName = "SCR-A4b";
-    app.engineVersion = VK_MAKE_VERSION(0, 4, 2);
+    app.applicationVersion = VK_MAKE_VERSION(0, 4, 3);
+    app.pEngineName = "SCR-A4d";
+    app.engineVersion = VK_MAKE_VERSION(0, 4, 3);
     app.apiVersion = VK_API_VERSION_1_1;
 
     VkInstanceCreateInfo ci{};
@@ -263,6 +337,8 @@ static bool CreateInstance(bool needSurface, std::string& error)
     ci.pApplicationInfo = &app;
     ci.enabledExtensionCount = (uint32_t)exts.size();
     ci.ppEnabledExtensionNames = exts.empty() ? nullptr : exts.data();
+    ci.enabledLayerCount = (uint32_t)layers.size();
+    ci.ppEnabledLayerNames = layers.empty() ? nullptr : layers.data();
 
     VkResult r = pfn_vkCreateInstance(&ci, nullptr, &s_instance);
     if (r != VK_SUCCESS)
@@ -271,6 +347,31 @@ static bool CreateInstance(bool needSurface, std::string& error)
         return false;
     }
     LoadInstanceFns();
+
+    if (s_validationEnabled)
+    {
+        pfn_vkCreateDebugUtilsMessengerEXT =
+            LoadInst<PFN_vkCreateDebugUtilsMessengerEXT>(s_instance, "vkCreateDebugUtilsMessengerEXT");
+        pfn_vkDestroyDebugUtilsMessengerEXT =
+            LoadInst<PFN_vkDestroyDebugUtilsMessengerEXT>(s_instance, "vkDestroyDebugUtilsMessengerEXT");
+        if (pfn_vkCreateDebugUtilsMessengerEXT)
+        {
+            VkDebugUtilsMessengerCreateInfoEXT dci{ VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT };
+            dci.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                                  VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+            dci.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                              VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                              VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+            dci.pfnUserCallback = DebugUtilsCallback;
+            if (pfn_vkCreateDebugUtilsMessengerEXT(s_instance, &dci, nullptr, &s_debugMessenger) != VK_SUCCESS)
+            {
+                LOG_WARN("vulkan: vkCreateDebugUtilsMessengerEXT failed");
+                s_debugMessenger = VK_NULL_HANDLE;
+            }
+            else
+                LOG_INFO("vulkan: KHronos validation layer + debug_utils active");
+        }
+    }
     return true;
 }
 
@@ -336,6 +437,9 @@ static void DestroySwapchainObjects()
         if (v) pfn_vkDestroyImageView(s_device, v, nullptr);
     s_views.clear();
     s_images.clear();
+    for (VkSemaphore s : s_renderFinished)
+        if (s) pfn_vkDestroySemaphore(s_device, s, nullptr);
+    s_renderFinished.clear();
     if (s_swapchain)
     {
         pfn_vkDestroySwapchainKHR(s_device, s_swapchain, nullptr);
@@ -393,6 +497,16 @@ static bool CreateSwapchainObjects(std::string& error)
     uint32_t imageCount = std::max(caps.minImageCount, s_preferredImageCount);
     if (caps.maxImageCount > 0) imageCount = std::min(imageCount, caps.maxImageCount);
 
+    // A4d root-cause fix: XFB present blits into swapchain images. Without TRANSFER_DST,
+    // vkCmdBlitImage is illegal and RADV frequently returns VK_ERROR_DEVICE_LOST (-4).
+    // NVIDIA was more permissive, which hid the bug in A4c.
+    s_swapTransferDst = (caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT) != 0;
+    VkImageUsageFlags usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    if (s_swapTransferDst)
+        usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    else
+        LOG_WARN("vulkan: surface lacks TRANSFER_DST — XFB blit present unavailable");
+
     VkSwapchainCreateInfoKHR sci{};
     sci.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
     sci.surface = s_surface;
@@ -401,7 +515,7 @@ static bool CreateSwapchainObjects(std::string& error)
     sci.imageColorSpace = s_swapColorSpace;
     sci.imageExtent = s_extent;
     sci.imageArrayLayers = 1;
-    sci.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    sci.imageUsage = usage;
     sci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     sci.preTransform = caps.currentTransform;
     sci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
@@ -448,6 +562,20 @@ static bool CreateSwapchainObjects(std::string& error)
         if (pfn_vkCreateFramebuffer(s_device, &fi, nullptr, &s_framebuffers[i]) != VK_SUCCESS)
         {
             error = "vkCreateFramebuffer failed";
+            return false;
+        }
+    }
+
+    // Recreate per-image present-wait semaphores (safe to signal when that image is acquired again).
+    for (VkSemaphore s : s_renderFinished)
+        if (s) pfn_vkDestroySemaphore(s_device, s, nullptr);
+    s_renderFinished.assign(s_imageCount, VK_NULL_HANDLE);
+    VkSemaphoreCreateInfo sei{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+    for (uint32_t i = 0; i < s_imageCount; i++)
+    {
+        if (pfn_vkCreateSemaphore(s_device, &sei, nullptr, &s_renderFinished[i]) != VK_SUCCESS)
+        {
+            error = "vkCreateSemaphore (present) failed";
             return false;
         }
     }
@@ -523,6 +651,11 @@ bool Vk_Init(const VkInitOptions& opt, std::string& error)
     s_vsync = opt.vsync;
     s_allowTearing = opt.allowTearing;
     s_preferredImageCount = std::clamp(opt.preferredImageCount ? opt.preferredImageCount : 3u, 2u, 4u);
+    s_validationWanted = opt.enableValidation;
+    if (const char* e = std::getenv("SCR_VK_VALIDATION"))
+        if (e[0] && e[0] != '0') s_validationWanted = true;
+    s_syncFrame = 0;
+    s_presentSerial = 0;
 #if defined(_WIN32)
     s_hwnd = (HWND)opt.windowHandle;
 #else
@@ -688,17 +821,21 @@ bool Vk_Init(const VkInitOptions& opt, std::string& error)
     VkSemaphoreCreateInfo sei{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
     VkFenceCreateInfo fei{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
     fei.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-    if (pfn_vkCreateSemaphore(s_device, &sei, nullptr, &s_imageAvailable) != VK_SUCCESS ||
-        pfn_vkCreateSemaphore(s_device, &sei, nullptr, &s_renderFinished) != VK_SUCCESS ||
-        pfn_vkCreateFence(s_device, &fei, nullptr, &s_inFlight) != VK_SUCCESS)
+    for (uint32_t i = 0; i < kSyncFrames; i++)
     {
-        error = "vulkan sync object creation failed";
-        return false;
+        if (pfn_vkCreateSemaphore(s_device, &sei, nullptr, &s_imageAvailable[i]) != VK_SUCCESS ||
+            pfn_vkCreateFence(s_device, &fei, nullptr, &s_inFlight[i]) != VK_SUCCESS)
+        {
+            error = "vulkan sync object creation failed";
+            return false;
+        }
     }
 
     LOG_INFO("vulkan: selected '{}' vendor={:04x} device={:04x} api={}.{}.{} (native Vulkan, not DXVK)",
              s_selected.name, s_selected.vendorId, s_selected.deviceId, VK_VERSION_MAJOR(s_selected.apiVersion),
              VK_VERSION_MINOR(s_selected.apiVersion), VK_VERSION_PATCH(s_selected.apiVersion));
+    LOG_INFO("vulkan: swapchain usage transfer_dst={} validation={} images={} format={} presentSerial={}",
+             s_swapTransferDst, s_validationEnabled, s_imageCount, (int)s_swapFormat, s_presentSerial);
     return true;
 }
 
@@ -709,15 +846,17 @@ void Vk_Shutdown()
     DestroySwapchainObjects();
     if (s_device)
     {
-        if (s_imageAvailable) pfn_vkDestroySemaphore(s_device, s_imageAvailable, nullptr);
-        if (s_renderFinished) pfn_vkDestroySemaphore(s_device, s_renderFinished, nullptr);
-        if (s_inFlight) pfn_vkDestroyFence(s_device, s_inFlight, nullptr);
+        for (uint32_t i = 0; i < kSyncFrames; i++)
+        {
+            if (s_imageAvailable[i]) pfn_vkDestroySemaphore(s_device, s_imageAvailable[i], nullptr);
+            if (s_inFlight[i]) pfn_vkDestroyFence(s_device, s_inFlight[i], nullptr);
+            s_imageAvailable[i] = VK_NULL_HANDLE;
+            s_inFlight[i] = VK_NULL_HANDLE;
+        }
         if (s_cmdPool) pfn_vkDestroyCommandPool(s_device, s_cmdPool, nullptr);
         if (s_renderPass) pfn_vkDestroyRenderPass(s_device, s_renderPass, nullptr);
         pfn_vkDestroyDevice(s_device, nullptr);
     }
-    s_imageAvailable = s_renderFinished = VK_NULL_HANDLE;
-    s_inFlight = VK_NULL_HANDLE;
     s_cmdPool = VK_NULL_HANDLE;
     s_cmd = VK_NULL_HANDLE;
     s_renderPass = VK_NULL_HANDLE;
@@ -726,7 +865,11 @@ void Vk_Shutdown()
     s_phys = VK_NULL_HANDLE;
     if (s_surface && s_instance) pfn_vkDestroySurfaceKHR(s_instance, s_surface, nullptr);
     s_surface = VK_NULL_HANDLE;
+    if (s_debugMessenger && pfn_vkDestroyDebugUtilsMessengerEXT)
+        pfn_vkDestroyDebugUtilsMessengerEXT(s_instance, s_debugMessenger, nullptr);
+    s_debugMessenger = VK_NULL_HANDLE;
     if (s_instance) pfn_vkDestroyInstance(s_instance, nullptr);
+    s_validationEnabled = false;
     s_instance = VK_NULL_HANDLE;
     s_selected = {};
     s_imageCount = 0;
@@ -748,6 +891,10 @@ std::string Vk_SelectedDeviceName() { return s_selected.name; }
 uint32_t Vk_SelectedVendorId() { return s_selected.vendorId; }
 uint32_t Vk_SelectedDeviceId() { return s_selected.deviceId; }
 uint32_t Vk_SwapchainImageCount() { return s_imageCount; }
+bool Vk_SwapchainSupportsTransferDst() { return s_swapTransferDst; }
+bool Vk_ValidationEnabled() { return s_validationEnabled; }
+uint64_t Vk_PresentSerial() { return s_presentSerial; }
+
 
 bool Vk_RecreateSwapchain(std::string& error)
 {
@@ -766,11 +913,12 @@ bool Vk_PresentClear(float r, float g, float b, float a, std::string& error)
             error = "Vulkan not ready";
             return false;
         }
-        pfn_vkWaitForFences(s_device, 1, &s_inFlight, VK_TRUE, UINT64_MAX);
+        const uint32_t fi = s_syncFrame % kSyncFrames;
+        pfn_vkWaitForFences(s_device, 1, &s_inFlight[fi], VK_TRUE, UINT64_MAX);
 
         uint32_t imageIndex = 0;
         VkResult ar =
-            pfn_vkAcquireNextImageKHR(s_device, s_swapchain, UINT64_MAX, s_imageAvailable, VK_NULL_HANDLE, &imageIndex);
+            pfn_vkAcquireNextImageKHR(s_device, s_swapchain, UINT64_MAX, s_imageAvailable[fi], VK_NULL_HANDLE, &imageIndex);
         if (ar == VK_ERROR_OUT_OF_DATE_KHR)
         {
             if (!Vk_RecreateSwapchain(error)) return false;
@@ -782,7 +930,7 @@ bool Vk_PresentClear(float r, float g, float b, float a, std::string& error)
             return false;
         }
 
-        pfn_vkResetFences(s_device, 1, &s_inFlight);
+        pfn_vkResetFences(s_device, 1, &s_inFlight[fi]);
         pfn_vkResetCommandBuffer(s_cmd, 0);
         VkCommandBufferBeginInfo bi{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
         bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -807,13 +955,13 @@ bool Vk_PresentClear(float r, float g, float b, float a, std::string& error)
         VkSubmitInfo si{};
         si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         si.waitSemaphoreCount = 1;
-        si.pWaitSemaphores = &s_imageAvailable;
+        si.pWaitSemaphores = &s_imageAvailable[fi];
         si.pWaitDstStageMask = &waitStage;
         si.commandBufferCount = 1;
         si.pCommandBuffers = &s_cmd;
         si.signalSemaphoreCount = 1;
-        si.pSignalSemaphores = &s_renderFinished;
-        if (pfn_vkQueueSubmit(s_queue, 1, &si, s_inFlight) != VK_SUCCESS)
+        si.pSignalSemaphores = &s_renderFinished[imageIndex];
+        if (pfn_vkQueueSubmit(s_queue, 1, &si, s_inFlight[fi]) != VK_SUCCESS)
         {
             error = "vkQueueSubmit failed";
             return false;
@@ -822,7 +970,7 @@ bool Vk_PresentClear(float r, float g, float b, float a, std::string& error)
         VkPresentInfoKHR pi{};
         pi.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
         pi.waitSemaphoreCount = 1;
-        pi.pWaitSemaphores = &s_renderFinished;
+        pi.pWaitSemaphores = &s_renderFinished[imageIndex];
         pi.swapchainCount = 1;
         pi.pSwapchains = &s_swapchain;
         pi.pImageIndices = &imageIndex;
@@ -834,9 +982,11 @@ bool Vk_PresentClear(float r, float g, float b, float a, std::string& error)
         }
         if (pr != VK_SUCCESS)
         {
-            error = "vkQueuePresentKHR failed";
+            error = "vkQueuePresentKHR failed (" + std::to_string((int)pr) + ")";
             return false;
         }
+        s_syncFrame = (s_syncFrame + 1) % kSyncFrames;
+        s_presentSerial++;
         return true;
     }
     error = "swapchain recreate loop exhausted";
@@ -873,67 +1023,96 @@ bool Vk_AcquireImage(uint32_t& imageIndex, std::string& error)
         error = "Vulkan not ready";
         return false;
     }
-    pfn_vkWaitForFences(s_device, 1, &s_inFlight, VK_TRUE, UINT64_MAX);
+    const uint32_t fi = s_syncFrame % kSyncFrames;
+    pfn_vkWaitForFences(s_device, 1, &s_inFlight[fi], VK_TRUE, UINT64_MAX);
     VkResult ar =
-        pfn_vkAcquireNextImageKHR(s_device, s_swapchain, UINT64_MAX, s_imageAvailable, VK_NULL_HANDLE, &imageIndex);
+        pfn_vkAcquireNextImageKHR(s_device, s_swapchain, UINT64_MAX, s_imageAvailable[fi], VK_NULL_HANDLE, &imageIndex);
     if (ar == VK_ERROR_OUT_OF_DATE_KHR)
     {
         if (!Vk_RecreateSwapchain(error)) return false;
-        ar = pfn_vkAcquireNextImageKHR(s_device, s_swapchain, UINT64_MAX, s_imageAvailable, VK_NULL_HANDLE, &imageIndex);
+        ar = pfn_vkAcquireNextImageKHR(s_device, s_swapchain, UINT64_MAX, s_imageAvailable[fi], VK_NULL_HANDLE, &imageIndex);
     }
     if (ar != VK_SUCCESS && ar != VK_SUBOPTIMAL_KHR)
     {
-        error = "vkAcquireNextImageKHR failed";
+        error = "vkAcquireNextImageKHR failed (" + std::to_string((int)ar) + ") serial=" + std::to_string(s_presentSerial);
         return false;
     }
-    pfn_vkResetFences(s_device, 1, &s_inFlight);
+    pfn_vkResetFences(s_device, 1, &s_inFlight[fi]);
     return true;
 }
 
 bool Vk_SubmitPresent(VkCommandBuffer cmd, uint32_t imageIndex, std::string& error, VkPipelineStageFlags waitStage)
 {
+    const uint32_t fi = s_syncFrame % kSyncFrames;
+    if (imageIndex >= s_renderFinished.size() || s_renderFinished[imageIndex] == VK_NULL_HANDLE)
+    {
+        error = "present semaphore missing for imageIndex=" + std::to_string(imageIndex);
+        return false;
+    }
     VkSubmitInfo si{};
     si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     si.waitSemaphoreCount = 1;
-    si.pWaitSemaphores = &s_imageAvailable;
+    si.pWaitSemaphores = &s_imageAvailable[fi];
     si.pWaitDstStageMask = &waitStage;
     si.commandBufferCount = 1;
     si.pCommandBuffers = &cmd;
     si.signalSemaphoreCount = 1;
-    si.pSignalSemaphores = &s_renderFinished;
+    si.pSignalSemaphores = &s_renderFinished[imageIndex];
     {
-        VkResult sr = pfn_vkQueueSubmit(s_queue, 1, &si, s_inFlight);
+        VkResult sr = pfn_vkQueueSubmit(s_queue, 1, &si, s_inFlight[fi]);
         if (sr != VK_SUCCESS)
         {
-            error = "vkQueueSubmit failed (" + std::to_string((int)sr) + ")";
+            error = "vkQueueSubmit failed (" + std::to_string((int)sr) + ") serial=" + std::to_string(s_presentSerial) +
+                    " syncFrame=" + std::to_string(fi);
             return false;
         }
     }
     VkPresentInfoKHR pi{};
     pi.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
     pi.waitSemaphoreCount = 1;
-    pi.pWaitSemaphores = &s_renderFinished;
+    pi.pWaitSemaphores = &s_renderFinished[imageIndex];
     pi.swapchainCount = 1;
     pi.pSwapchains = &s_swapchain;
     pi.pImageIndices = &imageIndex;
     VkResult pr = pfn_vkQueuePresentKHR(s_queue, &pi);
     if (pr == VK_ERROR_OUT_OF_DATE_KHR || pr == VK_SUBOPTIMAL_KHR)
     {
+        // A4d: do not treat failed/suboptimal present as success. Recreate for the next frame.
         std::string e2;
         Vk_RecreateSwapchain(e2);
+        s_syncFrame = (s_syncFrame + 1) % kSyncFrames;
+        s_presentSerial++;
+        if (pr == VK_ERROR_OUT_OF_DATE_KHR)
+        {
+            error = "vkQueuePresentKHR OUT_OF_DATE (swapchain recreated) serial=" +
+                    std::to_string(s_presentSerial);
+            return false;
+        }
+        // SUBOPTIMAL: image was presented; allow success after recreate for next acquire.
         return true;
     }
     if (pr != VK_SUCCESS)
     {
-        error = "vkQueuePresentKHR failed";
+        error = "vkQueuePresentKHR failed (" + std::to_string((int)pr) + ") serial=" + std::to_string(s_presentSerial);
         return false;
     }
+    s_syncFrame = (s_syncFrame + 1) % kSyncFrames;
+    s_presentSerial++;
     return true;
 }
 
 void Vk_DeviceWaitIdle()
 {
     if (s_device && pfn_vkDeviceWaitIdle) pfn_vkDeviceWaitIdle(s_device);
+}
+
+void Vk_WaitLastSubmit()
+{
+    if (!s_device || !pfn_vkWaitForFences) return;
+    // SubmitPresent advances s_syncFrame after queue submit; wait the fence that was just signaled.
+    const uint32_t fi = (s_syncFrame + kSyncFrames - 1) % kSyncFrames;
+    if (s_inFlight[fi])
+        pfn_vkWaitForFences(s_device, 1, &s_inFlight[fi], VK_TRUE, UINT64_MAX);
 }
 
 int Vk_SmokePresentFrames(int frames, const VkInitOptions& opt, std::string& error)

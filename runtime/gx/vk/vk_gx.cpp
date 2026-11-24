@@ -44,6 +44,7 @@ L(vkCmdBindDescriptorSets); L(vkCmdSetViewport); L(vkCmdSetScissor);
 L(vkCmdDrawIndexed); L(vkCmdClearAttachments);
 L(vkCmdPipelineBarrier); L(vkCmdCopyBuffer); L(vkCmdCopyBufferToImage); L(vkCmdBlitImage);
 L(vkCreateFence); L(vkDestroyFence); L(vkWaitForFences); L(vkResetFences);
+L(vkResetDescriptorPool);
 L(vkGetPhysicalDeviceMemoryProperties);
 #undef L
 
@@ -82,6 +83,7 @@ static bool LoadFns()
     LD(vkCmdDrawIndexed); LD(vkCmdClearAttachments);
     LD(vkCmdPipelineBarrier); LD(vkCmdCopyBuffer); LD(vkCmdCopyBufferToImage); LD(vkCmdBlitImage);
     LD(vkCreateFence); LD(vkDestroyFence); LD(vkWaitForFences); LD(vkResetFences);
+    LD(vkResetDescriptorPool);
 #undef LD
     pfn_vkGetPhysicalDeviceMemoryProperties =
         LoadInst<PFN_vkGetPhysicalDeviceMemoryProperties>("vkGetPhysicalDeviceMemoryProperties");
@@ -161,10 +163,13 @@ VkShaderModule s_blitVs = VK_NULL_HANDLE, s_blitFs = VK_NULL_HANDLE;
 VkDescriptorSetLayout s_dsl = VK_NULL_HANDLE;
 VkPipelineLayout s_pipeLayout = VK_NULL_HANDLE;
 VkDescriptorPool s_descPool = VK_NULL_HANDLE;
-VkDescriptorSet s_descSet = VK_NULL_HANDLE;
+std::vector<VkDescriptorSet> s_frameDescSets;
+uint32_t s_descCursor = 0;
 
-Buf s_xfBuf{}, s_vsUbo{}, s_psUbo{};
+Buf s_xfBuf{}, s_vsUbo{}, s_psUbo{}, s_dynUbo{};
+VkDeviceSize s_dynUboPos = 0;
 Buf s_staging{}; // texture uploads
+VkDeviceSize s_stagingPos = 0;
 Img s_whiteTex{};
 std::unordered_map<uint64_t, TexCacheEntry> s_texCache;
 
@@ -172,6 +177,8 @@ VkCommandPool s_pool = VK_NULL_HANDLE;
 FrameSlot s_frames[kFrames];
 int s_frameIdx = 0;
 bool s_xfUploaded = false;
+bool s_deviceLost = false;
+VkCommandBuffer s_presentCmd = VK_NULL_HANDLE;
 
 std::unordered_map<PipeKey, VkPipeline, PipeKeyHash> s_pipes;
 VkPipeline s_blitPipe = VK_NULL_HANDLE;
@@ -501,7 +508,30 @@ static bool UploadTex(const GfxTexBind& t, VkImageView& outView, std::string& er
         error = "texture larger than staging buffer";
         return false;
     }
-    memcpy(s_staging.mapped, t.rgba, (size_t)bytes);
+    // A4d: per-upload staging slices — overwriting offset 0 while prior vkCmdCopyBufferToImage
+    // commands in the same CB still reference it is illegal and can DEVICE_LOST on RADV.
+    auto align4 = [](VkDeviceSize v) { return (v + 3) & ~VkDeviceSize(3); };
+    VkDeviceSize off = align4(s_stagingPos);
+    if (off + bytes > s_staging.size)
+    {
+        // Drain recorded copies before wrapping the staging ring.
+        if (fr.recording)
+        {
+            EndEfbPass(fr);
+            pfn_vkEndCommandBuffer(fr.cmd);
+            fr.recording = false;
+            VkSubmitInfo si{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+            si.commandBufferCount = 1;
+            si.pCommandBuffers = &fr.cmd;
+            LoadDev<PFN_vkQueueSubmit>("vkQueueSubmit")(Vk_GetGraphicsQueue(), 1, &si, fr.fence);
+            pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
+        }
+        s_stagingPos = 0;
+        off = 0;
+        if (!EnsureFrameRecording(fr, error)) return false;
+    }
+    memcpy((uint8_t*)s_staging.mapped + off, t.rgba, (size_t)bytes);
+    s_stagingPos = off + bytes;
 
     TexCacheEntry e{};
     e.key = t.key;
@@ -517,6 +547,7 @@ static bool UploadTex(const GfxTexBind& t, VkImageView& outView, std::string& er
             VK_IMAGE_ASPECT_COLOR_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
             VK_ACCESS_TRANSFER_WRITE_BIT);
     VkBufferImageCopy region{};
+    region.bufferOffset = off;
     region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     region.imageSubresource.layerCount = 1;
     region.imageExtent = { t.w, t.h, 1 };
@@ -532,52 +563,85 @@ static bool UploadTex(const GfxTexBind& t, VkImageView& outView, std::string& er
     return true;
 }
 
-static void UpdateDescriptors(VkImageView texView, uint32_t useTex)
+static void ResetFrameDescriptors();
+
+// A4d: never update a descriptor set after it has been bound in the current CB
+// (Vulkan forbids that without UPDATE_AFTER_BIND). Allocate a fresh set per draw.
+static bool s_allocNeedFlush = false;
+
+static bool AllocDrawDescriptors(VkImageView texView, uint32_t useTex, const VSConstants& vsConst,
+                                   VkDescriptorSet& outSet, std::string& error)
 {
+    // Never reset the pool while the current CB still references allocated sets.
+    // Exhaustion → signal caller to flushFrame (submit + wait + reset), then retry.
+    s_allocNeedFlush = false;
+    // Both VS and PS UBO offsets must respect minUniformBufferOffsetAlignment (NVIDIA: 64).
+    constexpr VkDeviceSize kUboAlign = 256;
+    auto alignUbo = [](VkDeviceSize v) { return (v + kUboAlign - 1) / kUboAlign * kUboAlign; };
+    const VkDeviceSize vsOff = alignUbo(s_dynUboPos);
+    const VkDeviceSize psOff = alignUbo(vsOff + sizeof(VSConstants));
+    const VkDeviceSize slotEnd = alignUbo(psOff + 16);
+    if (s_descCursor >= s_frameDescSets.size() || slotEnd > s_dynUbo.size)
+    {
+        s_allocNeedFlush = true;
+        error = "per-frame descriptor/dynUbo exhausted (flush required)";
+        return false;
+    }
+    memcpy((uint8_t*)s_dynUbo.mapped + vsOff, &vsConst, sizeof(VSConstants));
+    uint32_t flags[4] = { useTex, 0, 0, 0 };
+    memcpy((uint8_t*)s_dynUbo.mapped + psOff, flags, sizeof(flags));
+    s_dynUboPos = slotEnd;
+
+    VkDescriptorSet set = s_frameDescSets[s_descCursor++];
+
     VkDescriptorBufferInfo xf{};
     xf.buffer = s_xfBuf.buf;
     xf.range = VK_WHOLE_SIZE;
     VkDescriptorBufferInfo vs{};
-    vs.buffer = s_vsUbo.buf;
+    vs.buffer = s_dynUbo.buf;
+    vs.offset = vsOff;
     vs.range = sizeof(VSConstants);
     VkDescriptorImageInfo img{};
     img.sampler = s_sampLinear;
     img.imageView = texView;
     img.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     VkDescriptorBufferInfo ps{};
-    ps.buffer = s_psUbo.buf;
+    ps.buffer = s_dynUbo.buf;
+    ps.offset = psOff;
     ps.range = 16;
 
     VkWriteDescriptorSet writes[4]{};
-    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[0].dstSet = s_descSet;
-    writes[0].dstBinding = 0;
+    for (int i = 0; i < 4; i++)
+    {
+        writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[i].dstSet = set;
+        writes[i].dstBinding = (uint32_t)i;
+        writes[i].descriptorCount = 1;
+    }
     writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    writes[0].descriptorCount = 1;
     writes[0].pBufferInfo = &xf;
-    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[1].dstSet = s_descSet;
-    writes[1].dstBinding = 1;
     writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    writes[1].descriptorCount = 1;
     writes[1].pBufferInfo = &vs;
-    writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[2].dstSet = s_descSet;
-    writes[2].dstBinding = 2;
     writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writes[2].descriptorCount = 1;
     writes[2].pImageInfo = &img;
-    writes[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[3].dstSet = s_descSet;
-    writes[3].dstBinding = 3;
     writes[3].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    writes[3].descriptorCount = 1;
     writes[3].pBufferInfo = &ps;
     pfn_vkUpdateDescriptorSets(Vk_GetDevice(), 4, writes, 0, nullptr);
+    outSet = set;
+    return true;
+}
 
-    uint32_t flags[4] = { useTex, 0, 0, 0 };
-    memcpy(s_psUbo.mapped, flags, sizeof(flags));
-    (void)useTex;
+static void ResetFrameDescriptors()
+{
+    // Only safe when no CB referencing these sets is in flight (caller waited).
+    pfn_vkResetDescriptorPool(Vk_GetDevice(), s_descPool, 0);
+    std::vector<VkDescriptorSetLayout> layouts(s_frameDescSets.size(), s_dsl);
+    VkDescriptorSetAllocateInfo dai{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+    dai.descriptorPool = s_descPool;
+    dai.descriptorSetCount = (uint32_t)layouts.size();
+    dai.pSetLayouts = layouts.data();
+    pfn_vkAllocateDescriptorSets(Vk_GetDevice(), &dai, s_frameDescSets.data());
+    s_descCursor = 0;
 }
 
 } // namespace
@@ -692,8 +756,8 @@ bool VkGx_Init(const VkGxInitOptions& opt, std::string& error)
         VkCommandBufferAllocateInfo cai{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
         cai.commandPool = s_pool;
         cai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        cai.commandBufferCount = kFrames;
-        VkCommandBuffer cmds[kFrames]{};
+        cai.commandBufferCount = kFrames + 1;
+        VkCommandBuffer cmds[kFrames + 1]{};
         if (pfn_vkAllocateCommandBuffers(dev, &cai, cmds) != VK_SUCCESS)
         {
             error = "gx cmd alloc failed";
@@ -720,6 +784,8 @@ bool VkGx_Init(const VkGxInitOptions& opt, std::string& error)
                 return false;
             }
         }
+        // Dedicated present CB — never shared with the GX draw thread's in-flight recording.
+        s_presentCmd = cmds[kFrames];
 
         VkCommandBuffer setup = cmds[0];
         pfn_vkResetFences(dev, 1, &s_frames[0].fence);
@@ -769,11 +835,14 @@ bool VkGx_Init(const VkGxInitOptions& opt, std::string& error)
         !CreateBuf(s_psUbo, 64, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) ||
         !CreateBuf(s_staging, 16u * 1024u * 1024u, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) ||
+        !CreateBuf(s_dynUbo, 8u * 1024u * 1024u, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
     {
         error = "gx uniform/ssbo alloc failed";
         return false;
     }
+    s_dynUboPos = 0;
 
     // White 1x1
     {
@@ -864,13 +933,15 @@ bool VkGx_Init(const VkGxInitOptions& opt, std::string& error)
             error = "pipeline layout failed";
             return false;
         }
+        constexpr uint32_t kDescSets = 32768; // A4d: heavy title frames can exceed 4k draws
         VkDescriptorPoolSize sizes[3] = {
-            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 8 },
-            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 16 },
-            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 8 },
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kDescSets },
+            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, kDescSets * 2 },
+            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kDescSets },
         };
         VkDescriptorPoolCreateInfo dpi{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-        dpi.maxSets = 8;
+        dpi.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+        dpi.maxSets = kDescSets;
         dpi.poolSizeCount = 3;
         dpi.pPoolSizes = sizes;
         if (pfn_vkCreateDescriptorPool(dev, &dpi, nullptr, &s_descPool) != VK_SUCCESS)
@@ -878,21 +949,15 @@ bool VkGx_Init(const VkGxInitOptions& opt, std::string& error)
             error = "descriptor pool failed";
             return false;
         }
-        VkDescriptorSetAllocateInfo dai{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
-        dai.descriptorPool = s_descPool;
-        dai.descriptorSetCount = 1;
-        dai.pSetLayouts = &s_dsl;
-        if (pfn_vkAllocateDescriptorSets(dev, &dai, &s_descSet) != VK_SUCCESS)
-        {
-            error = "descriptor set alloc failed";
-            return false;
-        }
-        UpdateDescriptors(s_whiteTex.view, 0);
+        s_frameDescSets.resize(kDescSets);
+        ResetFrameDescriptors();
     }
 
     s_active = true;
+    s_deviceLost = false;
     s_frameIdx = 0;
     s_xfUploaded = false;
+    s_stagingPos = 0;
     LOG_INFO("vulkan gx: Stage B init EFB {}x{} (scale {}) on '{}' — {} SPIR-V modules", s_efbW, s_efbH, s_scale,
              Vk_SelectedDeviceName(), s_stats.shaderModules);
     return true;
@@ -918,6 +983,7 @@ void VkGx_Shutdown()
     DestroyBuf(s_xfBuf);
     DestroyBuf(s_vsUbo);
     DestroyBuf(s_psUbo);
+    DestroyBuf(s_dynUbo);
     DestroyBuf(s_staging);
     for (int i = 0; i < kFrames; i++)
     {
@@ -946,6 +1012,11 @@ void VkGx_Shutdown()
     s_vs = s_fs = s_blitVs = s_blitFs = VK_NULL_HANDLE;
     s_sampNearest = s_sampLinear = VK_NULL_HANDLE;
     s_pool = VK_NULL_HANDLE;
+    s_presentCmd = VK_NULL_HANDLE;
+    s_frameDescSets.clear();
+    s_descCursor = 0;
+    s_dynUboPos = 0;
+    s_deviceLost = false;
     s_active = false;
 }
 
@@ -955,6 +1026,11 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
 {
     std::lock_guard lk(s_mu);
     if (!s_active || !batch.indices || batch.indexCount == 0) return true;
+    if (s_deviceLost)
+    {
+        error = "vulkan device previously lost";
+        return false; // caller may log; latch prevents further GPU work
+    }
 
     const VkDeviceSize vbytes = (VkDeviceSize)batch.vertCount * sizeof(HostVertex);
     const VkDeviceSize ibytes = (VkDeviceSize)batch.indexCount * sizeof(uint32_t);
@@ -965,7 +1041,9 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
     }
 
     auto align = [](VkDeviceSize v, VkDeviceSize a) { return (v + a - 1) / a * a; };
-    auto flushFrame = [&](FrameSlot& fr) {
+        auto flushFrame = [&](FrameSlot& fr) {
+        // A4d: do not mid-frame submit while sharing host-visible UBO/SSBO/descriptors.
+        // Drain, then reuse the same frame arena from offset 0.
         if (!fr.recording) return;
         EndEfbPass(fr);
         pfn_vkEndCommandBuffer(fr.cmd);
@@ -974,7 +1052,12 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
         si.commandBufferCount = 1;
         si.pCommandBuffers = &fr.cmd;
         LoadDev<PFN_vkQueueSubmit>("vkQueueSubmit")(Vk_GetGraphicsQueue(), 1, &si, fr.fence);
-        s_frameIdx = (s_frameIdx + 1) % kFrames;
+        // Fence wait retires this CB; full device idle is unnecessary here.
+        pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
+        ResetFrameDescriptors();
+        s_dynUboPos = 0;
+        fr.vbPos = 0;
+        fr.ibPos = 0;
     };
 
     FrameSlot* f = &s_frames[s_frameIdx];
@@ -1010,8 +1093,23 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
         s_xfUploaded = true;
         s_stats.uploadBytes += n;
     }
-    memcpy(s_vsUbo.mapped, &batch.vs, sizeof(VSConstants));
-    UpdateDescriptors(texView, batch.tex0.use ? 1u : 0u);
+    VkDescriptorSet drawSet = VK_NULL_HANDLE;
+    if (!AllocDrawDescriptors(texView, batch.tex0.use ? 1u : 0u, batch.vs, drawSet, error))
+    {
+        if (!s_allocNeedFlush) return false;
+        flushFrame(*f);
+        s_dynUboPos = 0;
+        f = &s_frames[s_frameIdx];
+        if (!EnsureFrameRecording(*f, error)) return false;
+        vbOff = align(f->vbPos, sizeof(HostVertex));
+        if (vbOff + vbytes > f->vb.size || f->ibPos + ibytes > f->ib.size)
+        {
+            error = "draw exceeds ring after flush";
+            return false;
+        }
+        if (!AllocDrawDescriptors(texView, batch.tex0.use ? 1u : 0u, batch.vs, drawSet, error))
+            return false;
+    }
 
     memcpy((uint8_t*)f->vb.mapped + vbOff, batch.verts, (size_t)vbytes);
     memcpy((uint8_t*)f->ib.mapped + f->ibPos, batch.indices, (size_t)ibytes);
@@ -1035,7 +1133,7 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
     VkDeviceSize off = vbOff;
     pfn_vkCmdBindVertexBuffers(f->cmd, 0, 1, &f->vb.buf, &off);
     pfn_vkCmdBindIndexBuffer(f->cmd, f->ib.buf, ibOff, VK_INDEX_TYPE_UINT32);
-    pfn_vkCmdBindDescriptorSets(f->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s_pipeLayout, 0, 1, &s_descSet, 0, nullptr);
+    pfn_vkCmdBindDescriptorSets(f->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s_pipeLayout, 0, 1, &drawSet, 0, nullptr);
 
     VkViewport vp{};
     vp.x = batch.viewport.x;
@@ -1095,10 +1193,29 @@ bool VkGx_ClearEfb(int x0, int y0, int x1, int y1, float r, float g, float b, fl
 
 bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
 {
-    std::unique_lock lk(s_mu);
+    // Hold s_mu for the entire present. The GX draw path runs on a separate thread
+    // ("GX: running on a separate thread"); unlocking around acquire/submit let Draw
+    // mutate the same command buffer / frame slot concurrently → RADV DEVICE_LOST.
+    std::lock_guard lk(s_mu);
     if (!s_active) return true;
+    if (s_deviceLost)
+    {
+        error = "vulkan device previously lost";
+        return false;
+    }
+    if (!Vk_SwapchainSupportsTransferDst())
+    {
+        error = "swapchain lacks TRANSFER_DST (cannot blit XFB); see A4d docs";
+        return false;
+    }
+    if (!s_presentCmd)
+    {
+        error = "present command buffer missing";
+        return false;
+    }
+
     FrameSlot& fr = s_frames[s_frameIdx];
-    // Finish any in-progress GX draws before present (separate submit — RADV-safe).
+    // Finish any in-progress GX draws before present (separate submit).
     if (fr.recording)
     {
         EndEfbPass(fr);
@@ -1108,39 +1225,46 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
         si.commandBufferCount = 1;
         si.pCommandBuffers = &fr.cmd;
         auto qsubmit = LoadDev<PFN_vkQueueSubmit>("vkQueueSubmit");
-        if (qsubmit(Vk_GetGraphicsQueue(), 1, &si, fr.fence) != VK_SUCCESS)
+        VkResult sr = qsubmit(Vk_GetGraphicsQueue(), 1, &si, fr.fence);
+        if (sr != VK_SUCCESS)
         {
-            error = "vkQueueSubmit (draw flush) failed";
+            if (sr == VK_ERROR_DEVICE_LOST) s_deviceLost = true;
+            error = "vkQueueSubmit (draw flush) failed (" + std::to_string((int)sr) + ") serial=" +
+                    std::to_string(Vk_PresentSerial());
             return false;
         }
         pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
     }
-    if (!EnsureFrameRecording(fr, error)) return false;
 
-    Barrier(fr.cmd, s_efbColor.img, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+    // Present uses a dedicated CB so draw-frame recording state stays untouched.
+    pfn_vkResetCommandBuffer(s_presentCmd, 0);
+    VkCommandBufferBeginInfo bi{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    if (pfn_vkBeginCommandBuffer(s_presentCmd, &bi) != VK_SUCCESS)
+    {
+        error = "present BeginCommandBuffer failed";
+        return false;
+    }
+
+    Barrier(s_presentCmd, s_efbColor.img, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
             VK_IMAGE_ASPECT_COLOR_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
             VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
 
     uint32_t imageIndex = 0;
     std::string acqErr;
-    lk.unlock();
-    bool acqOk = Vk_AcquireImage(imageIndex, acqErr);
-    lk.lock();
-    if (!acqOk)
+    if (!Vk_AcquireImage(imageIndex, acqErr))
     {
+        pfn_vkEndCommandBuffer(s_presentCmd);
         error = acqErr;
-        return false;
-    }
-    if (!s_active)
-    {
-        error = "VkGx shut down during present";
+        if (acqErr.find("(-4)") != std::string::npos) s_deviceLost = true;
         return false;
     }
 
     VkImage swapImg = Vk_GetSwapchainImage(imageIndex);
     VkExtent2D ext = Vk_GetSwapchainExtent();
-    Barrier(fr.cmd, swapImg, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT,
-            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, VK_ACCESS_TRANSFER_WRITE_BIT);
+    Barrier(s_presentCmd, swapImg, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_IMAGE_ASPECT_COLOR_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+            VK_ACCESS_TRANSFER_WRITE_BIT);
 
     VkImageBlit blit{};
     blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -1166,7 +1290,6 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
     }
     blit.dstOffsets[0] = { dx0, dy0, 0 };
     blit.dstOffsets[1] = { dx1, dy1, 1 };
-    // Clamp blit to EFB bounds (invalid BP regions must not reach the GPU).
     auto clampi = [](int v, int lo, int hi) { return std::max(lo, std::min(v, hi)); };
     blit.srcOffsets[0].x = clampi(blit.srcOffsets[0].x, 0, (int)s_efbW);
     blit.srcOffsets[0].y = clampi(blit.srcOffsets[0].y, 0, (int)s_efbH);
@@ -1175,35 +1298,37 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
     if (blit.srcOffsets[1].x <= blit.srcOffsets[0].x) blit.srcOffsets[1].x = blit.srcOffsets[0].x + 1;
     if (blit.srcOffsets[1].y <= blit.srcOffsets[0].y) blit.srcOffsets[1].y = blit.srcOffsets[0].y + 1;
 
-    pfn_vkCmdBlitImage(fr.cmd, s_efbColor.img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapImg,
-                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+    pfn_vkCmdBlitImage(s_presentCmd, s_efbColor.img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapImg,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
 
-    Barrier(fr.cmd, swapImg, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+    Barrier(s_presentCmd, swapImg, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
             VK_IMAGE_ASPECT_COLOR_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
             VK_ACCESS_TRANSFER_WRITE_BIT, 0);
-    Barrier(fr.cmd, s_efbColor.img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+    Barrier(s_presentCmd, s_efbColor.img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
             VK_IMAGE_ASPECT_COLOR_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
             VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
 
-    pfn_vkEndCommandBuffer(fr.cmd);
-    fr.recording = false;
+    pfn_vkEndCommandBuffer(s_presentCmd);
 
     std::string subErr;
-    lk.unlock();
-    bool ok = Vk_SubmitPresent(fr.cmd, imageIndex, subErr, VK_PIPELINE_STAGE_TRANSFER_BIT);
-    lk.lock();
-    if (!ok)
+    if (!Vk_SubmitPresent(s_presentCmd, imageIndex, subErr, VK_PIPELINE_STAGE_TRANSFER_BIT))
     {
         error = subErr;
-        Vk_DeviceWaitIdle();
+        if (subErr.find("(-4)") != std::string::npos) s_deviceLost = true;
         return false;
     }
-    // Stage B correctness: drain GPU so ring arenas are free (profile/optimise later).
-    Vk_DeviceWaitIdle();
-    pfn_vkDestroyFence(Vk_GetDevice(), fr.fence, nullptr);
-    VkFenceCreateInfo fi{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-    fi.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-    pfn_vkCreateFence(Vk_GetDevice(), &fi, nullptr, &fr.fence);
+    // Retire present blit via its submission fence (not full device idle). Draw CBs were
+    // already fence-waited above; descriptor/dynUbo/staging were only used by those CBs.
+    Vk_WaitLastSubmit();
+    ResetFrameDescriptors();
+    s_dynUboPos = 0;
+    s_stagingPos = 0;
+    // Present did not use fr.fence; keep it signaled for EnsureFrameRecording.
+    if (!fr.recording)
+    {
+        pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
+        // If unsignaled somehow, wait may hang — fence stays signaled from draw flush or init.
+    }
     s_frameIdx = (s_frameIdx + 1) % kFrames;
     return true;
 }

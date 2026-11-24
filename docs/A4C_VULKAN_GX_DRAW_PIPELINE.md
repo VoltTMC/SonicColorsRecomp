@@ -79,8 +79,8 @@ Deterministic key: `{topo, cull, blend, depthTest, depthWrite}`. Cached; created
 
 | Platform | Result |
 |---|---|
-| Linux RTX 3080 (native VK) | Title: 100k–500k+ `vkCmdDrawIndexed`; present OK; ~60 unique_xfb sim; **partial** visuals |
-| Linux RADV RAPHAEL_MENDOCINO (610M) | Init + pipelines + draws recorded; some XFB presents hit `VK_ERROR_DEVICE_LOST` (−4) — under investigation |
+| Linux RTX 3080 (native VK) | A4d: validation-clean real GX; sustained 6k+ XFB / millions of draws; **partial** visuals |
+| Linux RADV / AMD | A4d: **unverified / deferred** — see `A4D_VULKAN_STABILITY_AND_RADV.md` |
 | MinGW Windows link | OK (`out-windows/SonicColorsRecomp.exe`) |
 | Native Windows Vulkan GPU | **UNVERIFIED** |
 

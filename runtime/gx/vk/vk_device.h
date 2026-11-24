@@ -40,6 +40,8 @@ struct VkInitOptions
     uint32_t preferDeviceId = 0;
     // A4a reference: prefer 3 images when supported.
     uint32_t preferredImageCount = 3;
+    // A4d: enable KHronos validation + debug utils when available (also SCR_VK_VALIDATION=1).
+    bool enableValidation = false;
 };
 
 // Full device + swapchain for presentation. Returns false on failure (error filled).
@@ -52,6 +54,10 @@ std::string Vk_SelectedDeviceName();
 uint32_t Vk_SelectedVendorId();
 uint32_t Vk_SelectedDeviceId();
 uint32_t Vk_SwapchainImageCount();
+// True when swapchain images were created with TRANSFER_DST (required for XFB blit present).
+bool Vk_SwapchainSupportsTransferDst();
+bool Vk_ValidationEnabled();
+uint64_t Vk_PresentSerial();
 
 // Recreate swapchain after resize (or out-of-date). Safe no-op if not ready.
 bool Vk_RecreateSwapchain(std::string& error);
@@ -82,3 +88,5 @@ bool Vk_AcquireImage(uint32_t& imageIndex, std::string& error);
 bool Vk_SubmitPresent(VkCommandBuffer cmd, uint32_t imageIndex, std::string& error,
                       VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 void Vk_DeviceWaitIdle();
+// Wait for the most recently submitted present/graphics fence (not a full device idle).
+void Vk_WaitLastSubmit();

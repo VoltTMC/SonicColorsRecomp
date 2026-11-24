@@ -206,6 +206,8 @@ int main(int argc, char** argv)
         opt.preferredImageCount = 3;
         if (const char* pref = std::getenv("SCR_VK_DEVICE"))
             opt.preferDevice = pref;
+        if (const char* v = std::getenv("SCR_VK_VALIDATION"))
+            if (v[0] && v[0] != '0') opt.enableValidation = true;
         std::string err;
         const int rc = Vk_SmokePresentFrames(frames, opt, err);
         if (rc != 0)
