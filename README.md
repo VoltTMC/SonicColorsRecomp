@@ -42,7 +42,7 @@ Precompiled shaders (A3w/A3z): the packaged portable DXBC cache under `shadercac
 
 Performance (A4a): on weak integrated GPUs, default `internal_scale=3` is often GPU-bound (~37 unique frames/s measured on Radeon 610M / RADV). Prefer scale 1–2 for 60-class play. Profile with `--perf` and optional `SCR_FRAME_PROFILE=1`. Clean GPU runners: `tools/run_nvidia_clean.sh`, `tools/run_amd_clean.sh`. See [`docs/A4A_PERFORMANCE_INVESTIGATION.md`](docs/A4A_PERFORMANCE_INVESTIGATION.md).
 
-Vulkan (A4b Stage A): native Vulkan device/swapchain smoke is available (`--list-vulkan-devices`, `--vk-smoke`). Gameplay still defaults to D3D11 until GX Vulkan parity (Stages B–F). See [`docs/A4B_NATIVE_VULKAN_RENDERER.md`](docs/A4B_NATIVE_VULKAN_RENDERER.md).
+Vulkan (A4b/A4c): Stage A smoke (`--list-vulkan-devices`, `--vk-smoke`); Stage B partial GX draws via `--renderer=vulkan` / `SCR_RENDERER=vulkan` (not visual parity; D3D11 remains default). See [`docs/A4B_NATIVE_VULKAN_RENDERER.md`](docs/A4B_NATIVE_VULKAN_RENDERER.md) and [`docs/A4C_VULKAN_GX_DRAW_PIPELINE.md`](docs/A4C_VULKAN_GX_DRAW_PIPELINE.md).
 
 ## Status (2026-11-20)
 

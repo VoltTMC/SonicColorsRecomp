@@ -843,6 +843,99 @@ bool Vk_PresentClear(float r, float g, float b, float a, std::string& error)
     return false;
 }
 
+VkInstance Vk_GetInstance() { return s_instance; }
+VkPhysicalDevice Vk_GetPhysicalDevice() { return s_phys; }
+VkDevice Vk_GetDevice() { return s_device; }
+VkQueue Vk_GetGraphicsQueue() { return s_queue; }
+uint32_t Vk_GetGraphicsQueueFamily() { return s_queueFamily; }
+VkExtent2D Vk_GetSwapchainExtent() { return s_extent; }
+VkFormat Vk_GetSwapchainFormat() { return s_swapFormat; }
+VkSwapchainKHR Vk_GetSwapchain() { return s_swapchain; }
+uint32_t Vk_GetSwapchainImageCount() { return (uint32_t)s_images.size(); }
+VkImage Vk_GetSwapchainImage(uint32_t index)
+{
+    return index < s_images.size() ? s_images[index] : VK_NULL_HANDLE;
+}
+PFN_vkVoidFunction Vk_GetInstanceProc(const char* name)
+{
+    return vkGetInstanceProcAddr_ ? vkGetInstanceProcAddr_(s_instance, name) : nullptr;
+}
+PFN_vkVoidFunction Vk_GetDeviceProc(const char* name)
+{
+    auto get = LoadInst<PFN_vkGetDeviceProcAddr>(s_instance, "vkGetDeviceProcAddr");
+    return (get && s_device) ? get(s_device, name) : nullptr;
+}
+
+bool Vk_AcquireImage(uint32_t& imageIndex, std::string& error)
+{
+    if (!Vk_IsReady())
+    {
+        error = "Vulkan not ready";
+        return false;
+    }
+    pfn_vkWaitForFences(s_device, 1, &s_inFlight, VK_TRUE, UINT64_MAX);
+    VkResult ar =
+        pfn_vkAcquireNextImageKHR(s_device, s_swapchain, UINT64_MAX, s_imageAvailable, VK_NULL_HANDLE, &imageIndex);
+    if (ar == VK_ERROR_OUT_OF_DATE_KHR)
+    {
+        if (!Vk_RecreateSwapchain(error)) return false;
+        ar = pfn_vkAcquireNextImageKHR(s_device, s_swapchain, UINT64_MAX, s_imageAvailable, VK_NULL_HANDLE, &imageIndex);
+    }
+    if (ar != VK_SUCCESS && ar != VK_SUBOPTIMAL_KHR)
+    {
+        error = "vkAcquireNextImageKHR failed";
+        return false;
+    }
+    pfn_vkResetFences(s_device, 1, &s_inFlight);
+    return true;
+}
+
+bool Vk_SubmitPresent(VkCommandBuffer cmd, uint32_t imageIndex, std::string& error, VkPipelineStageFlags waitStage)
+{
+    VkSubmitInfo si{};
+    si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    si.waitSemaphoreCount = 1;
+    si.pWaitSemaphores = &s_imageAvailable;
+    si.pWaitDstStageMask = &waitStage;
+    si.commandBufferCount = 1;
+    si.pCommandBuffers = &cmd;
+    si.signalSemaphoreCount = 1;
+    si.pSignalSemaphores = &s_renderFinished;
+    {
+        VkResult sr = pfn_vkQueueSubmit(s_queue, 1, &si, s_inFlight);
+        if (sr != VK_SUCCESS)
+        {
+            error = "vkQueueSubmit failed (" + std::to_string((int)sr) + ")";
+            return false;
+        }
+    }
+    VkPresentInfoKHR pi{};
+    pi.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    pi.waitSemaphoreCount = 1;
+    pi.pWaitSemaphores = &s_renderFinished;
+    pi.swapchainCount = 1;
+    pi.pSwapchains = &s_swapchain;
+    pi.pImageIndices = &imageIndex;
+    VkResult pr = pfn_vkQueuePresentKHR(s_queue, &pi);
+    if (pr == VK_ERROR_OUT_OF_DATE_KHR || pr == VK_SUBOPTIMAL_KHR)
+    {
+        std::string e2;
+        Vk_RecreateSwapchain(e2);
+        return true;
+    }
+    if (pr != VK_SUCCESS)
+    {
+        error = "vkQueuePresentKHR failed";
+        return false;
+    }
+    return true;
+}
+
+void Vk_DeviceWaitIdle()
+{
+    if (s_device && pfn_vkDeviceWaitIdle) pfn_vkDeviceWaitIdle(s_device);
+}
+
 int Vk_SmokePresentFrames(int frames, const VkInitOptions& opt, std::string& error)
 {
     if (!Vk_Init(opt, error)) return 1;

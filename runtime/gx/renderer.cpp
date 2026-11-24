@@ -1,12 +1,16 @@
 // GX -> host renderer (D3D11 today; native Vulkan in A4b stages).
 #include "gx_state.h"
 #include "gfx_backend.h"
+#include "gfx_draw.h"
 #include "dxbc_fixup.h"
 #include "shadergen.h"
 #include "shader_cache.h"
 #include "texture_decode.h"
 #include "vertex_loader.h"
+#include "vk/vk_device.h"
+#include "vk/vk_gx.h"
 #include "hires.h"
+#include "../platform/window.h"
 #include "../tas/tas.h"
 #include "../debug/a2g_natural_trace.h"
 #include <algorithm>
@@ -695,13 +699,31 @@ static bool InitDevice()
 
 void Renderer_Init()
 {
-    // A4b Stage A: native Vulkan device/swapchain exists (--vk-smoke / --list-vulkan-devices).
-    // Full GX→Vulkan draw path is Stage B+; keep D3D11 for gameplay until parity.
+    LOG_INFO("renderer backend: {} (default remains d3d11 until Vulkan GX parity)",
+             Gfx_BackendName(Gfx_SelectedBackend()));
     if (Gfx_SelectedBackend() == GfxBackendKind::Vulkan)
     {
-        FATAL("renderer=vulkan: GX Vulkan path is not ready yet (A4b Stage A = device/swapchain only). "
-              "Use --vk-smoke to exercise native Vulkan presentation, or --renderer=d3d11 for gameplay. "
-              "See docs/A4B_NATIVE_VULKAN_RENDERER.md");
+        // A4c Stage B: native Vulkan GX draws (partial — see docs/A4C_VULKAN_GX_DRAW_PIPELINE.md).
+        if (!Window_Create(g_videoConfig.windowWidth, g_videoConfig.windowHeight, g_videoConfig.fullscreen))
+            FATAL("renderer=vulkan: window create failed");
+        VkInitOptions vopt{};
+        vopt.windowHandle = Window_Handle();
+        vopt.vsync = g_videoConfig.vsync;
+        vopt.allowTearing = !g_videoConfig.vsync;
+        if (const char* pref = std::getenv("SCR_VK_DEVICE"))
+            vopt.preferDevice = pref;
+        std::string err;
+        if (!Vk_Init(vopt, err))
+            FATAL("renderer=vulkan: Vk_Init failed: {}", err);
+        VkGxInitOptions gopt{};
+        gopt.efbScale = g_videoConfig.internalScale;
+        if (!VkGx_Init(gopt, err))
+            FATAL("renderer=vulkan: VkGx_Init failed: {}", err);
+        s_scale = g_videoConfig.internalScale;
+        s_ready = true;
+        LOG_INFO("renderer=vulkan: Stage B GX path active on '{}' (D3D11 not initialised)",
+                 Vk_SelectedDeviceName());
+        return;
     }
     if (!Video_Init()) FATAL("video init failed");
     if (!InitDevice()) FATAL("renderer init failed");
@@ -2628,6 +2650,121 @@ uint32_t Render_CompareQueueDepth() { return s_asyncCmpDepth; }
 static uint32_t s_drawCalls = 0;
 
 void Render_Flush();
+
+// A4c: shared GX batch → Vulkan (no D3D11 objects cross the boundary).
+static std::vector<uint32_t> s_vkTexDecode;
+static bool FlushVulkan()
+{
+    if (!VkGx_IsActive()) return false;
+    if (s_indices.empty())
+    {
+        s_verts.clear();
+        s_indices.clear();
+        return true;
+    }
+    uint32_t cull = (BP(0x00) >> 14) & 3;
+    if (cull == 3 && s_topo == Topo::Tri)
+    {
+        s_verts.clear();
+        s_indices.clear();
+        return true;
+    }
+
+    float wd = XFFloat(0x1000 + XF_VIEWPORT + 0);
+    float ht = XFFloat(0x1000 + XF_VIEWPORT + 1);
+    float xOrig = XFFloat(0x1000 + XF_VIEWPORT + 3);
+    float yOrig = XFFloat(0x1000 + XF_VIEWPORT + 4);
+    uint32_t so = BP(0x59);
+    float xoff = (float)((so & 0x3FF) * 2);
+    float yoff = (float)(((so >> 10) & 0x3FF) * 2);
+    float vx = xOrig - wd - xoff;
+    float vy = yOrig + ht - yoff;
+    float vw = 2.0f * wd;
+    float vh = -2.0f * ht;
+    float flipX = 1.0f, flipY = 1.0f;
+    if (vw < 0) { vx += vw; vw = -vw; flipX = -1.0f; }
+    if (vh < 0) { vy += vh; vh = -vh; flipY = -1.0f; }
+
+    uint32_t tl = BP(0x20), br = BP(0x21);
+    int sx0 = (int)((tl >> 12) & 0x7FF) - (int)xoff, sy0 = (int)(tl & 0x7FF) - (int)yoff;
+    int sx1 = (int)((br >> 12) & 0x7FF) - (int)xoff + 1, sy1 = (int)(br & 0x7FF) - (int)yoff + 1;
+    int scL = std::max(0, sx0) * s_scale, scT = std::max(0, sy0) * s_scale;
+    int scR = std::min(EFB_W, sx1) * s_scale, scB = std::min(EFB_H, sy1) * s_scale;
+
+    GfxDrawBatch batch{};
+    batch.topo = s_topo == Topo::Line ? GfxTopo::LineList : s_topo == Topo::Point ? GfxTopo::PointList : GfxTopo::TriList;
+    // GX cull 1 = back, 2 = front
+    const uint32_t cullKey = (s_topo == Topo::Tri && !g_dbgNoCull) ? cull : 0;
+    batch.cull = cullKey == 1 ? GfxCull::Back : cullKey == 2 ? GfxCull::Front : GfxCull::None;
+    batch.viewport = { vx * s_scale, vy * s_scale, vw * s_scale, vh * s_scale, 0.0f, 1.0f };
+    batch.scissor = { scL, scT, std::max(0, scR - scL), std::max(0, scB - scT) };
+    batch.verts = s_verts.data();
+    batch.vertCount = (uint32_t)s_verts.size();
+    batch.indices = s_indices.data();
+    batch.indexCount = (uint32_t)s_indices.size();
+    batch.xfmem = reinterpret_cast<const float*>(g_gx.xfmem);
+    batch.xfFloatCount = 0x1000;
+    batch.xfDirty = s_xfDirty;
+    FillVSConstants(batch.vs, &flipX, &flipY);
+    s_xfDirty = false;
+
+    uint32_t zm = BP(0x40) & 0x1F;
+    if (g_dbgNoDepth) zm &= ~1u;
+    batch.depthTest = (zm & 1) != 0;
+    batch.depthWrite = (zm & 0x10) != 0;
+    batch.blendEnable = (BP(0x41) & 1) != 0;
+
+    // Stage B: decode tex map 0 when any TEV stage samples it (RAM textures only).
+    PSKey pk{};
+    BuildPSKey(pk);
+    uint32_t usedMaps = 0;
+    for (uint32_t st = 0; st < pk.numTevStages; st++)
+    {
+        uint32_t ord = (pk.tevOrder[st / 2] >> ((st & 1) * 12)) & 0xFFF;
+        if ((ord >> 6) & 1) usedMaps |= 1 << (ord & 7);
+    }
+    if (pk.numTexGens == 0) usedMaps = 0;
+    if (usedMaps & 1)
+    {
+        uint32_t img0 = TexReg(0, 0x88, 0xA8);
+        uint32_t img3 = TexReg(0, 0x94, 0xB4);
+        uint32_t tlutReg = TexReg(0, 0x98, 0xB8);
+        uint32_t w = (img0 & 0x3FF) + 1;
+        uint32_t h = ((img0 >> 10) & 0x3FF) + 1;
+        uint32_t fmt = (img0 >> 20) & 15;
+        uint32_t addr = (img3 & 0x00FFFFFF) << 5;
+        const uint32_t efbKey = EfbCopyKey(addr);
+        if (EfbCopyMap().count(efbKey))
+            VkGx_NoteUnsupported("efb-copy-texture");
+        else if (w && h && w <= 1024 && h <= 1024)
+        {
+            uint32_t tlutOff = (tlutReg & 0x3FF) << 9;
+            uint32_t tlutFmt = (tlutReg >> 10) & 3;
+            const uint8_t* pal = s_tmem + (tlutOff & (sizeof(s_tmem) - 1));
+            s_vkTexDecode.resize((size_t)w * h);
+            GXTex_Decode(s_vkTexDecode.data(), PhysPtr(addr), w, h, fmt, pal, tlutFmt);
+            batch.tex0.rgba = s_vkTexDecode.data();
+            batch.tex0.w = w;
+            batch.tex0.h = h;
+            batch.tex0.key = (uint64_t)addr | ((uint64_t)fmt << 32) | ((uint64_t)w << 36) | ((uint64_t)h << 47);
+            batch.tex0.use = true;
+        }
+    }
+
+    // Preserve A3x topology invalidation principle on the Vulkan path too.
+    s_boundTopo = Topo::Invalid;
+
+    std::string err;
+    if (!VkGx_Draw(batch, err))
+        LOG_ERROR("vulkan gx draw failed: {}", err);
+    s_drawCalls++;
+    s_midDrawIndexed++;
+    if (FrameProfOn()) s_frameDrawIndexed++;
+    s_verts.clear();
+    s_indices.clear();
+    return true;
+}
+
 static void Flush()
 {
     if (s_indices.empty() || !s_ready)
@@ -2636,6 +2773,8 @@ static void Flush()
         s_indices.clear();
         return;
     }
+    if (FlushVulkan())
+        return;
     const uint64_t tFlush0 = FlushCpuProfOn() ? Platform_PerfCounter() : 0;
     uint32_t cull = (BP(0x00) >> 14) & 3;
     if (cull == 3 && s_topo == Topo::Tri)
@@ -3307,6 +3446,24 @@ static void ClearEFB(int x0, int y0, int x1, int y1)
     // A3u player-only mid: scratch already holds retained pre-player colour+depth.
     // Do not wipe that background with archived clear ops in the player segment.
     if (A3u_PlayerOnlyMidActive()) return;
+    if (VkGx_IsActive())
+    {
+        bool colorUpd = (BP(0x41) >> 3) & 1;
+        bool alphaUpd = ((BP(0x41) >> 4) & 1) && PixelFormat() == 1;
+        bool zUpd = (BP(0x40) >> 4) & 1;
+        uint32_t ar = BP(0x4F), gb = BP(0x50);
+        float r = (ar & 0xFF) / 255.0f;
+        float a = ((ar >> 8) & 0xFF) / 255.0f;
+        float g = ((gb >> 8) & 0xFF) / 255.0f;
+        float b = (gb & 0xFF) / 255.0f;
+        if (PixelFormat() != 1) a = 1.0f;
+        float depth = (float)(BP(0x51) & 0xFFFFFF) / 16777216.0f;
+        std::string err;
+        if (!VkGx_ClearEfb(x0, y0, x1, y1, r, g, b, a, depth, colorUpd || alphaUpd, zUpd, err))
+            LOG_ERROR("vulkan gx clear failed: {}", err);
+        s_boundTopo = Topo::Invalid;
+        return;
+    }
     bool colorUpd = (BP(0x41) >> 3) & 1;
     bool alphaUpd = ((BP(0x41) >> 4) & 1) && PixelFormat() == 1;
     bool zUpd = (BP(0x40) >> 4) & 1;
@@ -3511,6 +3668,39 @@ static void DoEFBCopy()
     bool clear = (ctl >> 11) & 1;
     bool half = (ctl >> 9) & 1;
     uint32_t destAddr = (BP(0x4B) & 0xFFFFFF) << 5;
+
+    if (VkGx_IsActive())
+    {
+        Flush();
+        s_boundTopo = Topo::Invalid;
+        if (toXFB)
+        {
+            if (s_replayIsolation) return;
+            std::string err;
+            if (!VkGx_PresentXfb(sx, sy, sw, sh, err))
+                LOG_ERROR("vulkan gx present xfb failed: {}", err);
+            else
+            {
+                g_framesPresented++;
+                extern void Perf_OnXfbCopy();
+                Perf_OnXfbCopy();
+                static uint32_t s_vkLog = 0;
+                if ((++s_vkLog % 300) == 1)
+                {
+                    auto st = VkGx_Stats();
+                    LOG_INFO("vulkan gx: frames={} draws={} verts={} idx={} pipes hit/miss={}/{} texUp={} unsup={}",
+                             g_framesPresented, st.draws, st.vertices, st.indices, st.pipelineHits,
+                             st.pipelineMisses, st.texUploads, st.unsupportedOps);
+                }
+            }
+            if (clear) ClearEFB(sx, sy, sx + sw, sy + sh);
+            s_frame++;
+            return;
+        }
+        VkGx_NoteUnsupported("efb-copy-to-texture");
+        if (clear) ClearEFB(sx, sy, sx + sw, sy + sh);
+        return;
+    }
 
     // Snapshot EFB for sampling. Under scratch isolation, copy FROM scratch
     // attachments so EFB→tex feedback is reconstructed, not sampled from live.

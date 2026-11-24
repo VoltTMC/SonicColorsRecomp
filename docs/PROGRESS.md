@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-24 — A4c Stage B: native Vulkan GX draw pipeline (partial)
+
+**Goal:** Real GX geometry through Vulkan (not smoke/clear); keep D3D11 default/independent.
+
+**Shipped:** `gfx_draw.h` batch; `vk/vk_gx.*` EFB + ring VB/IB + 4 embedded SPIR-V modules + pipeline cache + `vkCmdDrawIndexed`; Flush/XFB/Clear hooks; `--renderer=vulkan` gameplay path (partial); `scr_topo_invalid_test`; docs `A4C_VULKAN_GX_DRAW_PIPELINE.md`.
+
+**Evidence:** RTX 3080 title — hundreds of thousands of GX draws (e.g. frames≈6900 draws≈524k verts≈4.3M) with present; RADV RAPHAEL_MENDOCINO init + pipelines + draws (XFB present intermittently `DEVICE_LOST` — open). EFB→tex / full TEV **not** implemented. Title/menu/TR1 **not** visual-parity. D3D11 default intact. MinGW link OK. Win GPU **UNVERIFIED**.
+
 ## 2026-11-24 — A4b Stage A: native Vulkan device/swapchain bootstrap
 
 **Goal:** Start replacing D3D11/DXVK with a shared native Vulkan backend (Linux + Windows).

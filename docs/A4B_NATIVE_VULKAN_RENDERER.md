@@ -1,7 +1,7 @@
 # A4b — Native cross-platform Vulkan renderer
 
-**Status (2026-11-24):** **Stage A complete** (device / surface / swapchain / clear-present).  
-GX draw translation, EFB, SPIR-V cache, and gameplay default remain **in progress** (Stages B–F).  
+**Status (2026-11-24):** **Stage A complete**; **Stage B started** (see `docs/A4C_VULKAN_GX_DRAW_PIPELINE.md`).  
+Stage A: device / surface / swapchain / clear-present. Stage B: real GX `DrawIndexed` via Vulkan (partial — not title visual parity).  
 Gameplay default is still **D3D11** (Linux: DXVK; Windows: native D3D11).
 
 ## 1. Original architecture
@@ -44,11 +44,11 @@ Proven (this machine):
 - `tools/run_amd_clean.sh ./out/SonicColorsRecomp --vk-smoke 30` → native RADV, mailbox, **not DXVK**
 - `tools/run_nvidia_clean.sh ./out/SonicColorsRecomp --vk-smoke 30` → native NVIDIA Vulkan
 
-`--renderer=vulkan` for full gameplay currently **FATAL**s with a clear Stage A message (avoids a silent broken path).
+`--renderer=vulkan` enables the **Stage B** GX path (`VkGx_*`): real draws, partial shaders/textures; EFB→tex and full TEV still unsupported (diagnostics). Default remains D3D11.
 
 ## 4. Coupling still on D3D11
 
-`runtime/gx/renderer.cpp` still owns ~180+ `g_device`/`g_ctx` call sites. Stages B–C move Flush / EFB / textures / Present onto Vulkan while keeping GX decode shared.
+`runtime/gx/renderer.cpp` still owns many `g_device`/`g_ctx` call sites on the D3D11 path. Stage B routes Flush/XFB through `GfxDrawBatch` + `VkGx` without touching D3D11 globals when Vulkan is selected.
 
 ## 5. SPIR-V / pipeline cache (Stage D — design)
 

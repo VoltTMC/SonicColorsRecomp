@@ -404,6 +404,18 @@ if(WIN32 OR LINUX)
                                                            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
                                                            RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
 
+    # A4c / A3x: Topo::Invalid sentinel must stay distinct from live topologies.
+    add_executable(scr_topo_invalid_test EXCLUDE_FROM_ALL tools/topo_invalid_test/main.cpp)
+    if(LINUX)
+        target_link_options(scr_topo_invalid_test PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
+    if(MSVC_FRONTEND)
+        target_compile_options(scr_topo_invalid_test PRIVATE /EHsc /utf-8)
+    endif()
+    set_target_properties(scr_topo_invalid_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${SCR_OUT_DIR}
+                                                             RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
+                                                             RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
+
     add_executable(scr_shader_cache_test EXCLUDE_FROM_ALL
                    tools/shader_cache_test/main.cpp runtime/gx/shader_cache.cpp)
     target_include_directories(scr_shader_cache_test PRIVATE runtime)

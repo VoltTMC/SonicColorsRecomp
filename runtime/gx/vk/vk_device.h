@@ -5,6 +5,13 @@
 #include <string>
 #include <vector>
 
+#if defined(_WIN32)
+#  ifndef VK_USE_PLATFORM_WIN32_KHR
+#    define VK_USE_PLATFORM_WIN32_KHR
+#  endif
+#endif
+#include <vulkan/vulkan.h>
+
 struct VkDeviceInfo
 {
     std::string name;
@@ -55,3 +62,23 @@ bool Vk_PresentClear(float r, float g, float b, float a, std::string& error);
 
 // Stage A smoke: create window externally, then call Init + N clear presents.
 int Vk_SmokePresentFrames(int frames, const VkInitOptions& opt, std::string& error);
+
+// A4c Stage B accessors (null/0 if not ready).
+VkInstance Vk_GetInstance();
+VkPhysicalDevice Vk_GetPhysicalDevice();
+VkDevice Vk_GetDevice();
+VkQueue Vk_GetGraphicsQueue();
+uint32_t Vk_GetGraphicsQueueFamily();
+VkExtent2D Vk_GetSwapchainExtent();
+VkFormat Vk_GetSwapchainFormat();
+VkSwapchainKHR Vk_GetSwapchain();
+uint32_t Vk_GetSwapchainImageCount();
+VkImage Vk_GetSwapchainImage(uint32_t index);
+PFN_vkVoidFunction Vk_GetInstanceProc(const char* name);
+PFN_vkVoidFunction Vk_GetDeviceProc(const char* name);
+// Shared present sync: acquire → caller records cmd → submit+present.
+bool Vk_AcquireImage(uint32_t& imageIndex, std::string& error);
+// waitStage: COLOR_ATTACHMENT for clear/renderpass presents; TRANSFER for blit-to-swapchain.
+bool Vk_SubmitPresent(VkCommandBuffer cmd, uint32_t imageIndex, std::string& error,
+                      VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+void Vk_DeviceWaitIdle();
