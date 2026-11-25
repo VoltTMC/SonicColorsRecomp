@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-25 — A4j: Tropical Resort sky coverage (cull/winding)
+
+**Goal:** Why Vulkan left TR1 sky at EFB clear while D3D covered it; fix through GX path; D3D11 default.
+
+**Shipped:** Vulkan `VK_FRONT_FACE_CLOCKWISE` + normal Back/Front cull (match D3D; revert A4g CCW “compensation”); GX blend/write-mask parity; `GfxCullFromGx` / `GfxCullHwMode`; `scr_cull_winding_test`; `tools/a4j_tr1_capture.sh`; docs `A4J_TROPICAL_RESORT_SKY_COVERAGE.md`.
+
+**Evidence (RTX 3080):** stg110; late_half VK **~0.5%** (A4i ~21.3%) vs D3D ~0.2%; sky top-third ~0.9% (was ~58%); magenta clear ~2% (was ~52%); planet/stars restored; title val clean; MinGW OK. Fog/lighting full parity **not** claimed. AMD/RADV **deferred**. Win Vulkan GPU **UNVERIFIED**.
+
 ## 2026-11-25 — A4i: Sky/background RCA & EFB ordering (partial)
 
 **Goal:** Close TR1 sky voids / EFB ordering vs D3D11; preserve A4g XF ring + A4h copy Y; D3D11 default.

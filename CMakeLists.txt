@@ -416,6 +416,20 @@ if(WIN32 OR LINUX)
                                                              RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
                                                              RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
 
+    # A4j: GX cull → CW-front hardware mapping (sky coverage regression).
+    add_executable(scr_cull_winding_test EXCLUDE_FROM_ALL tools/cull_winding_test/main.cpp)
+    target_include_directories(scr_cull_winding_test PRIVATE runtime)
+    if(LINUX)
+        target_compile_options(scr_cull_winding_test PRIVATE -include ${CMAKE_SOURCE_DIR}/runtime/platform/compat.h)
+        target_link_options(scr_cull_winding_test PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
+    if(MSVC_FRONTEND)
+        target_compile_options(scr_cull_winding_test PRIVATE /EHsc /utf-8)
+    endif()
+    set_target_properties(scr_cull_winding_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${SCR_OUT_DIR}
+                                                              RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
+                                                              RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
+
     add_executable(scr_shader_cache_test EXCLUDE_FROM_ALL
                    tools/shader_cache_test/main.cpp runtime/gx/shader_cache.cpp)
     target_include_directories(scr_shader_cache_test PRIVATE runtime)

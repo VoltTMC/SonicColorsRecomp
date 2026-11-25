@@ -90,7 +90,7 @@ Title regression: safety MAE class unchanged from A4f (~3.1) when compared on ti
 
 1. **Versioned XF SSBO ring (primary TR1 fix)** — single host-visible XF buffer was overwritten while earlier draws in the same CB still referenced it → skeletal/env matrix corruption (“vertex explosion”). Ring of 16 KiB slots in a 16 MiB buffer; descriptors bind `offset`+`range`; reset after fence flush / present.
 2. **GX depth compare** → Vulkan pipelines (`GfxDrawBatch.depthCompare` / `PipeKey`).
-3. **Cull / front-face** for NDC Y flip: `FRONT_FACE_COUNTER_CLOCKWISE` + normal Back/Front map.
+3. **Cull / front-face** for NDC Y flip: originally `FRONT_FACE_COUNTER_CLOCKWISE` + normal Back/Front map — **corrected in A4j** to `CLOCKWISE` (match D3D); CCW had culled intended fronts / TR1 sky.
 4. EFB-copy util **push constants**; fence-synced copies retained (inline batching → `DEVICE_LOST`).
 5. Capture harness `tools/a4g_tr1_capture.sh`.
 

@@ -2717,7 +2717,7 @@ static bool FlushVulkan()
     batch.topo = s_topo == Topo::Line ? GfxTopo::LineList : s_topo == Topo::Point ? GfxTopo::PointList : GfxTopo::TriList;
     // GX cull 1 = back, 2 = front
     const uint32_t cullKey = (s_topo == Topo::Tri && !g_dbgNoCull) ? cull : 0;
-    batch.cull = cullKey == 1 ? GfxCull::Back : cullKey == 2 ? GfxCull::Front : GfxCull::None;
+    batch.cull = GfxCullFromGx(cullKey);
     batch.viewport = { vx * s_scale, vy * s_scale, vw * s_scale, vh * s_scale, 0.0f, 1.0f };
     batch.scissor = { scL, scT, std::max(0, scR - scL), std::max(0, scB - scT) };
     batch.verts = s_verts.data();
@@ -2735,7 +2735,17 @@ static bool FlushVulkan()
     batch.depthTest = (zm & 1) != 0;
     batch.depthWrite = (zm & 0x10) != 0;
     batch.depthCompare = (uint8_t)((zm >> 1) & 7);
-    batch.blendEnable = (BP(0x41) & 1) != 0;
+    const uint32_t bm = BP(0x41);
+    batch.blendEnable = (bm & 1) != 0;
+    batch.blendMode = (uint16_t)(bm & 0xFFFF);
+    batch.pixelFormat = (uint8_t)PixelFormat();
+    {
+        // Match D3D11 GetBlendState write mask exactly.
+        uint8_t mask = 0;
+        if ((bm >> 3) & 1) mask |= 0x7; // RGB
+        if (((bm >> 4) & 1) && batch.pixelFormat == 1) mask |= 0x8; // A only for RGBA6
+        batch.colorWriteMask = mask;
+    }
     // A4i probe: force Always depth for far/world-space verts (candidate skydome).
     {
         static int s_farZ = -1;
@@ -2911,10 +2921,11 @@ static bool FlushVulkan()
             if (interesting)
             {
                 const uint32_t pmtx = batch.vertCount ? (batch.verts[0].mtx[0] & 0xFF) : 0;
-                LOG_INFO("A4i-draw f={} idx={} z={}/{} cmp={} cull={} fog={:x} blend={} tex0={}x{} efb={:08x} "
+                LOG_INFO("A4j-draw f={} idx={} z={}/{} cmp={} cull={} fog={:x} bm={:04x} cwm={:x} tex0={}x{} efb={:08x} "
                          "v0=({:.1f},{:.1f},{:.1f}) pmtx={} projType={} flipY={:.0f} vp=({:.0f},{:.0f},{:.0f},{:.0f}) sc=({},{},{},{})",
                          g_framesPresented, batch.indexCount, (int)batch.depthTest, (int)batch.depthWrite,
-                         (int)batch.depthCompare, (int)batch.cull, batch.psKey.fogType, (int)batch.blendEnable,
+                         (int)batch.depthCompare, (int)batch.cull, batch.psKey.fogType, (unsigned)batch.blendMode,
+                         (unsigned)batch.colorWriteMask,
                          batch.tex[0].use ? batch.tex[0].w : 0, batch.tex[0].use ? batch.tex[0].h : 0,
                          batch.tex[0].efbCopyAddr,
                          batch.vertCount ? batch.verts[0].pos[0] : 0.f,

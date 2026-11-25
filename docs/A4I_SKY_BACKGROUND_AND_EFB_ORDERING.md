@@ -1,6 +1,6 @@
 # A4i — Sky/Background Reconstruction & EFB Copy Ordering
 
-**Status (2026-11-25):** Root cause of TR1 sky voids **narrowed with evidence**; two Vulkan correctness fixes shipped. **Sky voids not yet closed** — blackish metric unchanged vs A4h. Full TR1 outdoor parity **not** claimed.
+**Status (2026-11-25):** Root cause of TR1 sky voids **narrowed with evidence**; two Vulkan correctness fixes shipped. **Sky coverage closed in A4j** (CW front-face cull) — see `docs/A4J_TROPICAL_RESORT_SKY_COVERAGE.md`. This doc remains the A4i RCA record.
 
 **Baseline:** A4h `f2baf63` (EFB-copy NDC Y `{-1,-1,1,1}`, XF ring, upright outdoor+HUD).
 
@@ -143,7 +143,7 @@ TR1 Vulkan unique XFB ≈ **4.5–5.2**/s (unchanged class vs A4h). D3D11 ≈ 30
 - AMD/RADV: **deferred / unverified**
 - Native Windows Vulkan GPU: **unverified**
 
-## Diagnostics (keep for A4j)
+## Diagnostics (used by A4j)
 
 | Env | Purpose |
 |---|---|
@@ -153,4 +153,4 @@ TR1 Vulkan unique XFB ≈ **4.5–5.2**/s (unchanged class vs A4h). D3D11 ≈ 30
 
 ## A4i success criteria (honest)
 
-Sky root cause **class** identified (uncovered clear). Sky **not** corrected; blackish **not** improved toward D3D. Correctness fixes (fog-range X, EFB RAM hash) + capture tooling shipped; A4d–A4h architecture preserved.
+Sky root cause **class** identified (uncovered clear). Sky **not** corrected in A4i; blackish **not** improved toward D3D here. A4j fixed CW front-face cull — coverage closed. Fog-range X + EFB RAM hash + capture tooling shipped; A4d–A4h architecture preserved.

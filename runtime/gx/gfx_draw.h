@@ -20,6 +20,27 @@ enum class GfxCull : uint8_t
     Back = 2,
 };
 
+// GX GEN_MODE cull (bits 14..15): 0=none, 1=cull back, 2=cull front, 3=all.
+// Map to GfxCull for backends. D3D11 and Vulkan both treat GX fronts as clockwise
+// in screen space (D3D FrontCounterClockwise=FALSE / VK_FRONT_FACE_CLOCKWISE).
+// Do not invert cull or front-face to "compensate" for GLSL clip.y = -clip.y —
+// that made cull-back discard intended fronts (A4j TR1 sky/background).
+inline GfxCull GfxCullFromGx(uint32_t gxCull)
+{
+    if (gxCull == 1) return GfxCull::Back;
+    if (gxCull == 2) return GfxCull::Front;
+    return GfxCull::None;
+}
+
+// Vulkan / D3D cull bit to apply for a GfxCull value when front faces are CW.
+// 0=none, 1=cull front faces, 2=cull back faces (matches D3D11_CULL_* numbering).
+inline uint8_t GfxCullHwMode(GfxCull c)
+{
+    if (c == GfxCull::Back) return 2;  // cull back
+    if (c == GfxCull::Front) return 1; // cull front
+    return 0;
+}
+
 struct GfxViewport
 {
     float x = 0, y = 0, w = 0, h = 0;
@@ -79,5 +100,9 @@ struct GfxDrawBatch
     bool depthWrite = true;
     uint8_t depthCompare = 3; // GX Z mode bits 1..3; 3 = <= (matches D3D11 funcs[])
     bool blendEnable = false;
-    // GX BP blend approx: src_alpha / inv_src_alpha when blendEnable.
+    // A4j: full GX BP 0x41 blend (low 16) + color write mask. Vulkan previously forced
+    // SRC_ALPHA/INV_SRC_ALPHA and always wrote RGBA, diverging from D3D11 GetBlendState.
+    uint16_t blendMode = 0;   // BP(0x41) & 0xFFFF
+    uint8_t colorWriteMask = 0xF; // RGBA bits; 0 = no color update
+    uint8_t pixelFormat = 0;  // GX pixel format (1 = RGBA6 has dest alpha)
 };

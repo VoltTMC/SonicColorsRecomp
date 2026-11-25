@@ -118,12 +118,16 @@ struct Img
 
 struct PipeKey
 {
-    uint8_t topo = 0, cull = 0, blend = 0, depthWrite = 1, depthTest = 1, depthCompare = 3;
+    uint8_t topo = 0, cull = 0, depthWrite = 1, depthTest = 1, depthCompare = 3;
+    uint8_t colorWriteMask = 0xF;
+    uint8_t hasDestAlpha = 0; // GX pixel format RGBA6
+    uint16_t blendMode = 0;   // GX BP 0x41 & 0xFFFF (enable + factors + subtract)
     uint64_t vsHash = 0, psHash = 0;
     bool operator==(const PipeKey& o) const
     {
-        return topo == o.topo && cull == o.cull && blend == o.blend && depthWrite == o.depthWrite &&
-               depthTest == o.depthTest && depthCompare == o.depthCompare && vsHash == o.vsHash &&
+        return topo == o.topo && cull == o.cull && depthWrite == o.depthWrite && depthTest == o.depthTest &&
+               depthCompare == o.depthCompare && colorWriteMask == o.colorWriteMask &&
+               hasDestAlpha == o.hasDestAlpha && blendMode == o.blendMode && vsHash == o.vsHash &&
                psHash == o.psHash;
     }
 };
@@ -131,14 +135,55 @@ struct PipeKeyHash
 {
     size_t operator()(const PipeKey& k) const
     {
-        size_t h = (size_t)k.topo | ((size_t)k.cull << 8) | ((size_t)k.blend << 16) |
-                   ((size_t)k.depthWrite << 24) | ((size_t)k.depthTest << 25) |
-                   ((size_t)k.depthCompare << 26);
+        size_t h = (size_t)k.topo | ((size_t)k.cull << 8) | ((size_t)k.depthWrite << 16) |
+                   ((size_t)k.depthTest << 17) | ((size_t)k.depthCompare << 18) |
+                   ((size_t)k.colorWriteMask << 21) | ((size_t)k.hasDestAlpha << 25);
+        h ^= (size_t)k.blendMode + 0x9e3779b9u + (h << 6) + (h >> 2);
         h ^= k.vsHash + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
         h ^= k.psHash + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
         return h;
     }
 };
+
+static VkBlendFactor GxBlendSrcToVk(uint32_t f, bool hasAlpha)
+{
+    switch (f & 7)
+    {
+    case 0: return VK_BLEND_FACTOR_ZERO;
+    case 1: return VK_BLEND_FACTOR_ONE;
+    case 2: return VK_BLEND_FACTOR_DST_COLOR;
+    case 3: return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
+    case 4: return VK_BLEND_FACTOR_SRC_ALPHA;
+    case 5: return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    case 6: return hasAlpha ? VK_BLEND_FACTOR_DST_ALPHA : VK_BLEND_FACTOR_ONE;
+    default: return hasAlpha ? VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA : VK_BLEND_FACTOR_ZERO;
+    }
+}
+static VkBlendFactor GxBlendDstToVk(uint32_t f, bool hasAlpha)
+{
+    switch (f & 7)
+    {
+    case 0: return VK_BLEND_FACTOR_ZERO;
+    case 1: return VK_BLEND_FACTOR_ONE;
+    case 2: return VK_BLEND_FACTOR_SRC_COLOR;
+    case 3: return VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+    case 4: return VK_BLEND_FACTOR_SRC_ALPHA;
+    case 5: return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    case 6: return hasAlpha ? VK_BLEND_FACTOR_DST_ALPHA : VK_BLEND_FACTOR_ONE;
+    default: return hasAlpha ? VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA : VK_BLEND_FACTOR_ZERO;
+    }
+}
+static VkBlendFactor GxBlendToAlphaFactor(VkBlendFactor c)
+{
+    switch (c)
+    {
+    case VK_BLEND_FACTOR_SRC_COLOR: return VK_BLEND_FACTOR_SRC_ALPHA;
+    case VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR: return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    case VK_BLEND_FACTOR_DST_COLOR: return VK_BLEND_FACTOR_DST_ALPHA;
+    case VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR: return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
+    default: return c;
+    }
+}
 
 static VkCompareOp GxDepthCompareToVk(uint8_t cmp)
 {
@@ -789,12 +834,17 @@ static VkPipeline GetOrCreatePipe(const PipeKey& key, std::string& error)
 
     VkPipelineRasterizationStateCreateInfo rs{ VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
     rs.polygonMode = VK_POLYGON_MODE_FILL;
-    // GfxCull::Back/Front after Vulkan NDC Y flip (clip.y = -clip.y): winding reverses
-    // vs D3D11, so use CCW front and map cull normally (Back→BACK, Front→FRONT).
-    rs.cullMode = key.cull == (uint8_t)GfxCull::Back    ? VK_CULL_MODE_BACK_BIT
-                  : key.cull == (uint8_t)GfxCull::Front ? VK_CULL_MODE_FRONT_BIT
-                                                        : VK_CULL_MODE_NONE;
-    rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    // Match D3D11: GX front faces are clockwise in screen space (FrontCounterClockwise=FALSE).
+    // A4g used CCW to "compensate" for clip.y = -clip.y; that made cull-back discard the
+    // intended front faces (sky/background and solid meshes). Keep clip.y negate for NDC Y
+    // position parity; do not invert winding/cull on top of it. See GfxCullHwMode.
+    {
+        const uint8_t hw = GfxCullHwMode(static_cast<GfxCull>(key.cull));
+        rs.cullMode = hw == 2   ? VK_CULL_MODE_BACK_BIT
+                      : hw == 1 ? VK_CULL_MODE_FRONT_BIT
+                                : VK_CULL_MODE_NONE;
+    }
+    rs.frontFace = VK_FRONT_FACE_CLOCKWISE;
     rs.lineWidth = 1.0f;
 
     VkPipelineMultisampleStateCreateInfo ms{ VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
@@ -806,16 +856,31 @@ static VkPipeline GetOrCreatePipe(const PipeKey& key, std::string& error)
     ds.depthCompareOp = GxDepthCompareToVk(key.depthCompare);
 
     VkPipelineColorBlendAttachmentState ba{};
-    ba.colorWriteMask = 0xF;
-    if (key.blend)
+    ba.colorWriteMask = key.colorWriteMask & 0xF;
+    const uint32_t bm = key.blendMode;
+    const bool blendEn = (bm & 1) != 0;
+    const bool hasAlpha = key.hasDestAlpha != 0;
+    if (blendEn)
     {
         ba.blendEnable = VK_TRUE;
-        ba.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-        ba.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-        ba.colorBlendOp = VK_BLEND_OP_ADD;
-        ba.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-        ba.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-        ba.alphaBlendOp = VK_BLEND_OP_ADD;
+        const bool sub = (bm >> 11) & 1;
+        if (sub)
+        {
+            ba.srcColorBlendFactor = ba.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+            ba.colorBlendOp = VK_BLEND_OP_REVERSE_SUBTRACT;
+            ba.srcAlphaBlendFactor = ba.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+            ba.alphaBlendOp = VK_BLEND_OP_REVERSE_SUBTRACT;
+        }
+        else
+        {
+            const uint32_t dstF = (bm >> 5) & 7, srcF = (bm >> 8) & 7;
+            ba.srcColorBlendFactor = GxBlendSrcToVk(srcF, hasAlpha);
+            ba.dstColorBlendFactor = GxBlendDstToVk(dstF, hasAlpha);
+            ba.colorBlendOp = VK_BLEND_OP_ADD;
+            ba.srcAlphaBlendFactor = GxBlendToAlphaFactor(ba.srcColorBlendFactor);
+            ba.dstAlphaBlendFactor = GxBlendToAlphaFactor(ba.dstColorBlendFactor);
+            ba.alphaBlendOp = VK_BLEND_OP_ADD;
+        }
     }
     VkPipelineColorBlendStateCreateInfo cb{ VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
     cb.attachmentCount = 1;
@@ -865,8 +930,9 @@ static VkPipeline GetOrCreatePipe(const PipeKey& key, std::string& error)
         return VK_NULL_HANDLE;
     }
     s_pipes[key] = pipe;
-    LOG_INFO("vulkan gx: created pipeline topo={} cull={} blend={} depth={}/{}", (int)key.topo, (int)key.cull,
-             (int)key.blend, (int)key.depthTest, (int)key.depthWrite);
+    LOG_INFO("vulkan gx: created pipeline topo={} cull={} blend={:04x} cwm={:x} depth={}/{}", (int)key.topo,
+             (int)key.cull, (unsigned)key.blendMode, (unsigned)key.colorWriteMask, (int)key.depthTest,
+             (int)key.depthWrite);
     return pipe;
 }
 
@@ -1843,7 +1909,9 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
     PipeKey pk{};
     pk.topo = (uint8_t)batch.topo;
     pk.cull = (uint8_t)batch.cull;
-    pk.blend = batch.blendEnable ? 1 : 0;
+    pk.blendMode = batch.blendMode;
+    pk.colorWriteMask = batch.colorWriteMask;
+    pk.hasDestAlpha = (batch.pixelFormat == 1) ? 1 : 0;
     pk.depthTest = batch.depthTest ? 1 : 0;
     pk.depthWrite = batch.depthWrite ? 1 : 0;
     pk.depthCompare = batch.depthCompare;
