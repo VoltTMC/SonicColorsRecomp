@@ -77,12 +77,42 @@ static void TestLightingSpotDiffuse()
     CHECK(!Contains(gl, "int3("));
 }
 
+// TR1-class: matsrc/ambsrc + signed diffuse (common outdoor materials).
+static void TestLightingMatsrcAmb()
+{
+    VSKey k{};
+    k.components = VC_NRM | VC_COL0;
+    k.numColorChans = 1;
+    // lighting enable, light0+1, diffuse=2 (signed), attn=1 (spec/dir)
+    k.chan[0] = 0x2 | (0x03u << 2) | (2u << 7) | (1u << 9) | (1u << 11) | (0u << 13);
+    std::string hl = GenerateVertexShader(k);
+    std::string gl = GenerateVertexShaderGLSL(k);
+    CHECK(Contains(hl, "lacc.") || Contains(hl, "ambColor") || Contains(hl, "matColor"));
+    CHECK(Contains(gl, "lacc.") || Contains(gl, "ambColor") || Contains(gl, "matColor"));
+    CHECK(Contains(gl, "ivec3(") || Contains(gl, "int("));
+    CHECK(!Contains(gl, "float3("));
+}
+
+static void TestFogLinearPerspProjBit()
+{
+    // fsel=2 + proj bit (orthographic ze path) — rare/absent in TR1 but must stay aligned.
+    PSKey k{};
+    k.numTevStages = 1;
+    k.fogType = 2 | (1u << 3);
+    std::string hl = GeneratePixelShader(k);
+    std::string gl = GeneratePixelShaderGLSL(k);
+    CHECK(Contains(hl, "fogF.x * float(zCoord)"));
+    CHECK(Contains(gl, "ps.fogF.x * float(zCoord)"));
+}
+
 int main()
 {
     TestFogLinearPersp();
     TestFogWithRange();
     TestFogExpModes();
+    TestFogLinearPerspProjBit();
     TestLightingSpotDiffuse();
+    TestLightingMatsrcAmb();
     if (g_fail)
     {
         std::printf("%d checks failed\n", g_fail);

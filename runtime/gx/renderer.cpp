@@ -3837,8 +3837,17 @@ static void SaveTextureBMP(ID3D11Texture2D* tex, const char* path)
     D3D11_MAPPED_SUBRESOURCE m;
     if (SUCCEEDED(g_ctx->Map(st, 0, D3D11_MAP_READ, 0, &m)))
     {
-        // downscale 2x for smaller files
-        uint32_t w = d.Width / 2, h = d.Height / 2;
+        // Default: 2x downscale for smaller TAS dumps. A4k visual compare needs native
+        // XFB resolution to match Vulkan EFB BMPs — set SCR_SHOTS_FULL=1.
+        static int s_full = -1;
+        if (s_full < 0)
+        {
+            const char* e = std::getenv("SCR_SHOTS_FULL");
+            s_full = (e && e[0] && e[0] != '0') ? 1 : 0;
+            if (s_full) LOG_INFO("A4k: SCR_SHOTS_FULL=1 — D3D --shots BMPs at native XFB size");
+        }
+        const uint32_t step = s_full ? 1u : 2u;
+        uint32_t w = d.Width / step, h = d.Height / step;
         FILE* f = nullptr;
         if (!fopen_s(&f, path, "wb") && f)
         {
@@ -3851,12 +3860,13 @@ static void SaveTextureBMP(ID3D11Texture2D* tex, const char* path)
             std::vector<uint8_t> row(rowBytes + pad);
             for (int y = (int)h - 1; y >= 0; y--)
             {
-                const uint8_t* src = (const uint8_t*)m.pData + (size_t)(y * 2) * m.RowPitch;
+                const uint8_t* src = (const uint8_t*)m.pData + (size_t)((uint32_t)y * step) * m.RowPitch;
                 for (uint32_t x = 0; x < w; x++)
                 {
-                    row[x * 3 + 0] = src[x * 8 + 2];
-                    row[x * 3 + 1] = src[x * 8 + 1];
-                    row[x * 3 + 2] = src[x * 8 + 0];
+                    const uint8_t* p = src + (size_t)x * step * 4;
+                    row[x * 3 + 0] = p[2];
+                    row[x * 3 + 1] = p[1];
+                    row[x * 3 + 2] = p[0];
                 }
                 fwrite(row.data(), 1, row.size(), f);
             }

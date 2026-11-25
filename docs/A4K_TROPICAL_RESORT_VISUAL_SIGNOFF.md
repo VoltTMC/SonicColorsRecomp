@@ -1,8 +1,8 @@
 # A4k — Tropical Resort Visual Sign-off & Rendering Consistency
 
-**Status (2026-11-25):** Expanded TR1 scene coverage vs D3D11; fog/lighting **audited** for configs actually used outdoors (no generator rewrite); A4j CW cull/sky coverage **preserved**; VK outdoor unique_xfb still ~4.9–5.2 (sync EFB-copy bound). Full game / all-camera pixel parity **not** claimed. AMD/RADV **deferred**. Native Windows Vulkan **unverified**. I1 Windows input **out of scope**.
+**Status (2026-11-25):** Expanded TR1 scene coverage vs D3D11; fog/lighting **audited** for configs actually used outdoors (no generator rewrite); A4j CW cull/sky coverage **preserved**; D3D `--shots` capture alignment fixed (`SCR_SHOTS_FULL=1`); VK outdoor unique_xfb still ~4.9–5.2 (sync EFB-copy bound). Full game / all-camera pixel parity **not** claimed. AMD/RADV **deferred**. Native Windows Vulkan **unverified**. I1 Windows input **out of scope**.
 
-**Baseline:** A4j `e87f431` (CW front-face + `GfxCullHwMode`; late_half ~0.5%). Work landed after I1 on `main` (`709bfaa`).
+**Baseline:** A4j `e87f431` (CW front-face + `GfxCullHwMode`; late_half ~0.5%). First A4k land `04861f7`; follow-up capture-parity fix on `main`.
 
 ## 1. A4j starting state (preserved)
 
@@ -45,7 +45,7 @@ Landmarks covered (deterministic input; **not** raw-XFB-index locked across back
 
 Per-run `meta.txt` records renderer, scale, shot cadence, script, GPU (`SCR_VK_DEVICE=3080` for Vulkan).
 
-**Capture caveat:** D3D11 BMP dumps in this run are **320×240**; Vulkan EFB shots are **640×480**. Cross-backend MAE of index-aligned outdoor pairs is **not** a pixel-parity proof (scene phase + resolution differ). Prefer regional blackish metrics and same-backend sequences.
+**Capture caveat (resolved for resolution):** Default D3D `SaveTextureBMP` **2× downscaled** TAS dumps (historical 320×240 from 640×480 XFB). That was **capture alignment**, not a renderer half-res bug. A4k sets `SCR_SHOTS_FULL=1` so D3D BMPs match native XFB size (typically **640×480**, same as Vulkan EFB shots). Cross-backend ordinal MAE is still **not** pixel-parity proof (VK ~5 unique_xfb vs D3D ~60 → phase mismatch). Prefer regional blackish metrics and same-backend sequences.
 
 ## 3. Fog audit
 
@@ -88,10 +88,10 @@ Traced differences called “post” in prior notes:
 | Missing GX copy/filter stage | No evidence of a skipped dedicated post pass beyond existing EFB-copy / XFB path |
 | EFB/XFB conversion | A4f/A4i copy + RAM fingerprint retained; no A4h full-EFB async queue |
 | Colour / alpha | Blend/write-mask from A4j retained |
-| Capture / resolution | D3D BMP 320×240 vs VK 640×480 inflates naive MAE |
+| Capture / resolution | **Fixed:** `SCR_SHOTS_FULL=1` disables intentional 2× D3D BMP downscale so compares use native XFB |
 | Presentation timing | VK unique_xfb ~5 vs D3D ~60 → UI/HUD frames not phase-matched |
 
-**Fixes:** none required for correctness beyond documenting capture alignment. Did **not** reintroduce device-wide idle waits or full-EFB queues.
+**Fixes:** D3D screenshot dump parity only. Did **not** reintroduce device-wide idle waits or full-EFB queues.
 
 ## 6. UI / temporal consistency
 
@@ -105,11 +105,11 @@ Traced differences called “post” in prior notes:
 | Set | Shots | Outdoor (blackish &lt;5%) late_half | late sky top-third |
 |---|---:|---:|---:|
 | Vulkan `out/a4k_vk_tr1/` | 49 | **0.60%** | **1.25%** |
-| D3D11 `out/a4k_d3d_tr1/` | 267 | 0.97%* | 1.59%* |
+| D3D11 full-res `out/a4k_d3d_tr1/` (640×480) | 145 | ~1.6% outdoor filter* | late sky ~1.4% (all-shot late_half ~2.5%) |
 
 \*D3D explore run is longer / more varied cameras than A4j’s short late outdoor window (~0.2%); not a regression of the A4j cull fix on Vulkan.
 
-Side-by-sides under `out/a4k_compare/side_*.png` — qualitative planet/sky fill present on VK; do not treat MAE (~60 on misaligned pairs) as fog/lighting failure.
+Same-resolution outdoor pairs (`out/a4k_compare/fullres_side_*.png`): best ordinal mid-outdoor MAE ~47 (still phase-mismatched cameras). Sky TL on VK remains blue (~57,99,158); planet/sky fill present. Do not treat ordinal MAE as fog/lighting failure.
 
 Temporal: sequences of outdoor shots show stable sky TL ~`(57,99,158)` class blues on VK; HUD draws present in-stage. Frame-locked UI animation parity vs D3D **not** established (FPS gap).
 
@@ -162,7 +162,7 @@ Vulkan GX counters (post-`stg110` sample): `efbCopy` all **sync** (`inline/sync=
 
 | Class | Notes |
 |---|---|
-| Capture alignment | Resolution + phase mismatch vs D3D BMPs |
+| Capture alignment | Resolution fixed via `SCR_SHOTS_FULL`; phase mismatch remains |
 | Temporal / presentation | VK ~5 unique_xfb vs D3D ~60 |
 | Fog / lighting | Formula parity for TR1 modes; **not** every GX mode; no pixel-locked outdoor MAE proof |
 | Post-processing | No missing stage found; residuals mostly temporal |

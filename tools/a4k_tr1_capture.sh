@@ -140,15 +140,17 @@ PY
 case "$MODE" in
   d3d11)
     mkdir -p out/a4k_d3d_tr1
-    rm -f shot_*.bmp
+    rm -f shot_*.bmp out/a4k_d3d_tr1/*.bmp
     set +e
-    timeout "$TIMEOUT_S" tools/run_nvidia_clean.sh env SCR_A2G_NATURAL_TRACE=1 SCR_A4K_FOG_STATS=1 \
+    # SCR_SHOTS_FULL=1: native XFB BMP size (matches Vulkan EFB shots; default D3D dumps are 2x downscaled).
+    timeout "$TIMEOUT_S" tools/run_nvidia_clean.sh env SCR_A2G_NATURAL_TRACE=1 SCR_A4K_FOG_STATS=1 SCR_SHOTS_FULL=1 \
       "${common[@]}" --renderer d3d11 | tee "out/a4k_d3d_tr1/run.log"
     set -e
     cp -f shot_*.bmp out/a4k_d3d_tr1/ 2>/dev/null || true
     {
       echo "renderer=d3d11"
       echo "scale=1"
+      echo "shots_full=1"
       echo "shots_every=$SHOTS_EVERY shots_start=$SHOTS_START"
       echo "input=$SCRIPT"
       date -Iseconds
