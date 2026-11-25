@@ -62,7 +62,7 @@ Timeout no longer aborts post-copy of screenshots (`set +e` around `timeout`).
 
 | Approach | Result |
 |---|---|
-| Inline copies in draw CB (no wait) | **DEVICE_LOST** (TDR from thousands of full-EFB blits/CB) |
+| Inline copies in draw CB (no wait) | **DEVICE_LOST** (TDR from thousands of full-EFB blits/CB) — **A4l** reintroduces *bounded* region-snap inline copies with soft-submit budget; see `A4L_VULKAN_EFB_COPY_SYNCHRONISATION_AND_PERFORMANCE.md` |
 | Fence-synced + **region** color/depth snap | Stable; GX order preserved via drain-before-snap |
 | Vulkan copy Y rect | Orientation match vs D3D |
 

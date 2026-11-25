@@ -72,8 +72,17 @@ struct VkGxStats
     uint64_t xfRingWraps = 0;
     uint64_t xfRingHighWater = 0; // bytes
     uint64_t xfRingBytes = 0;     // capacity
-    uint64_t efbCopyInline = 0;   // copies recorded in the draw CB (no per-copy wait)
-    uint64_t efbCopySynced = 0;   // copies that forced a drain+wait
+    // A4k/A4l: inline = recorded into the live draw CB (GPU-ordered, no per-copy CPU wait).
+    // sync = legacy path that DrainFrameSlot + submit + CPU WaitForFences per copy
+    // (SCR_A4L_EFB_SYNC=1, or soft-flush budget drain counted separately below).
+    uint64_t efbCopyInline = 0;
+    uint64_t efbCopySynced = 0;
+    // A4l profiling (always counted; detailed logs via SCR_A4L_EFB_PROF=1)
+    uint64_t efbCopySoftFlushes = 0;     // budget-driven DrainFrameSlot during copy path
+    uint64_t efbCopyFenceWaits = 0;      // CPU WaitForFences attributed to EFB-copy path
+    uint64_t efbCopyFenceWaitNs = 0;     // total CPU ns blocked on those waits
+    uint64_t efbCopyRecordNs = 0;        // CPU ns recording copy commands (excl. waits)
+    uint64_t efbCopySubmitNs = 0;        // CPU ns in queue submit for sync copies
 };
 VkGxStats VkGx_Stats();
 void VkGx_ResetStats();

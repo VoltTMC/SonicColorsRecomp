@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-25 — A4l: Vulkan EFB-copy sync & throughput
+
+**Goal:** Remove per-copy CPU fence waits on EFB→texture while preserving GX order, A4h TDR safety, A4j sky, and validation cleanliness.
+
+**Shipped:** GPU-ordered inline EFB copies (default); `SoftSubmitContinue` budget; deferred dest destroy (`s_efbCopyRetire`); `SCR_A4L_EFB_SYNC` / `SCR_A4L_EFB_PROF`; `tools/a4l_tr1_bench.sh`; docs `A4L_VULKAN_EFB_COPY_SYNCHRONISATION_AND_PERFORMANCE.md`.
+
+**Evidence (RTX 3080):** sustained outdoor unique_xfb **~5.0 → ~5.8**; EFB fence-wait **~37s → ~0s** / 300s explore; `inline/sync=N/0`; late_half ~0.19%; no DEVICE_LOST/watchdog; Linux + MinGW OK. D3D11 ~60 still ahead. AMD/RADV **deferred**. Win Vulkan **UNVERIFIED**. I1 **out of scope**. D3D11 default.
+
 ## 2026-11-25 — A4k: Tropical Resort visual sign-off (expanded coverage)
 
 **Goal:** Broader TR1 D3D11/Vulkan scene captures; audit fog/lighting actually used outdoors (no rewrite); isolate post/UI timing; preserve A4j CW cull; profile VK bottleneck; document honestly.

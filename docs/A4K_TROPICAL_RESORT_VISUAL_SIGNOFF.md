@@ -134,7 +134,7 @@ Regions reported independently (no new aggregate that hides sky regression).
 
 Vulkan GX counters (post-`stg110` sample): `efbCopy` all **sync** (`inline/sync=0/N`); pipe/shader hit rates high after warm-up; `xfHW` saturates ring high-water; `spv fail=0`, `unsup=0`.
 
-**Largest bottleneck:** synchronous EFB-copy fences (A4f/A4h retained for stability). No broad perf optimisation in A4k (correctness first).
+**Largest bottleneck (A4k):** synchronous EFB-copy fences. **A4l** removes per-copy CPU waits via GPU-ordered inline copies — see `A4L_VULKAN_EFB_COPY_SYNCHRONISATION_AND_PERFORMANCE.md`.
 
 ## 11. Vulkan validation
 

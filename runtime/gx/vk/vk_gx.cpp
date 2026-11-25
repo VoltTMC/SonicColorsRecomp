@@ -10,8 +10,10 @@
 #include "../vertex_loader.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <cstring>
+#include <cstdlib>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -336,7 +338,34 @@ VkDescriptorPool s_copyPool = VK_NULL_HANDLE;
 VkDescriptorSet s_copySet = VK_NULL_HANDLE;
 Img s_efbColorSnap{}, s_efbDepthSnap{};
 std::unordered_map<uint32_t, EfbCopyCacheEntry> s_efbCopyCache;
+std::vector<EfbCopyCacheEntry> s_efbCopyRetire; // destroyed after next GPU wait
 uint64_t s_efbCopyGen = 1;
+// A4l: bound inline copies per CB so we never reintroduce A4h's unbounded full-EFB TDR.
+// Soft-flush submits+waits once when the budget trips (still far fewer waits than per-copy sync).
+uint32_t s_inlineCopiesSinceSubmit = 0;
+uint64_t s_inlineCopyPixelsSinceSubmit = 0;
+constexpr uint32_t kMaxInlineCopiesPerCb = 256;
+// Bound transfer work per CB. A4h TDR was thousands of full-EFB blits; 64 full-EFB
+// equivalents (region snaps) has been stable on RTX 3080 in A4l benches.
+constexpr uint64_t kMaxInlineCopyPixelsPerCb = 640ull * 528ull * 64ull;
+
+static uint64_t MonoNs()
+{
+    using clock = std::chrono::steady_clock;
+    return (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(clock::now().time_since_epoch()).count();
+}
+
+static void ResetInlineCopyBudget()
+{
+    s_inlineCopiesSinceSubmit = 0;
+    s_inlineCopyPixelsSinceSubmit = 0;
+}
+
+static int EnvFlag(const char* name)
+{
+    const char* e = std::getenv(name);
+    return (e && e[0] && e[0] != '0') ? 1 : 0;
+}
 
 std::unordered_map<std::string, uint32_t> s_unsupCounts;
 
@@ -435,6 +464,13 @@ static void DestroyEfbCopyEntry(EfbCopyCacheEntry& e)
     e.fb = VK_NULL_HANDLE;
     DestroyImg(e.img);
     e = {};
+}
+
+static void RetireEfbCopyEntries()
+{
+    for (auto& e : s_efbCopyRetire)
+        DestroyEfbCopyEntry(e);
+    s_efbCopyRetire.clear();
 }
 
 static uint32_t FindMemoryType(uint32_t typeBits, VkMemoryPropertyFlags props)
@@ -731,7 +767,7 @@ static void EndEfbPass(FrameSlot& fr)
     fr.inEfbPass = false;
 }
 
-static bool DrainFrameSlot(FrameSlot& fr, std::string& error)
+static bool DrainFrameSlot(FrameSlot& fr, std::string& error, bool accountEfbCopy = false)
 {
     if (!fr.recording) return true;
     EndEfbPass(fr);
@@ -740,14 +776,24 @@ static bool DrainFrameSlot(FrameSlot& fr, std::string& error)
     VkSubmitInfo si{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
     si.commandBufferCount = 1;
     si.pCommandBuffers = &fr.cmd;
+    const uint64_t t0 = accountEfbCopy ? MonoNs() : 0;
     VkResult sr = LoadDev<PFN_vkQueueSubmit>("vkQueueSubmit")(Vk_GetGraphicsQueue(), 1, &si, fr.fence);
+    const uint64_t t1 = accountEfbCopy ? MonoNs() : 0;
     if (sr != VK_SUCCESS)
     {
         if (sr == VK_ERROR_DEVICE_LOST) s_deviceLost = true;
         error = "vkQueueSubmit (drain) failed";
         return false;
     }
+    const uint64_t tw0 = accountEfbCopy ? MonoNs() : 0;
     pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
+    if (accountEfbCopy)
+    {
+        s_stats.efbCopySubmitNs += (t1 - t0);
+        s_stats.efbCopyFenceWaits++;
+        s_stats.efbCopyFenceWaitNs += MonoNs() - tw0;
+    }
+    RetireEfbCopyEntries();
     // GPU idle for this slot — recycle host-visible arenas (do not wrap into live ranges).
     ResetFrameDescriptors();
     s_dynUboPos = 0;
@@ -756,6 +802,53 @@ static bool DrainFrameSlot(FrameSlot& fr, std::string& error)
     s_stats.xfRingWraps++;
     fr.vbPos = 0;
     fr.ibPos = 0;
+    ResetInlineCopyBudget();
+    return true;
+}
+
+// A4l: bound CB size without discarding XF/descriptor/VB arenas (unlike DrainFrameSlot).
+// Used when the inline EFB-copy budget trips mid-frame — avoids A4g-class XF disruption.
+static bool SoftSubmitContinue(FrameSlot& fr, std::string& error, bool accountEfbCopy)
+{
+    if (!fr.recording) return true;
+    EndEfbPass(fr);
+    pfn_vkEndCommandBuffer(fr.cmd);
+    fr.recording = false;
+    VkSubmitInfo si{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    si.commandBufferCount = 1;
+    si.pCommandBuffers = &fr.cmd;
+    const uint64_t t0 = accountEfbCopy ? MonoNs() : 0;
+    VkResult sr = LoadDev<PFN_vkQueueSubmit>("vkQueueSubmit")(Vk_GetGraphicsQueue(), 1, &si, fr.fence);
+    const uint64_t t1 = accountEfbCopy ? MonoNs() : 0;
+    if (sr != VK_SUCCESS)
+    {
+        if (sr == VK_ERROR_DEVICE_LOST) s_deviceLost = true;
+        error = "vkQueueSubmit (soft) failed";
+        return false;
+    }
+    const uint64_t tw0 = accountEfbCopy ? MonoNs() : 0;
+    pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
+    if (accountEfbCopy)
+    {
+        s_stats.efbCopySubmitNs += (t1 - t0);
+        s_stats.efbCopyFenceWaits++;
+        s_stats.efbCopyFenceWaitNs += MonoNs() - tw0;
+        s_stats.efbCopySoftFlushes++;
+    }
+    RetireEfbCopyEntries();
+    ResetInlineCopyBudget();
+    // Re-open the same slot; keep vb/ib/xf/dynUbo positions (GPU retired prior ranges).
+    pfn_vkResetFences(Vk_GetDevice(), 1, &fr.fence);
+    pfn_vkResetCommandBuffer(fr.cmd, 0);
+    VkCommandBufferBeginInfo bi{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    if (pfn_vkBeginCommandBuffer(fr.cmd, &bi) != VK_SUCCESS)
+    {
+        error = "soft BeginCommandBuffer failed";
+        return false;
+    }
+    fr.recording = true;
+    fr.inEfbPass = false;
     return true;
 }
 
@@ -1130,6 +1223,7 @@ static void DestroyCopyUtil()
     for (auto& kv : s_efbCopyCache)
         DestroyEfbCopyEntry(kv.second);
     s_efbCopyCache.clear();
+    RetireEfbCopyEntries();
     DestroyImg(s_efbColorSnap);
     DestroyImg(s_efbDepthSnap);
     if (s_copyPipe) pfn_vkDestroyPipeline(dev, s_copyPipe, nullptr);
@@ -1337,15 +1431,21 @@ static bool EnsureEfbCopyDest(EfbCopyCacheEntry& e, uint32_t rw, uint32_t rh, ui
 {
     VkDevice dev = Vk_GetDevice();
     if (e.img.view && e.w == rw && e.h == rh) return true;
-    DestroyEfbCopyEntry(e);
+    // A4l: defer destroy until after a GPU wait — size churn must not force a mid-CB sync.
+    if (e.img.view || e.fb)
+    {
+        s_efbCopyRetire.push_back(std::move(e));
+        e = {};
+    }
     if (!CreateImg2D(e.img, rw, rh, VK_FORMAT_R8G8B8A8_UNORM,
                      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                      VK_IMAGE_ASPECT_COLOR_BIT))
         return false;
-  e.w = rw;
+    e.w = rw;
     e.h = rh;
     e.tw = tw;
     e.th = th;
+    e.genId = 0; // new image → UNDEFINED layout path in RecordEfbCopyCommands
     VkFramebufferCreateInfo fi{ VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
     fi.renderPass = s_copyPass;
     fi.attachmentCount = 1;
@@ -1825,6 +1925,7 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
         s_xfUploaded = false;
         fr.vbPos = 0;
         fr.ibPos = 0;
+        ResetInlineCopyBudget();
     };
 
     FrameSlot* f = &s_frames[s_frameIdx];
@@ -2111,11 +2212,13 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
     // Retire present blit via its submission fence (not full device idle). Draw CBs were
     // already fence-waited above; descriptor/dynUbo/staging were only used by those CBs.
     Vk_WaitLastSubmit();
+    RetireEfbCopyEntries();
     ResetFrameDescriptors();
     s_dynUboPos = 0;
     s_xfRingPos = 0;
     s_xfUploaded = false;
     s_stagingPos = 0;
+    ResetInlineCopyBudget();
     // Present did not use fr.fence; keep it signaled for EnsureFrameRecording.
     if (!fr.recording)
     {
@@ -2258,53 +2361,11 @@ void VkGx_NoteUnsupported(const char* op)
     s_stats.unsupportedOps++;
 }
 
-bool VkGx_CopyEfbToTexture(const GfxEfbCopyRequest& req, std::string& error)
+// Record region snap + format convert into an already-begun command buffer.
+// Caller owns EFB-pass state (must EndEfbPass first) and submission/retirement.
+static void RecordEfbCopyCommands(FrameSlot& fr, const GfxEfbCopyRequest& req, EfbCopyCacheEntry& entry,
+                                  uint32_t rw, uint32_t rh)
 {
-    std::lock_guard lk(s_mu);
-    if (!s_active)
-    {
-        error = "VkGx inactive";
-        return false;
-    }
-    if (s_deviceLost)
-    {
-        error = "vulkan device previously lost";
-        return false;
-    }
-    if (req.sw <= 0 || req.sh <= 0 || !req.destAddr)
-    {
-        error = "invalid efb copy request";
-        return false;
-    }
-
-    const uint32_t tw = req.half ? (uint32_t)std::max(1, req.sw / 2) : (uint32_t)req.sw;
-    const uint32_t th = req.half ? (uint32_t)std::max(1, req.sh / 2) : (uint32_t)req.sh;
-    const uint32_t rw = tw * (uint32_t)s_scale, rh = th * (uint32_t)s_scale;
-    const uint32_t key = EfbCopyKey(req.destAddr);
-
-    // Drain prior draws so the snap observes EFB at the GX copy point. Full-EFB
-    // inline queues (thousands of blits/CB) previously hit GPU TDR / DEVICE_LOST;
-    // region snaps below cut transfer cost while keeping the fence-sync model.
-    FrameSlot& fr = s_frames[s_frameIdx];
-    if (!DrainFrameSlot(fr, error)) return false;
-    pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
-    pfn_vkResetFences(Vk_GetDevice(), 1, &fr.fence);
-    pfn_vkResetCommandBuffer(fr.cmd, 0);
-    VkCommandBufferBeginInfo bi{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    if (pfn_vkBeginCommandBuffer(fr.cmd, &bi) != VK_SUCCESS)
-    {
-        error = "efb-copy BeginCommandBuffer failed";
-        return false;
-    }
-
-    EfbCopyCacheEntry& entry = s_efbCopyCache[key];
-    if (!EnsureEfbCopyDest(entry, rw, rh, tw, th))
-    {
-        error = "efb-copy dest alloc failed";
-        return false;
-    }
-
     const float u0 = (float)req.sx / (float)kEfbW, v0 = (float)req.sy / (float)kEfbH;
     const float u1 = (float)(req.sx + req.sw) / (float)kEfbW, v1 = (float)(req.sy + req.sh) / (float)kEfbH;
     const int32_t rx0 = (int32_t)req.sx * s_scale, ry0 = (int32_t)req.sy * s_scale;
@@ -2405,31 +2466,159 @@ bool VkGx_CopyEfbToTexture(const GfxEfbCopyRequest& req, std::string& error)
     Barrier(fr.cmd, entry.img.img, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             VK_IMAGE_ASPECT_COLOR_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
+}
 
-    pfn_vkEndCommandBuffer(fr.cmd);
-    VkSubmitInfo si{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    si.commandBufferCount = 1;
-    si.pCommandBuffers = &fr.cmd;
-    VkResult sr = LoadDev<PFN_vkQueueSubmit>("vkQueueSubmit")(Vk_GetGraphicsQueue(), 1, &si, fr.fence);
-    if (sr != VK_SUCCESS)
+bool VkGx_CopyEfbToTexture(const GfxEfbCopyRequest& req, std::string& error)
+{
+    std::lock_guard lk(s_mu);
+    if (!s_active)
     {
-        if (sr == VK_ERROR_DEVICE_LOST) s_deviceLost = true;
-        error = "efb-copy submit failed";
+        error = "VkGx inactive";
         return false;
     }
-    pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
-    fr.recording = false;
+    if (s_deviceLost)
+    {
+        error = "vulkan device previously lost";
+        return false;
+    }
+    if (req.sw <= 0 || req.sh <= 0 || !req.destAddr)
+    {
+        error = "invalid efb copy request";
+        return false;
+    }
 
-    entry.genId = s_efbCopyGen++;
-    // Fingerprint guest RAM so a later CPU texture at the same EA invalidates this copy
-    // (D3D TexEntry::ramHash / ramSize parity — A4i sky/background).
-    static const uint32_t bppTable[16] = { 4, 8, 8, 16, 16, 16, 32, 8, 8, 8, 8, 16, 16, 16, 16, 16 };
-    entry.ramSize = std::max<uint32_t>(32u, tw * th * bppTable[req.fmt & 15u] / 8u);
-    entry.ramHash = Hash64Bytes(PhysPtr(req.destAddr), entry.ramSize);
-    entry.hashedFrame = req.gxFrame;
-    s_stats.efbCopies++;
-    s_stats.efbCopySynced++;
-    s_stats.efbCopyBytes += (uint64_t)rw * rh * 4u;
+    const uint32_t tw = req.half ? (uint32_t)std::max(1, req.sw / 2) : (uint32_t)req.sw;
+    const uint32_t th = req.half ? (uint32_t)std::max(1, req.sh / 2) : (uint32_t)req.sh;
+    const uint32_t rw = tw * (uint32_t)s_scale, rh = th * (uint32_t)s_scale;
+    const uint32_t key = EfbCopyKey(req.destAddr);
+    const uint64_t regionPixels =
+        (uint64_t)std::max(1, req.sw * s_scale) * (uint64_t)std::max(1, req.sh * s_scale);
+
+    static int s_forceSync = -1;
+    static int s_prof = -1;
+    if (s_forceSync < 0)
+    {
+        s_forceSync = EnvFlag("SCR_A4L_EFB_SYNC");
+        s_prof = EnvFlag("SCR_A4L_EFB_PROF");
+        if (s_forceSync)
+            LOG_INFO("A4l: SCR_A4L_EFB_SYNC=1 — per-copy fence wait (A4f/A4k baseline)");
+        else
+            LOG_INFO("A4l: GPU-ordered inline EFB copies (budget {} copies / {} Mpx); "
+                     "SCR_A4L_EFB_SYNC=1 restores sync path",
+                     kMaxInlineCopiesPerCb, (unsigned)(kMaxInlineCopyPixelsPerCb / (1024ull * 1024ull)));
+        if (s_prof) LOG_INFO("A4l: SCR_A4L_EFB_PROF=1 — per-copy timing in vulkan gx stats");
+    }
+
+    FrameSlot& fr = s_frames[s_frameIdx];
+    const uint64_t tCopy0 = MonoNs();
+
+    auto finishMeta = [&](EfbCopyCacheEntry& entry, bool synced) {
+        entry.genId = s_efbCopyGen++;
+        // Fingerprint guest RAM so a later CPU texture at the same EA invalidates this copy
+        // (D3D TexEntry::ramHash / ramSize parity — A4i sky/background).
+        static const uint32_t bppTable[16] = { 4, 8, 8, 16, 16, 16, 32, 8, 8, 8, 8, 16, 16, 16, 16, 16 };
+        entry.ramSize = std::max<uint32_t>(32u, tw * th * bppTable[req.fmt & 15u] / 8u);
+        entry.ramHash = Hash64Bytes(PhysPtr(req.destAddr), entry.ramSize);
+        entry.hashedFrame = req.gxFrame;
+        s_stats.efbCopies++;
+        if (synced) s_stats.efbCopySynced++;
+        else s_stats.efbCopyInline++;
+        s_stats.efbCopyBytes += (uint64_t)rw * rh * 4u;
+        s_inlineCopiesSinceSubmit++;
+        s_inlineCopyPixelsSinceSubmit += regionPixels;
+    };
+
+    // --- Legacy sync path (A4f/A4k): drain, dedicated CB, CPU wait every copy. ---
+    if (s_forceSync)
+    {
+        if (!DrainFrameSlot(fr, error, true)) return false;
+        const uint64_t tw0 = MonoNs();
+        pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
+        s_stats.efbCopyFenceWaits++;
+        s_stats.efbCopyFenceWaitNs += MonoNs() - tw0;
+        pfn_vkResetFences(Vk_GetDevice(), 1, &fr.fence);
+        pfn_vkResetCommandBuffer(fr.cmd, 0);
+        VkCommandBufferBeginInfo bi{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+        bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        if (pfn_vkBeginCommandBuffer(fr.cmd, &bi) != VK_SUCCESS)
+        {
+            error = "efb-copy BeginCommandBuffer failed";
+            return false;
+        }
+        fr.recording = true;
+        fr.inEfbPass = false;
+
+        EfbCopyCacheEntry& entry = s_efbCopyCache[key];
+        if (!EnsureEfbCopyDest(entry, rw, rh, tw, th))
+        {
+            error = "efb-copy dest alloc failed";
+            return false;
+        }
+        const uint64_t tr0 = MonoNs();
+        RecordEfbCopyCommands(fr, req, entry, rw, rh);
+        s_stats.efbCopyRecordNs += MonoNs() - tr0;
+
+        pfn_vkEndCommandBuffer(fr.cmd);
+        fr.recording = false;
+        VkSubmitInfo si{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+        si.commandBufferCount = 1;
+        si.pCommandBuffers = &fr.cmd;
+        const uint64_t ts0 = MonoNs();
+        VkResult sr = LoadDev<PFN_vkQueueSubmit>("vkQueueSubmit")(Vk_GetGraphicsQueue(), 1, &si, fr.fence);
+        s_stats.efbCopySubmitNs += MonoNs() - ts0;
+        if (sr != VK_SUCCESS)
+        {
+            if (sr == VK_ERROR_DEVICE_LOST) s_deviceLost = true;
+            error = "efb-copy submit failed";
+            return false;
+        }
+        const uint64_t tw1 = MonoNs();
+        pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
+        s_stats.efbCopyFenceWaits++;
+        s_stats.efbCopyFenceWaitNs += MonoNs() - tw1;
+        finishMeta(entry, true);
+        ResetInlineCopyBudget();
+        return true;
+    }
+
+    // --- A4l default: GPU-ordered inline copy in the live draw CB (no per-copy wait). ---
+    // A4h TDR came from unbounded full-EFB blits in one CB; we keep region snaps and a
+    // soft-flush budget (submit+wait once when count/pixels trip) instead of waiting every copy.
+    if (fr.recording && (s_inlineCopiesSinceSubmit >= kMaxInlineCopiesPerCb ||
+                         s_inlineCopyPixelsSinceSubmit + regionPixels > kMaxInlineCopyPixelsPerCb ||
+                         s_efbCopyRetire.size() >= 48))
+    {
+        if (!SoftSubmitContinue(fr, error, true)) return false;
+    }
+    else if (!fr.recording)
+        ResetInlineCopyBudget();
+
+    if (!EnsureFrameRecording(fr, error)) return false;
+    EndEfbPass(fr);
+
+    EfbCopyCacheEntry& entry = s_efbCopyCache[key];
+    // Size churn defers old image destroy to RetireEfbCopyEntries (after GPU wait) —
+    // no mid-copy SoftSubmitContinue solely for realloc.
+    if (!EnsureEfbCopyDest(entry, rw, rh, tw, th))
+    {
+        error = "efb-copy dest alloc failed";
+        return false;
+    }
+    const uint64_t tr1 = MonoNs();
+    RecordEfbCopyCommands(fr, req, entry, rw, rh);
+    s_stats.efbCopyRecordNs += MonoNs() - tr1;
+    finishMeta(entry, false);
+
+    if (s_prof && (s_stats.efbCopies % 2048ull) == 1ull)
+    {
+        LOG_INFO("A4l-efb: copies={} inline={} sync={} softFlush={} fenceWaits={} "
+                 "fenceMs={:.1f} recordMs={:.1f} submitMs={:.1f} budget={}/{}px last={}x{} fmt={}",
+                 s_stats.efbCopies, s_stats.efbCopyInline, s_stats.efbCopySynced, s_stats.efbCopySoftFlushes,
+                 s_stats.efbCopyFenceWaits, s_stats.efbCopyFenceWaitNs / 1e6, s_stats.efbCopyRecordNs / 1e6,
+                 s_stats.efbCopySubmitNs / 1e6, s_inlineCopiesSinceSubmit, s_inlineCopyPixelsSinceSubmit, req.sw,
+                 req.sh, req.fmt);
+    }
+    (void)tCopy0;
     return true;
 }
 

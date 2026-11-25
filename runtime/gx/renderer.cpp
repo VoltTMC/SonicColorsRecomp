@@ -3954,11 +3954,12 @@ static void DoEFBCopy()
                     auto st = VkGx_Stats();
                     LOG_INFO("vulkan gx: frames={} draws={} verts={} idx={} pipes hit/miss={}/{} "
                              "shader hit/miss={}/{} spv ok/fail={}/{} texUp={} mipUp={} efbCopy={} "
-                             "(inline/sync={}/{}) xfUp={} xfHW={} unsup={}",
+                             "(inline/sync={}/{} softFlush={} fenceWaitMs={:.1f}) xfUp={} xfHW={} unsup={}",
                              g_framesPresented, st.draws, st.vertices, st.indices, st.pipelineHits,
                              st.pipelineMisses, st.shaderCacheHits, st.shaderCacheMisses, st.spvCompileOk,
                              st.spvCompileFail, st.texUploads, st.texMipUploads, st.efbCopies,
-                             st.efbCopyInline, st.efbCopySynced, st.xfUploads, st.xfRingHighWater,
+                             st.efbCopyInline, st.efbCopySynced, st.efbCopySoftFlushes,
+                             st.efbCopyFenceWaitNs / 1e6, st.xfUploads, st.xfRingHighWater,
                              st.unsupportedOps);
                 }
             }
