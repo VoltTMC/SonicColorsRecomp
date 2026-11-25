@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-25 — I1: Windows input reliability & latency
+
+**Goal:** Stop short Windows taps from vanishing between host polls and guest WPAD/PAD reads; reduce unnecessary host→guest delay without changing sim/audio/Wii semantics.
+
+**Shipped:** `input_edges` sticky rising-edge latch (pad + OS key events); per-guest-frame publish shared by WPAD/PAD; focus-loss clear; `InputEdges_SamplePads` in `FrameLoopWait`/pace waits; `--input-i1` / `SCR_INPUT_I1`; `scr_input_edges_test`; docs `I1_WINDOWS_INPUT_RELIABILITY_AND_LATENCY.md`.
+
+**Evidence:** Synthetic short-press tests OK; Linux + MinGW builds OK; Wine `--list-gamepads` smoke OK. **Native Windows physical keyboard/pad gameplay UNVERIFIED** on this host. D3D11 remains default.
+
 ## 2026-11-25 — A4j: Tropical Resort sky coverage (cull/winding)
 
 **Goal:** Why Vulkan left TR1 sky at EFB clear while D3D covered it; fix through GX path; D3D11 default.

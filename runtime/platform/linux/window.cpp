@@ -2,9 +2,11 @@
 // (Platform_RunGame runs the game elsewhere). dxvk-native presents into it.
 #include "../window.h"
 #include "../platform.h"
+#include "../keys.h"
 #include "sdl.h"
 #include "../../audio/audio_out.h"
 #include "../../config.h"
+#include "../../input/input_edges.h"
 #include "../../log.h"
 #include "../../ui/overlay.h"
 #include "../../version.h"
@@ -23,6 +25,41 @@ static std::atomic<bool> s_mouseInside{ false };
 static int s_windowW = 1, s_windowH = 1;   // in window coordinates (mouse), main thread
 static int s_lastWindowedW = 0, s_lastWindowedH = 0;
 static bool s_maximized = false;
+
+// Map SDL keycodes to the Windows VK codes used by Gamepad_ParseKeys / Key_Down.
+static int SdlKeyToVk(SDL_Keycode k)
+{
+    if (k >= SDLK_A && k <= SDLK_Z) return (int)('A' + (k - SDLK_A));
+    if (k >= SDLK_0 && k <= SDLK_9) return (int)('0' + (k - SDLK_0));
+    if (k >= SDLK_F1 && k <= SDLK_F12) return VK_F1 + (int)(k - SDLK_F1);
+    if (k >= SDLK_KP_1 && k <= SDLK_KP_9) return VK_NUMPAD1 + (int)(k - SDLK_KP_1);
+    switch (k)
+    {
+    case SDLK_KP_0: return VK_NUMPAD0;
+    case SDLK_SPACE: return VK_SPACE;
+    case SDLK_RETURN: case SDLK_KP_ENTER: return VK_RETURN;
+    case SDLK_BACKSPACE: return VK_BACK;
+    case SDLK_TAB: return VK_TAB;
+    case SDLK_ESCAPE: return VK_ESCAPE;
+    case SDLK_LSHIFT: return VK_LSHIFT;
+    case SDLK_RSHIFT: return VK_RSHIFT;
+    case SDLK_LCTRL: return VK_LCONTROL;
+    case SDLK_RCTRL: return VK_RCONTROL;
+    case SDLK_LALT: return VK_LMENU;
+    case SDLK_RALT: return VK_RMENU;
+    case SDLK_UP: return VK_UP;
+    case SDLK_DOWN: return VK_DOWN;
+    case SDLK_LEFT: return VK_LEFT;
+    case SDLK_RIGHT: return VK_RIGHT;
+    case SDLK_INSERT: return VK_INSERT;
+    case SDLK_DELETE: return VK_DELETE;
+    case SDLK_HOME: return VK_HOME;
+    case SDLK_END: return VK_END;
+    case SDLK_PAGEUP: return VK_PRIOR;
+    case SDLK_PAGEDOWN: return VK_NEXT;
+    default: return 0;
+    }
+}
 
 static void UpdateSize()
 {
@@ -245,6 +282,7 @@ static void HandleEvent(const SDL_Event& e)
     case SDL_EVENT_WINDOW_FOCUS_GAINED:
     case SDL_EVENT_WINDOW_FOCUS_LOST:
         s_focused = e.type == SDL_EVENT_WINDOW_FOCUS_GAINED;
+        if (!s_focused) InputEdges_OnFocusChange(false);
         ApplyPauseFromFocusOrMinimize();
         break;
     case SDL_EVENT_MOUSE_MOTION:
@@ -260,6 +298,7 @@ static void HandleEvent(const SDL_Event& e)
         break;
     case SDL_EVENT_KEY_DOWN:
         if (e.key.repeat) break;
+        if (int vk = SdlKeyToVk(e.key.key)) InputEdges_KeyDown(vk);
         {
             const int vkFs = Config_HotkeyVk(g_config.hotkeyFullscreen, 0x7A);   // VK_F11
             const int vkSet = Config_HotkeyVk(g_config.hotkeySettings, 0x70);    // VK_F1
@@ -282,6 +321,23 @@ static void HandleEvent(const SDL_Event& e)
                 Renderer_RequestScreenshot();
             }
         }
+        break;
+    case SDL_EVENT_KEY_UP:
+        if (int vk = SdlKeyToVk(e.key.key)) InputEdges_KeyUp(vk);
+        break;
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+        if (e.button.button == SDL_BUTTON_LEFT) InputEdges_KeyDown(VK_LBUTTON);
+        else if (e.button.button == SDL_BUTTON_RIGHT) InputEdges_KeyDown(VK_RBUTTON);
+        else if (e.button.button == SDL_BUTTON_MIDDLE) InputEdges_KeyDown(VK_MBUTTON);
+        else if (e.button.button == SDL_BUTTON_X1) InputEdges_KeyDown(VK_XBUTTON1);
+        else if (e.button.button == SDL_BUTTON_X2) InputEdges_KeyDown(VK_XBUTTON2);
+        break;
+    case SDL_EVENT_MOUSE_BUTTON_UP:
+        if (e.button.button == SDL_BUTTON_LEFT) InputEdges_KeyUp(VK_LBUTTON);
+        else if (e.button.button == SDL_BUTTON_RIGHT) InputEdges_KeyUp(VK_RBUTTON);
+        else if (e.button.button == SDL_BUTTON_MIDDLE) InputEdges_KeyUp(VK_MBUTTON);
+        else if (e.button.button == SDL_BUTTON_X1) InputEdges_KeyUp(VK_XBUTTON1);
+        else if (e.button.button == SDL_BUTTON_X2) InputEdges_KeyUp(VK_XBUTTON2);
         break;
     }
 }

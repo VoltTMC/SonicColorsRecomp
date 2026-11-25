@@ -12,7 +12,7 @@ You must own the game. No disc image or assets are shipped in this repository or
 
 | Issue | State |
 |---|---|
-| Ridiculous input latency when using Xbox controllers on Windows | fixed in v0.4.0 |
+| Ridiculous input latency when using Xbox controllers on Windows | fixed in v0.4.0 (freshness); I1 adds short-tap edge latch — see `docs/I1_WINDOWS_INPUT_RELIABILITY_AND_LATENCY.md` |
 | Degraded performance the longer you play | fix in progress |
 | Degraded performance in general | fix in progress |
 | Playing at higher than 30fps introduces some physics issues in certain stages | fix in progress |
@@ -36,7 +36,7 @@ Download a package from [Releases](https://github.com/VoltTMC/SonicColorsRecomp/
 
 The launcher installs from **your own** disc image (ISO / RVZ / WIA / WBFS). Do not redistribute game files.
 
-Useful flags: `--help`, `--version`, `--portable`, `--check-updates`, `--download-update`, `--save-diagnostics`, `--list-gamepads`, `--verify-data`, `--prepare --game <disc>`.
+Useful flags: `--help`, `--version`, `--portable`, `--check-updates`, `--download-update`, `--save-diagnostics`, `--list-gamepads`, `--input-i1`, `--input-latency`, `--verify-data`, `--prepare --game <disc>`.
 If the game goes black after a graphics driver update, try System → Clear shader cache.
 Precompiled shaders (A3w/A3z): the packaged portable DXBC cache under `shadercache/` loads **automatically** at startup (no flags). `--precompile-shaders` is for building/updating that cache. Diagnostics: `--no-shader-preload`. See [`docs/A3W_OFFLINE_SHADER_PRECOMPILATION.md`](docs/A3W_OFFLINE_SHADER_PRECOMPILATION.md). Device Vulkan/DXVK pipeline caches are **not** universal.
 

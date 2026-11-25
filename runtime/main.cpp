@@ -150,6 +150,7 @@ static void PrintUsage()
         "  --list-audio-devices    Print playback devices and exit\n"
         "  --list-gamepads         Print connected controllers (slots 0–3) and exit\n"
         "  --input-latency         Log host acquire→guest publish controller timing\n"
+        "  --input-i1              Log button-edge latch diagnostics (short-press preservation)\n"
         "  --music-mods DIR        Music replacement directory\n"
         "  --music-debug           Log music-mod decisions\n"
         "  --movie-mods DIR        Loose SFD cutscene replacement directory\n"
@@ -397,6 +398,11 @@ int main(int argc, char** argv)
         {
             extern void InputLatency_SetEnabled(bool);
             InputLatency_SetEnabled(true);
+        }
+        else if (a == "--input-i1")
+        {
+            extern void InputEdges_SetDiagEnabled(bool);
+            InputEdges_SetDiagEnabled(true);
         }
         else if (a == "--boost-debug") { extern void BoostDebug_SetEnabled(bool); BoostDebug_SetEnabled(true); }
         else if (a == "--input-script" && i + 1 < argc) { extern void Gamepad_LoadScript(const char*); Gamepad_LoadScript(argv[++i]); }

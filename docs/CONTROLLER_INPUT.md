@@ -19,6 +19,7 @@ Launcher / settings overlay: `Ui_FeedGamepadFromPads()` feeds ImGui nav from **p
 - Wine: `wine … --list-gamepads` is an API smoke test only — native Windows hardware still required for release “done”.
 - Diagnostics: `SCR_INPUT_DIAG=1` (throttled). Inventory: `--list-gamepads`.
 - Latency: `SCR_INPUT_LATENCY=1` / `--input-latency` (see `docs/WINDOWS_XBOX_INPUT_LATENCY.md`).
+- Short-press reliability (I1): `SCR_INPUT_I1=1` / `--input-i1` — edge latch so press+release between guest polls still registers (see `docs/I1_WINDOWS_INPUT_RELIABILITY_AND_LATENCY.md`).
 - **Freshness:** `SdlGamepad_Read` always calls `SDL_UpdateJoysticks()` so XInput/HIDAPI state is not tied to the 250 ms hotplug `PumpEvents` throttle.
 
 ## Validation labels

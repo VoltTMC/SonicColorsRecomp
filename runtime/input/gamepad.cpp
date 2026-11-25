@@ -1,7 +1,9 @@
 // Controllers (platform/input.h) with a keyboard fallback for player 1.
 #include "gamepad.h"
+#include "input_edges.h"
 #include "input_latency.h"
 #include "../config.h"
+#include "../perf.h"
 #include "../tas/tas.h"
 #include "../ui/overlay.h"
 #include "../platform/input.h"
@@ -34,7 +36,8 @@ static float Trigger(float v, float dead)
 
 static bool Key(int vk)
 {
-    return Key_Down(vk);
+    // I1: include sticky OS key-down edges so short taps between guest polls register.
+    return InputEdges_KeyEffectiveDown(vk);
 }
 
 // Players 2-4 exist only while their pad is plugged in. Querying an empty XInput slot
@@ -243,7 +246,10 @@ void Gamepad_Poll(int index, GamepadState& out)
         InputLatency_Tick();
         out.connected = true;
         float lt = st.lt / 255.0f, rt = st.rt / 255.0f;
-        uint32_t phys = st.buttons & ~PAD_HOME;
+        // Latch rising edges before publish so short taps between guest frames survive.
+        InputEdges_NotePadButtons(index, st.buttons);
+        const uint64_t gframe = Perf_GuestFrameIndex();
+        uint32_t phys = InputEdges_PublishPad(index, st.buttons & ~PAD_HOME, gframe);
         if (index == 0)
         {
             // View (Back) toggles the settings overlay when released, unless Start was
@@ -331,6 +337,7 @@ void Gamepad_Poll(int index, GamepadState& out)
         any = true;
     }
     if (any) out.connected = true;
+    InputEdges_PublishKeys(Perf_GuestFrameIndex());
 }
 
 bool Gamepad_RumbleAllowed()

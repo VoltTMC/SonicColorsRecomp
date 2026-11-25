@@ -25,6 +25,7 @@
 #include "debug/pose_interp.h"
 #include "debug/decoupled_present.h"
 #include "debug/a3u_player_composite.h"
+#include "input/input_edges.h"
 
 #include <atomic>
 #include <algorithm>
@@ -108,6 +109,7 @@ static void PaceUncappedHost(PPCContext& ctx, uint8_t* base)
             // Hold until next sim; Present(1) already happened for this XFB.
             uint32_t ms = (uint32_t)((s_nextSimDeadline - now) * 1000ull / freq);
             if (ms > 2) ms = 2;
+            InputEdges_SamplePads();
             if (ms > 0) Platform_SleepMs(ms);
             else Platform_SleepMs(0);
         }
@@ -135,6 +137,7 @@ static void PaceUncappedHost(PPCContext& ctx, uint8_t* base)
                 const uint64_t waitTicks = presentPeriod - (now - s_lastRepeatPresent);
                 uint32_t ms = (uint32_t)(waitTicks * 1000ull / freq);
                 if (ms > 2) ms = 2;
+                InputEdges_SamplePads();
                 if (ms > 0) Platform_SleepMs(ms);
             }
         }
@@ -180,6 +183,9 @@ extern "C" bool Perf_Guest60Forced() { return Guest60Forced(); }
 //   - PaceUncappedHost holds the guest to 60 sim Hz and re-presents between steps.
 PPC_OVERRIDE(FrameLoopWait)
 {
+    // I1: sample pads before the guest ticks so edges that arrived during the last
+    // present/wait are latched before WPAD/PAD reads.
+    InputEdges_SamplePads();
     const uint32_t w = WaitFields();
     const uint32_t dt = Perf_DtFields();
     const uint32_t obj = ctx.r[3];

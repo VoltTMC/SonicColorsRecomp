@@ -1,6 +1,7 @@
 // The game window on Windows: its own thread runs the message loop.
 #include "../window.h"
 #include "../../config.h"
+#include "../../input/input_edges.h"
 #include "../../log.h"
 #include "../../ui/overlay.h"
 #include "../../version.h"
@@ -40,6 +41,9 @@ static void RememberWindowedSize(HWND hwnd)
 
 static void ApplyPauseFromFocusOrMinimize(bool appActive)
 {
+    // Always clear sticky/held host edges on focus loss so keys/pads cannot stick.
+    if (!appActive || (s_hwnd && IsIconic(s_hwnd)))
+        InputEdges_OnFocusChange(false);
     if (!g_config.pauseOnFocusLoss || !s_hwnd) return;
     extern std::atomic<bool> g_pauseRequested;
     const bool pause = !appActive || IsIconic(s_hwnd);
@@ -126,6 +130,11 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         }
         return 0;
     case WM_KEYDOWN:
+    case WM_SYSKEYDOWN:
+        // Bit 30 set ⇒ was already down (auto-repeat). Only latch true edges.
+        if (!(lp & (1u << 30)))
+            InputEdges_KeyDown((int)wp);
+        if (msg == WM_KEYDOWN)
         {
             const int vkFs = Config_HotkeyVk(g_config.hotkeyFullscreen, VK_F11);
             const int vkSet = Config_HotkeyVk(g_config.hotkeySettings, VK_F1);
@@ -143,9 +152,27 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
                 Renderer_RequestScreenshot();
             }
         }
+        else if (wp == VK_RETURN)
+        {
+            SendMessageW(hwnd, WM_KEYDOWN, VK_RETURN, lp);
+            return 0;
+        }
         break;
-    case WM_SYSKEYDOWN:
-        if (wp == VK_RETURN) { SendMessageW(hwnd, WM_KEYDOWN, VK_RETURN, lp); return 0; }
+    case WM_KEYUP:
+    case WM_SYSKEYUP:
+        InputEdges_KeyUp((int)wp);
+        break;
+    case WM_LBUTTONDOWN: InputEdges_KeyDown(VK_LBUTTON); break;
+    case WM_LBUTTONUP:   InputEdges_KeyUp(VK_LBUTTON); break;
+    case WM_RBUTTONDOWN: InputEdges_KeyDown(VK_RBUTTON); break;
+    case WM_RBUTTONUP:   InputEdges_KeyUp(VK_RBUTTON); break;
+    case WM_MBUTTONDOWN: InputEdges_KeyDown(VK_MBUTTON); break;
+    case WM_MBUTTONUP:   InputEdges_KeyUp(VK_MBUTTON); break;
+    case WM_XBUTTONDOWN:
+        InputEdges_KeyDown(GET_XBUTTON_WPARAM(wp) == XBUTTON1 ? VK_XBUTTON1 : VK_XBUTTON2);
+        break;
+    case WM_XBUTTONUP:
+        InputEdges_KeyUp(GET_XBUTTON_WPARAM(wp) == XBUTTON1 ? VK_XBUTTON1 : VK_XBUTTON2);
         break;
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
