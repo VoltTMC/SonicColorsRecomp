@@ -1,17 +1,22 @@
 #pragma once
-// A5a/A5b: backend-independent native graphics front-end surface.
+// A5a–A5c: backend-independent native graphics front-end surface.
 // Game-facing code and PPC_OVERRIDE adapters must not see Vk* or D3D11 types.
 // Draw submission still flows through GfxDrawBatch → gfx_backend (D3D11/Vulkan).
 #include "gfx_draw.h"
 
 #include <cstdint>
 
-// Opt-in: SCR_A5A_DIRECT=1 routes selected GX SDK calls through typed GX-thread
+// Opt-in: SCR_A5A_DIRECT=1 routes selected GX SDK XF calls through typed GX-thread
 // commands instead of write-gather FIFO bytes. Default off (legacy reference).
 bool GfxNative_DirectEnabled();
 
-// Profiling: SCR_A5A_PROF=1 (or SCR_A5A_DIRECT) accumulates host counters.
+// Opt-in: SCR_A5C_DIRECT_BP=1 routes selected BP-backed GX SDK calls (TEV/blend/Z)
+// through typed BP commands. Default off. Independent of SCR_A5A_DIRECT.
+bool GfxNative_DirectBpEnabled();
+
+// Profiling: SCR_A5A_PROF=1 (or SCR_A5A_DIRECT / SCR_A5C_DIRECT_BP) accumulates host counters.
 // SCR_A5B_PROF=1 enables fine-grained RunCommands category self-times.
+// SCR_A5C_BP_PROFILE=1 enables per-BP-register write/nop/special counters.
 bool GfxNative_ProfEnabled();
 bool GfxNative_DecodeProfEnabled();
 
@@ -37,12 +42,17 @@ struct GfxNativeStats
     uint64_t dlCalls = 0;
     uint64_t xfLoads = 0;             // FIFO-path XF (0x10 / indexed)
     uint64_t bpLoads = 0;
-    uint64_t bpNop = 0;               // BP write with unchanged value (A5b)
+    uint64_t bpNop = 0;               // identical ordinary BP skipped (A5b/A5c; requires valid shadow)
     uint64_t cpLoads = 0;
     uint64_t directXf = 0;            // typed XF via overrides (pos/nrm/tex)
     uint64_t directPos = 0;
     uint64_t directNrm = 0;
     uint64_t directTex = 0;
+    uint64_t directBp = 0;            // typed BP via A5c overrides
+    uint64_t directBpBlend = 0;
+    uint64_t directBpZ = 0;
+    uint64_t directBpTev = 0;
+    uint64_t directBpPeBit = 0;       // color/alpha update
     uint64_t directFallback = 0;
     uint64_t directDlRecord = 0;      // fell back because RecordingToRAM
     uint64_t fifoBytesAvoided = 0;
@@ -62,6 +72,9 @@ void GfxNative_LogStats(const char* tag);
 
 // Ordered typed XF load (GX thread). afterFifoW is captured inside.
 bool GfxNative_EnqueueXfImm(uint32_t addr, uint32_t count, const uint32_t* words, bool wordsAreBE);
+
+// Ordered typed BP write (full word = reg<<24 | val24). afterFifoW captured inside.
+bool GfxNative_EnqueueBp(uint32_t word);
 
 void GfxNative_DrainReady(size_t fifoBytesConsumedTotal);
 

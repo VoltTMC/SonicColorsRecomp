@@ -108,3 +108,12 @@ SIGetType                    func 8038AAA0
 GXLoadPosMtxImm              func 8036EE10
 GXLoadNrmMtxImm              func 8036EE90
 GXLoadTexMtxImm              func 8036EF50
+# A5c BP-backed SDK (SNCP8P DOL; verified vs recomp fn_8036*)
+GXSetTevColorIn              func 8036D500
+GXSetTevAlphaIn              func 8036D540
+GXSetTevColorOp              func 8036D580
+GXSetTevAlphaOp              func 8036D5E0
+GXSetBlendMode               func 8036DFD0
+GXSetColorUpdate             func 8036E020
+GXSetAlphaUpdate             func 8036E050
+GXSetZMode                   func 8036E080

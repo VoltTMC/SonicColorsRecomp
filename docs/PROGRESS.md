@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-25 — A5c: BP shadow + direct TEV/blend/Z adapters
+
+**Goal:** Cut measured BP decode cost via a coherent `__gx`/host BP shadow and opt-in direct SDK adapters; audit indexed XF and DL caching without unsafe rewrites.
+
+**Shipped:** `gx_shadow` validity/classification + shared `GX_ApplyBpWord`; `SCR_A5C_DIRECT_BP` overrides for SNCP8P `GXSetTevColor/AlphaIn/Op`, `GXSetBlendMode`, `GXSetColor/AlphaUpdate`, `GXSetZMode`; `SCR_A5C_BP_PROFILE`; `tools/a5c_tr1_bench.sh`; `scr_a5c_bp_shadow_test`; docs `A5C_NATIVE_BP_SHADOW_AND_SDK_ADAPTERS.md`, `A5C_BP_SHADOW_DESIGN.md`, `A5C_DISPLAY_LIST_CACHE_AUDIT.md`. Indexed XF direct **deferred**. DL cache **unimplemented** (feasibility only).
+
+**Evidence (RTX 3080):** Hot BP regs `0x0F`/`0x66`/`0x8C`/`0x30`/`0x31`/…; combined run `directBp≈26k` (`tev≈12k` `blend≈7k` `z≈5k`) + `directXf≈2.4k`, `avoided≈253KiB`, `fallback=0`; title ~58–60 unique_xfb; load-watchdog flakes on some DIRECT_BP-only windows (no outdoor mid claim). Unit + Linux/MinGW OK. FIFO retained. AMD/RADV **deferred**. Win Vulkan **UNVERIFIED**. D3D11 default.
+
 ## 2026-11-25 — A5b: GX decode profile + TexMtxImm + BP nop
 
 **Goal:** Break down RunCommands cost; expand safe direct XF; cheapen remaining FIFO decode.

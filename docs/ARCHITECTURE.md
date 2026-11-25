@@ -64,7 +64,7 @@ Distinguish three layers (see `docs/A5A_NATIVE_GRAPHICS_ARCHITECTURE_AUDIT.md`):
 2. **GX compatibility processing** — write-gather FIFO / display lists → `g_gx` → `GfxDrawBatch` (default path).
 3. **Native GPU execution** — D3D11 (default) or Vulkan consumes `GfxDrawBatch`.
 
-Opt-in `SCR_A5A_DIRECT=1` replaces selected GX SDK matrix loads (`Pos/Nrm/TexMtxImm`, SNCP8P `8036EE10`/`EE90`/`EF50`) with typed GX-thread commands (still ordered vs FIFO). A5b profiles `RunCommands` (BP-dominated) and skips identical non-special BP writes. It does **not** mean “the GPU is fully native” — Vulkan draws were already native; A5a/A5b move the *front-end* closer to recompiled code while DLs/BP/CP/draws remain compatibility work.
+Opt-in `SCR_A5A_DIRECT=1` replaces selected GX SDK matrix loads (`Pos/Nrm/TexMtxImm`, SNCP8P `8036EE10`/`EE90`/`EF50`) with typed GX-thread commands (still ordered vs FIFO). A5b profiles `RunCommands` (BP-dominated) and skips identical non-special BP writes. A5c adds a coherent BP shadow (`gx_shadow`) plus opt-in `SCR_A5C_DIRECT_BP=1` for SNCP8P TEV/blend/Z/PE setters (`8036D500`–`8036E080`), still ordered vs FIFO and using `PPC_ORIGINAL` during DL recording. It does **not** mean “the GPU is fully native” — Vulkan draws were already native; A5a–A5c move the *front-end* closer to recompiled code while DLs/BP/CP/draws remain compatibility work. See `docs/A5C_NATIVE_BP_SHADOW_AND_SDK_ADAPTERS.md`.
 
 ## Known gaps (post-boot)
 

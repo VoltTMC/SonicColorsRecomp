@@ -1,5 +1,6 @@
 // GX command processor: CP/PE registers, write-gather pipe and opcode decoding.
 #include "gx_state.h"
+#include "gx_shadow.h"
 #include "gfx_native.h"
 #include "../debug/a2b_fifo_archive.h"
 #include "../debug/a2c_scratch_replay.h"
@@ -305,44 +306,8 @@ void GX_PE_Token(uint16_t token, bool interrupt)
 
 static void LoadBP(uint32_t word)
 {
-    uint32_t reg = word >> 24;
-    uint32_t val = word & 0xFFFFFF;
-    uint32_t mask = g_gx.bpMaskValue;
-    g_gx.bpMaskValue = 0xFFFFFF;
-    if (reg == 0xFE)
-    {
-        g_gx.bpMaskValue = val;
-        return;
-    }
-    uint32_t old = g_gx.bp[reg];
-    uint32_t nv = (old & ~mask) | (val & mask);
-    const bool special = reg == 0x52 || reg == 0x65 || (reg >= 0xE0 && reg <= 0xE7) ||
-                         reg == 0x45 || reg == 0x47 || reg == 0x48;
-    // A5b: identical BP (non-special) is a pure no-op — skip flush and OnBP.
-    if (nv == old && !special)
-    {
-        GfxNative_NoteBpNop();
-        return;
-    }
-    // pending geometry must be drawn with the state it was submitted under
-    if (nv != old || reg == 0x52 || reg == 0x65 || (reg >= 0xE0 && reg <= 0xE7))
-        Render_Flush();
-    g_gx.bp[reg] = nv;
-    switch (reg)
-    {
-    case 0x45:   // PE_DONE (draw done)
-        if (nv & 2) GX_PE_Finish();
-        break;
-    case 0x47:   // PE token
-        GX_PE_Token((uint16_t)nv, false);
-        break;
-    case 0x48:   // PE token + interrupt
-        GX_PE_Token((uint16_t)nv, true);
-        break;
-    default:
-        break;
-    }
-    Render_OnBP(reg, old, nv);
+    // A5c: shared apply with shadow validity / special classification.
+    GX_ApplyBpWord(word);
 }
 
 static size_t RunCommands(const uint8_t* p, size_t n, bool inDisplayList);
@@ -757,6 +722,7 @@ void GX_Init()
 {
     memset(&g_gx, 0, sizeof(g_gx));
     g_gx.bpMaskValue = 0xFFFFFF;
+    GxShadow_InvalidateAll("GX_Init");
     s_fifo.reserve(1 << 20);
 }
 

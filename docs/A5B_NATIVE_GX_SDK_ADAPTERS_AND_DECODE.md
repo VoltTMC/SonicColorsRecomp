@@ -22,8 +22,8 @@ Summary: **BP ≈ 76%** of handler self-time; indexed XF ≈ 17%; imm XF ≈ 4%;
 | `GXLoadPosMtxImm` | `8036EE10` | XF pos 12f | A5a |
 | `GXLoadNrmMtxImm` | `8036EE90` | XF nrm 9f | A5a |
 | `GXLoadTexMtxImm` | `8036EF50` | XF tex 8/12f | **A5b** |
-| BP writers (`8036D9A0`, `8036DFD0`, …) | various | TEV/blend/… | Candidate (shadow/`__gx`) |
-| Indexed XF | opcodes `0x20–0x38` | array loads | Keep FIFO |
+| BP writers (`8036D500`–`8036E080`, …) | various | TEV/blend/Z | **A5c** `SCR_A5C_DIRECT_BP` |
+| Indexed XF | opcodes `0x20–0x38` | array loads | Keep FIFO (A5c deferred) |
 
 Do **not** use RENE8P `tools/sdk_names.txt` `8056****` labels for Colors.
 
@@ -75,8 +75,10 @@ Honest claims:
 
 ## 17–19. Remaining work / deferred
 
-- Direct BP/TEV/blend adapters with `__gx` parity.
-- Indexed XF typing.
-- Safe DL metadata cache.
+- Direct BP/TEV/blend adapters with `__gx` parity → **A5c** (`SCR_A5C_DIRECT_BP`).
+- Indexed XF typing → still deferred (A5c audit).
+- Safe DL metadata cache → feasibility only in A5c (unimplemented).
 - AMD/RADV **deferred, unverified**.
 - Native Windows Vulkan **unverified**.
+
+See [`A5C_NATIVE_BP_SHADOW_AND_SDK_ADAPTERS.md`](A5C_NATIVE_BP_SHADOW_AND_SDK_ADAPTERS.md).
