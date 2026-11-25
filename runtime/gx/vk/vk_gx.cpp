@@ -2620,8 +2620,10 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
                  s_stats.xfDedupHits, s_stats.xfBytesUploaded, s_stats.xfMemcpyNs / 1e6, s_stats.descUpdates,
                  s_stats.descCacheHits, s_stats.gpuEfbCopyNs / 1e6, s_stats.gpuEfbCopySamples,
                  s_stats.gpuPresentNs / 1e6);
-        if (GfxNative_ProfEnabled()) GfxNative_LogStats("present");
     }
+    // A5b: emit decode/direct counters without requiring A4n present profiling.
+    if (GfxNative_ProfEnabled() && (s_stats.presentCount % 64ull) == 1ull)
+        GfxNative_LogStats("present");
     RetireEfbCopyEntries();
     ResetFrameDescriptors();
     s_dynUboPos = 0;

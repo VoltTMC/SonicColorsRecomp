@@ -1,5 +1,5 @@
 #pragma once
-// A5a: backend-independent native graphics front-end surface.
+// A5a/A5b: backend-independent native graphics front-end surface.
 // Game-facing code and PPC_OVERRIDE adapters must not see Vk* or D3D11 types.
 // Draw submission still flows through GfxDrawBatch → gfx_backend (D3D11/Vulkan).
 #include "gfx_draw.h"
@@ -11,24 +11,49 @@
 bool GfxNative_DirectEnabled();
 
 // Profiling: SCR_A5A_PROF=1 (or SCR_A5A_DIRECT) accumulates host counters.
+// SCR_A5B_PROF=1 enables fine-grained RunCommands category self-times.
 bool GfxNative_ProfEnabled();
+bool GfxNative_DecodeProfEnabled();
+
+enum class GfxDecodeCat : uint8_t
+{
+    Cp = 0,
+    XfImm,
+    XfIdx,
+    Bp,
+    DlCall,   // CallDisplayList wall (includes nested RunCommands)
+    Draw,     // Render_Draw wall
+    Dispatch, // opcode decode / layout / bookkeeping self (approx)
+    Count
+};
 
 struct GfxNativeStats
 {
-    uint64_t fifoBytesIn = 0;       // bytes entering Gather (non-DL)
-    uint64_t fifoBytesDecoded = 0;  // bytes consumed by RunCommands
-    uint64_t cmdsDecoded = 0;       // complete GX opcodes parsed
-    uint64_t drawOps = 0;           // draw packets (0x80+)
+    uint64_t fifoBytesIn = 0;         // bytes entering Gather (non-DL)
+    uint64_t fifoBytesDecoded = 0;    // top-level FIFO bytes only (no nested DL)
+    uint64_t dlBytesDecoded = 0;      // bytes consumed inside display lists
+    uint64_t cmdsDecoded = 0;         // top-level + nested complete opcodes
+    uint64_t drawOps = 0;
     uint64_t dlCalls = 0;
-    uint64_t xfLoads = 0;           // FIFO-path XF (0x10 / indexed)
+    uint64_t xfLoads = 0;             // FIFO-path XF (0x10 / indexed)
     uint64_t bpLoads = 0;
+    uint64_t bpNop = 0;               // BP write with unchanged value (A5b)
     uint64_t cpLoads = 0;
-    uint64_t directXf = 0;          // typed XF via A5a overrides
-    uint64_t directFallback = 0;    // override fell back to PPC_ORIGINAL
-    uint64_t fifoBytesAvoided = 0;  // pipe bytes not written due to direct XF
+    uint64_t directXf = 0;            // typed XF via overrides (pos/nrm/tex)
+    uint64_t directPos = 0;
+    uint64_t directNrm = 0;
+    uint64_t directTex = 0;
+    uint64_t directFallback = 0;
+    uint64_t directDlRecord = 0;      // fell back because RecordingToRAM
+    uint64_t fifoBytesAvoided = 0;
     uint64_t gatherNs = 0;
+    // decodeNs: TOP-LEVEL RunCommands wall only (excludes nested double-count).
     uint64_t decodeNs = 0;
+    // decodeNestedNs: sum of in-DL RunCommands walls (subset of DlCall inclusive).
+    uint64_t decodeNestedNs = 0;
     uint64_t typedApplyNs = 0;
+    uint64_t catNs[(size_t)GfxDecodeCat::Count]{};
+    uint64_t catCount[(size_t)GfxDecodeCat::Count]{};
 };
 
 const GfxNativeStats& GfxNative_Stats();
@@ -36,13 +61,13 @@ void GfxNative_StatsReset();
 void GfxNative_LogStats(const char* tag);
 
 // Ordered typed XF load (GX thread). afterFifoW is captured inside.
-// words: count big-endian GX wire words (as in FIFO), or host-endian floats bitcast.
 bool GfxNative_EnqueueXfImm(uint32_t addr, uint32_t count, const uint32_t* words, bool wordsAreBE);
 
-// Drain typed commands whose FIFO watermark has been reached (GX thread only).
 void GfxNative_DrainReady(size_t fifoBytesConsumedTotal);
 
-// Called from Gather / RunCommands when profiling.
 void GfxNative_NoteGather(uint64_t bytes, uint64_t ns);
-void GfxNative_NoteDecode(uint64_t bytes, uint64_t cmds, uint64_t ns);
+// topLevel: false when RunCommands is executing a display list body.
+void GfxNative_NoteDecode(uint64_t bytes, uint64_t cmds, uint64_t ns, bool topLevel);
 void GfxNative_NoteOpcode(uint8_t op);
+void GfxNative_NoteDecodeCat(GfxDecodeCat cat, uint64_t ns);
+void GfxNative_NoteBpNop();

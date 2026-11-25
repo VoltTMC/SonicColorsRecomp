@@ -102,8 +102,9 @@ PADRead                      func 80357660
 # SIGetType: used by PAD type probe fn_80357B20 (game callers at 802241F4+)
 SIGetType                    func 8038AAA0
 
-# ---------------------------------------------------------------- GX SDK (A5a direct path)
+# ---------------------------------------------------------------- GX SDK (A5a/A5b direct path)
 # SNCP8P RVL GXTransform (NOT tools/sdk_names.txt RENE8P 8056**** — those are wrong for Colors).
-# Evidence: DOL @ 8036EE10 lis/stb XF 0x10 + oris size-1=0xB + 12 floats; 8036EE90 nrm @+0x400 size-1=8.
+# Evidence: DOL @ 8036EE10 XF 0x10 + size-1=0xB; 8036EE90 nrm @+0x400; 8036EF50 tex mtx id/type.
 GXLoadPosMtxImm              func 8036EE10
 GXLoadNrmMtxImm              func 8036EE90
+GXLoadTexMtxImm              func 8036EF50

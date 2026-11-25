@@ -463,6 +463,15 @@ if(WIN32 OR LINUX)
                                                               RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
                                                               RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
 
+    # A5b: GXLoadTexMtxImm XF address/count mapping (SNCP8P 8036EF50).
+    add_executable(scr_a5b_texmtx_addr_test EXCLUDE_FROM_ALL tools/a5b_texmtx_addr_test/main.cpp)
+    if(LINUX)
+        target_link_options(scr_a5b_texmtx_addr_test PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
+    set_target_properties(scr_a5b_texmtx_addr_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${SCR_OUT_DIR}
+                                                              RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
+                                                              RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
+
     add_executable(scr_shader_cache_test EXCLUDE_FROM_ALL
                    tools/shader_cache_test/main.cpp runtime/gx/shader_cache.cpp)
     target_include_directories(scr_shader_cache_test PRIVATE runtime)

@@ -1,4 +1,4 @@
-// A5a: opt-in direct GX SDK → typed GX-thread commands (ordered vs FIFO).
+// A5a/A5b: opt-in direct GX SDK → typed GX-thread commands (ordered vs FIFO).
 #include "gfx_native.h"
 #include "gx_state.h"
 #include "../game_addrs.h"
@@ -10,7 +10,6 @@
 #include <cstring>
 #include <mutex>
 
-// Defined in gx_fifo.cpp (A5a hooks).
 size_t GX_FifoBytesWritten();
 void GX_FifoPublishPending();
 void GX_FifoSkipPipeBytes(uint32_t bytes);
@@ -39,6 +38,7 @@ std::mutex s_statsMu;
 
 int s_direct = -1;
 int s_prof = -1;
+int s_decodeProf = -1;
 
 uint64_t MonoNs()
 {
@@ -55,12 +55,14 @@ void EnsureFlags()
         const char* e = std::getenv("SCR_A5A_DIRECT");
         s_direct = (e && e[0] == '1') ? 1 : 0;
         if (s_direct)
-            LOG_INFO("A5a: DIRECT=1 — GXLoadPosMtxImm@8036EE10 / GXLoadNrmMtxImm@8036EE90 → typed XF");
+            LOG_INFO("A5a/A5b: DIRECT=1 — Pos/Nrm/TexMtxImm → typed XF (SNCP8P 8036EE10/EE90/EF50)");
     }
     if (s_prof < 0)
     {
         const char* e = std::getenv("SCR_A5A_PROF");
-        s_prof = (e && e[0] && e[0] != '0') || s_direct ? 1 : 0;
+        const char* e2 = std::getenv("SCR_A5B_PROF");
+        s_prof = (e && e[0] && e[0] != '0') || (e2 && e2[0] && e2[0] != '0') || s_direct ? 1 : 0;
+        s_decodeProf = (e2 && e2[0] == '1') || s_prof ? 1 : 0;
     }
 }
 
@@ -68,14 +70,12 @@ bool EnqueueXf(uint32_t addr, uint32_t count, const uint32_t* hostWords)
 {
     if (count == 0 || count > kXfWordsMax || !hostWords) return false;
     EnsureFlags();
-    // Finish any published FIFO bytes so afterFifoW matches visible pipe progress.
     GX_FifoPublishPending();
     const size_t after = GX_FifoBytesWritten();
     uint32_t w = s_typedW.load(std::memory_order_relaxed);
     uint32_t r = s_typedR.load(std::memory_order_acquire);
     if (w - r >= kTypedCap)
     {
-        // Backpressure: sync GPU so the typed ring drains.
         auto lk = GX_SyncGPU();
         (void)lk;
         r = s_typedR.load(std::memory_order_acquire);
@@ -88,7 +88,6 @@ bool EnqueueXf(uint32_t addr, uint32_t count, const uint32_t* hostWords)
     std::memcpy(slot.words, hostWords, count * sizeof(uint32_t));
     s_typedW.store(w + 1, std::memory_order_release);
     GX_FifoWakeGpu();
-    // Pipe bytes the SDK would have written: 0x10 + u32 header + count*u32.
     const uint32_t avoided = 5u + 4u * count;
     GX_FifoSkipPipeBytes(avoided);
     if (GfxNative_ProfEnabled())
@@ -138,6 +137,12 @@ bool GfxNative_ProfEnabled()
     return s_prof != 0;
 }
 
+bool GfxNative_DecodeProfEnabled()
+{
+    EnsureFlags();
+    return s_decodeProf != 0;
+}
+
 const GfxNativeStats& GfxNative_Stats() { return s_stats; }
 
 void GfxNative_StatsReset()
@@ -149,11 +154,17 @@ void GfxNative_StatsReset()
 void GfxNative_LogStats(const char* tag)
 {
     const GfxNativeStats& s = s_stats;
-    LOG_INFO("A5a-{}: fifoIn={} decoded={} cmds={} draws={} dl={} xf={} bp={} cp={} "
-             "directXf={} fallback={} avoided={} gatherMs={:.1f} decodeMs={:.1f} typedMs={:.1f}",
-             tag ? tag : "stats", s.fifoBytesIn, s.fifoBytesDecoded, s.cmdsDecoded, s.drawOps, s.dlCalls,
-             s.xfLoads, s.bpLoads, s.cpLoads, s.directXf, s.directFallback, s.fifoBytesAvoided,
-             s.gatherNs / 1e6, s.decodeNs / 1e6, s.typedApplyNs / 1e6);
+    LOG_INFO("A5b-{}: fifoIn={} topDecoded={} dlDecoded={} cmds={} draws={} dl={} xf={} bp={} bpNop={} cp={} "
+             "directXf={} pos={} nrm={} tex={} fallback={} dlRec={} avoided={} "
+             "gatherMs={:.1f} topDecodeMs={:.1f} nestDecodeMs={:.1f} typedMs={:.1f} "
+             "catMs cp={:.1f} xfImm={:.1f} xfIdx={:.1f} bp={:.1f} dl={:.1f} draw={:.1f}",
+             tag ? tag : "stats", s.fifoBytesIn, s.fifoBytesDecoded, s.dlBytesDecoded, s.cmdsDecoded, s.drawOps,
+             s.dlCalls, s.xfLoads, s.bpLoads, s.bpNop, s.cpLoads, s.directXf, s.directPos, s.directNrm, s.directTex,
+             s.directFallback, s.directDlRecord, s.fifoBytesAvoided, s.gatherNs / 1e6, s.decodeNs / 1e6,
+             s.decodeNestedNs / 1e6, s.typedApplyNs / 1e6,
+             s.catNs[(size_t)GfxDecodeCat::Cp] / 1e6, s.catNs[(size_t)GfxDecodeCat::XfImm] / 1e6,
+             s.catNs[(size_t)GfxDecodeCat::XfIdx] / 1e6, s.catNs[(size_t)GfxDecodeCat::Bp] / 1e6,
+             s.catNs[(size_t)GfxDecodeCat::DlCall] / 1e6, s.catNs[(size_t)GfxDecodeCat::Draw] / 1e6);
 }
 
 bool GfxNative_EnqueueXfImm(uint32_t addr, uint32_t count, const uint32_t* words, bool wordsAreBE)
@@ -161,15 +172,7 @@ bool GfxNative_EnqueueXfImm(uint32_t addr, uint32_t count, const uint32_t* words
     if (!words || count == 0 || count > kXfWordsMax) return false;
     uint32_t host[kXfWordsMax];
     if (wordsAreBE)
-    {
-        for (uint32_t i = 0; i < count; i++)
-        {
-            const uint8_t* p = reinterpret_cast<const uint8_t*>(words + i);
-            // Caller passed BE words already packed as host u32 from GuestU32 — treat as host value.
-            host[i] = words[i];
-            (void)p;
-        }
-    }
+        for (uint32_t i = 0; i < count; i++) host[i] = words[i];
     else
         std::memcpy(host, words, count * sizeof(uint32_t));
     return EnqueueXf(addr, count, host);
@@ -197,13 +200,21 @@ void GfxNative_NoteGather(uint64_t bytes, uint64_t ns)
     s_stats.gatherNs += ns;
 }
 
-void GfxNative_NoteDecode(uint64_t bytes, uint64_t cmds, uint64_t ns)
+void GfxNative_NoteDecode(uint64_t bytes, uint64_t cmds, uint64_t ns, bool topLevel)
 {
     if (!GfxNative_ProfEnabled()) return;
     std::lock_guard lk(s_statsMu);
-    s_stats.fifoBytesDecoded += bytes;
     s_stats.cmdsDecoded += cmds;
-    s_stats.decodeNs += ns;
+    if (topLevel)
+    {
+        s_stats.fifoBytesDecoded += bytes;
+        s_stats.decodeNs += ns;
+    }
+    else
+    {
+        s_stats.dlBytesDecoded += bytes;
+        s_stats.decodeNestedNs += ns;
+    }
 }
 
 void GfxNative_NoteOpcode(uint8_t op)
@@ -218,9 +229,28 @@ void GfxNative_NoteOpcode(uint8_t op)
     else if (op == 0x20 || op == 0x28 || op == 0x30 || op == 0x38) s_stats.xfLoads++;
 }
 
-// ---- PPC overrides (only active bodies when DIRECT=1; else call original) ----
+void GfxNative_NoteDecodeCat(GfxDecodeCat cat, uint64_t ns)
+{
+    if (!GfxNative_DecodeProfEnabled()) return;
+    const size_t i = (size_t)cat;
+    if (i >= (size_t)GfxDecodeCat::Count) return;
+    std::lock_guard lk(s_statsMu);
+    s_stats.catNs[i] += ns;
+    s_stats.catCount[i]++;
+}
 
-static void DirectOrOriginalXf(PPCContext& ctx, uint8_t* base, uint32_t xfAddr, uint32_t count, GA orig)
+void GfxNative_NoteBpNop()
+{
+    if (!GfxNative_ProfEnabled()) return;
+    std::lock_guard lk(s_statsMu);
+    s_stats.bpNop++;
+}
+
+// ---- PPC overrides ----
+
+enum class XfKind : uint8_t { Pos, Nrm, Tex };
+
+static void DirectOrOriginalXf(PPCContext& ctx, uint8_t* base, uint32_t xfAddr, uint32_t count, GA orig, XfKind kind)
 {
     EnsureFlags();
     if (!s_direct || GX_FifoRecordingToRAM())
@@ -229,11 +259,11 @@ static void DirectOrOriginalXf(PPCContext& ctx, uint8_t* base, uint32_t xfAddr, 
         {
             std::lock_guard lk(s_statsMu);
             s_stats.directFallback++;
+            if (GX_FifoRecordingToRAM()) s_stats.directDlRecord++;
         }
         g_ppcOriginals[(uint32_t)orig](ctx, base);
         return;
     }
-    // Guest matrices are big-endian f32 in MEM1/MEM2; GuestU32 yields host bit patterns.
     const uint32_t mtxEa = ctx.r[3];
     uint32_t words[kXfWordsMax];
     for (uint32_t i = 0; i < count; i++)
@@ -246,20 +276,36 @@ static void DirectOrOriginalXf(PPCContext& ctx, uint8_t* base, uint32_t xfAddr, 
             s_stats.directFallback++;
         }
         g_ppcOriginals[(uint32_t)orig](ctx, base);
+        return;
+    }
+    if (GfxNative_ProfEnabled())
+    {
+        std::lock_guard lk(s_statsMu);
+        if (kind == XfKind::Pos) s_stats.directPos++;
+        else if (kind == XfKind::Nrm) s_stats.directNrm++;
+        else s_stats.directTex++;
     }
 }
 
 PPC_OVERRIDE(GXLoadPosMtxImm)
 {
-    // void GXLoadPosMtxImm(f32 mtx[3][4], u32 id); XF addr = id*4, 12 floats. SNCP8P @ 8036EE10.
     const uint32_t id = ctx.r[4] & 63u;
-    DirectOrOriginalXf(ctx, base, id * 4u, 12u, GA::GXLoadPosMtxImm);
+    DirectOrOriginalXf(ctx, base, id * 4u, 12u, GA::GXLoadPosMtxImm, XfKind::Pos);
 }
 
 PPC_OVERRIDE(GXLoadNrmMtxImm)
 {
-    // void GXLoadNrmMtxImm(f32 mtx[3][4], u32 id); XF addr = 0x400+id*3, 9 floats. SNCP8P @ 8036EE90.
-    // Wire uses id*4 then +0x400 (DOL); XF nrm slots are 3 words each — match SDK id*3.
     const uint32_t id = ctx.r[4] & 63u;
-    DirectOrOriginalXf(ctx, base, 0x400u + id * 3u, 9u, GA::GXLoadNrmMtxImm);
+    DirectOrOriginalXf(ctx, base, 0x400u + id * 3u, 9u, GA::GXLoadNrmMtxImm, XfKind::Nrm);
+}
+
+PPC_OVERRIDE(GXLoadTexMtxImm)
+{
+    // void GXLoadTexMtxImm(f32 mtx[][4], u32 id, GXTexMtxType type); SNCP8P @ 8036EF50.
+    // id < 0x40 → XF addr id*4; else (id-0x40)*4 + 0x500. type==1 (2x4) → 8 floats else 12.
+    const uint32_t id = ctx.r[4];
+    const uint32_t type = ctx.r[5];
+    const uint32_t addr = (id >= 0x40u) ? ((id - 0x40u) * 4u + 0x500u) : (id * 4u);
+    const uint32_t count = (type == 1u) ? 8u : 12u;
+    DirectOrOriginalXf(ctx, base, addr, count, GA::GXLoadTexMtxImm, XfKind::Tex);
 }

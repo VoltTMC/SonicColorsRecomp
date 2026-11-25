@@ -316,6 +316,14 @@ static void LoadBP(uint32_t word)
     }
     uint32_t old = g_gx.bp[reg];
     uint32_t nv = (old & ~mask) | (val & mask);
+    const bool special = reg == 0x52 || reg == 0x65 || (reg >= 0xE0 && reg <= 0xE7) ||
+                         reg == 0x45 || reg == 0x47 || reg == 0x48;
+    // A5b: identical BP (non-special) is a pure no-op — skip flush and OnBP.
+    if (nv == old && !special)
+    {
+        GfxNative_NoteBpNop();
+        return;
+    }
     // pending geometry must be drawn with the state it was submitted under
     if (nv != old || reg == 0x52 || reg == 0x65 || (reg >= 0xE0 && reg <= 0xE7))
         Render_Flush();
@@ -361,15 +369,18 @@ static size_t RunCommands(const uint8_t* p, size_t n, bool inDisplayList)
 {
     size_t pos = 0;
     uint64_t cmds = 0;
-    const uint64_t t0 = GfxNative_ProfEnabled() ? Platform_PerfCounter() : 0;
+    const bool prof = GfxNative_ProfEnabled();
+    const bool catProf = GfxNative_DecodeProfEnabled();
+    const uint64_t t0 = prof ? Platform_PerfCounter() : 0;
+    const uint64_t freq = (prof || catProf) ? Platform_PerfFrequency() : 0;
+    auto nsSince = [&](uint64_t t) -> uint64_t {
+        if (!freq || !t) return 0;
+        return (Platform_PerfCounter() - t) * 1000000000ull / freq;
+    };
     VertexLayout layout;
     auto finish = [&](size_t ret) -> size_t {
-        if (GfxNative_ProfEnabled() && t0)
-        {
-            const uint64_t freq = Platform_PerfFrequency();
-            const uint64_t ns = freq ? (Platform_PerfCounter() - t0) * 1000000000ull / freq : 0;
-            GfxNative_NoteDecode(ret, cmds, ns);
-        }
+        if (prof && t0)
+            GfxNative_NoteDecode(ret, cmds, nsSince(t0), !inDisplayList);
         return ret;
     };
     while (pos < n)
@@ -380,17 +391,25 @@ static size_t RunCommands(const uint8_t* p, size_t n, bool inDisplayList)
         size_t need;
         switch (op)
         {
-        case 0x00:   // NOP
-            pos += 1;
+        case 0x00:   // NOP — A5b: coalesce runs
+        {
+            size_t k = 1;
+            while (k < left && c[k] == 0) k++;
+            pos += k;
             continue;
+        }
         case 0x08:
+        {
             need = 6;
             if (left < need) return finish(pos);
+            const uint64_t tc = catProf ? Platform_PerfCounter() : 0;
             LoadCPReg(c[1], BE32(c + 2));
+            if (catProf) GfxNative_NoteDecodeCat(GfxDecodeCat::Cp, nsSince(tc));
             GfxNative_NoteOpcode(op);
             cmds++;
             pos += need;
             continue;
+        }
         case 0x10:
         {
             if (left < 5) return finish(pos);
@@ -398,31 +417,43 @@ static size_t RunCommands(const uint8_t* p, size_t n, bool inDisplayList)
             uint32_t count = ((w >> 16) & 0xF) + 1;
             need = 5 + 4 * (size_t)count;
             if (left < need) return finish(pos);
+            const uint64_t tc = catProf ? Platform_PerfCounter() : 0;
             LoadXF(w & 0xFFFF, count, c + 5);
+            if (catProf) GfxNative_NoteDecodeCat(GfxDecodeCat::XfImm, nsSince(tc));
             GfxNative_NoteOpcode(op);
             cmds++;
             pos += need;
             continue;
         }
         case 0x20: case 0x28: case 0x30: case 0x38:
+        {
             need = 5;
             if (left < need) return finish(pos);
+            const uint64_t tc = catProf ? Platform_PerfCounter() : 0;
             LoadIndexedXF(12 + ((op >> 3) & 3), BE32(c + 1));
+            if (catProf) GfxNative_NoteDecodeCat(GfxDecodeCat::XfIdx, nsSince(tc));
             GfxNative_NoteOpcode(op);
             cmds++;
             pos += need;
             continue;
+        }
         case 0x40:
+        {
             need = 9;
             if (left < need) return finish(pos);
             if (inDisplayList)
                 LOG_WARN("GX: nested display list call ignored");
             else
+            {
+                const uint64_t tc = catProf ? Platform_PerfCounter() : 0;
                 CallDisplayList(BE32(c + 1) & 0x1FFFFFE0, BE32(c + 5));
+                if (catProf) GfxNative_NoteDecodeCat(GfxDecodeCat::DlCall, nsSince(tc));
+            }
             GfxNative_NoteOpcode(op);
             cmds++;
             pos += need;
             continue;
+        }
         case 0x44:   // unknown metrics
             pos += 1;
             continue;
@@ -430,13 +461,17 @@ static size_t RunCommands(const uint8_t* p, size_t n, bool inDisplayList)
             pos += 1;
             continue;
         case 0x61:
+        {
             need = 5;
             if (left < need) return finish(pos);
+            const uint64_t tc = catProf ? Platform_PerfCounter() : 0;
             LoadBP(BE32(c + 1));
+            if (catProf) GfxNative_NoteDecodeCat(GfxDecodeCat::Bp, nsSince(tc));
             GfxNative_NoteOpcode(op);
             cmds++;
             pos += need;
             continue;
+        }
         default:
             if (op & 0x80)
             {
@@ -472,12 +507,13 @@ static size_t RunCommands(const uint8_t* p, size_t n, bool inDisplayList)
                 {
                     if (!Render_ReplayIsolationActive() && A2b_FifoCaptureEnabled())
                     {
-                        // Heavy indexed-array/texture closure only when armed.
                         if (A2c_ClosureCaptureEnabled())
                             A2c_OnDraw(vat, count, c + 3, (uint32_t)(need - 3));
                         A2b_NoteDraw();
                     }
+                    const uint64_t tc = catProf ? Platform_PerfCounter() : 0;
                     Render_Draw(prim, vat, count, c + 3, layout);
+                    if (catProf) GfxNative_NoteDecodeCat(GfxDecodeCat::Draw, nsSince(tc));
                 }
                 GfxNative_NoteOpcode(op);
                 cmds++;

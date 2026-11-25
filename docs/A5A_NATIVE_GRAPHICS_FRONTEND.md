@@ -48,6 +48,7 @@ End-of-run sample (`tools/a5a_tr1_bench.sh`):
 |---|---|
 | `GXLoadPosMtxImm` @ `8036EE10` | **Direct** (opt-in) |
 | `GXLoadNrmMtxImm` @ `8036EE90` | **Direct** (opt-in) |
+| `GXLoadTexMtxImm` @ `8036EF50` | **Direct** (opt-in, A5b) |
 | Immediate BP setters | Candidate (`__gx` shadow care) |
 | `GXBegin` / draws | Later — wire + DL coupling |
 | `GXCallDisplayList` | Retain FIFO decode of RAM image |
@@ -65,7 +66,7 @@ Display-list recording/playback, CP VCD/VAT, BP EFB copies, PE IRQ, gather/PI wp
 
 `SCR_A5A_DIRECT=1`:
 
-1. `PPC_OVERRIDE(GXLoadPosMtxImm|GXLoadNrmMtxImm)` at proven SNCP8P starts.
+1. `PPC_OVERRIDE(GXLoadPosMtxImm|GXLoadNrmMtxImm|GXLoadTexMtxImm)` at proven SNCP8P starts.
 2. Publish pending gather; enqueue typed XF with `afterFifoW = s_localW`.
 3. `GX_FifoSkipPipeBytes` for PI gather accounting (`1+4+4*count`).
 4. GX thread `GfxNative_DrainReady` applies XF in order with FIFO decode.

@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-25 — A5b: GX decode profile + TexMtxImm + BP nop
+
+**Goal:** Break down RunCommands cost; expand safe direct XF; cheapen remaining FIFO decode.
+
+**Shipped:** `SCR_A5B_PROF` category self-times; top vs nested decode accounting; NOP coalesce; identical BP skip (`bpNop`); `GXLoadTexMtxImm@8036EF50` on `SCR_A5A_DIRECT`; `tools/a5b_tr1_bench.sh`; `scr_a5b_texmtx_addr_test`; docs `A5B_GX_DECODE_PROFILE.md`, `A5B_NATIVE_GX_SDK_ADAPTERS_AND_DECODE.md`.
+
+**Evidence (RTX 3080):** BP ≈76% of handler self-time; ~0.5M bpNop/run; topDecode ~42s vs nest ~8s; DIRECT tex path `fallback=0`. Late load watchdog flakes on long TR1 (not claimed as FPS win). Linux + MinGW OK. AMD/RADV **deferred**. Win Vulkan **UNVERIFIED**. D3D11 default.
+
 ## 2026-11-25 — A5a: native GX front-end audit + direct XF prototype
 
 **Goal:** Document the real GX→GPU path; measure front-end cost; prototype typed SDK→host commands that bypass unnecessary FIFO XF encoding without breaking ordering.
