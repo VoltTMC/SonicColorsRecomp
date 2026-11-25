@@ -59,7 +59,7 @@ Ported from the D3D11 HLSL generator: up to hardware stage counts in `PSKey` (16
 - Eight combined image samplers per draw; unused maps → 1×1 white + nearest clamp.
 - Per-stage map/coord selection comes from generated TEV (not forced to unit 0).
 - Sampler cache from GX wrap/filter bits (clamp/repeat/mirror × nearest/linear).
-- RAM textures via `GXTex_Decode`; EFB-copy textures still unsupported (logged).
+- RAM textures via `GXTex_Decode`; EFB-copy textures completed in **A4f** (`docs/A4F_EFB_COPIES_AND_TEXTURE_COMPLETENESS.md`).
 
 ## 7. Texture-coordinate generation
 
@@ -85,7 +85,7 @@ Launch: `tools/run_nvidia_vk_validation.sh` + `SCR_VK_DEVICE=3080` + `--skip-lau
 | SPIR-V compile | Cold: **12 ok / 0 fail**; warm: disk+module hits |
 | Pipelines | **14** unique; hit rate ≫ miss |
 | Draws / XFB | e.g. frames=301 draws≈21k; sustained frames=601 draws≈42k |
-| Unsupported | `efb-copy-to-texture` / `efb-copy-texture` (expected) |
+| Unsupported (A4e) | `efb-copy-to-texture` (expected then; fixed in A4f) |
 | Khronos validation | **0** `Validation Error` in A4e title runs |
 
 ## 10. D3D11 versus Vulkan screenshots
@@ -111,17 +111,15 @@ After Vulkan Y-fix, resized MAE(title safety frame ≈shot 0010) **≈3.1** (was
 
 ## 13. Remaining unsupported GX features
 
-- Full EFB→texture / framebuffer feedback
 - Complete lighting/fog parity beyond what the generator already emits
 - Overlay completeness
-- Mipmap uploads on Vulkan (base level decode only for now)
+- EFB→texture / multi-mip: see **A4f**
 - AMD/RADV; native Windows Vulkan GPU
 
 ## 14. Known visual differences / bugs
 
 - MAE ~3 on compared title frames after Y-fix (not zero).
-- EFB-copy materials missing (logged).
-- `--shots` D3D path writes cwd `shot_*.bmp`; Vulkan writes `out/a4e_vk_shot_*.bmp`.
+- `--shots` D3D path writes cwd `shot_*.bmp`; Vulkan writes `out/a4f_vk_shot_*.bmp` (was `a4e_vk_shot_*` in A4e).
 
 ## 15. Explicitly unverified
 
@@ -130,5 +128,6 @@ After Vulkan Y-fix, resized MAE(title safety frame ≈shot 0010) **≈3.1** (was
 
 ## Related
 
+- `docs/A4F_EFB_COPIES_AND_TEXTURE_COMPLETENESS.md` (successor EFB-copy / mip work)
 - `docs/A4D_VULKAN_STABILITY_AND_RADV.md`, `docs/A4C_VULKAN_GX_DRAW_PIPELINE.md`, `docs/A4B_NATIVE_VULKAN_RENDERER.md`
 - Tools: `run_nvidia_clean.sh`, `run_nvidia_vk_validation.sh`

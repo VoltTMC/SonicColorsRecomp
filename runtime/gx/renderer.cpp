@@ -2654,7 +2654,7 @@ static uint32_t s_drawCalls = 0;
 void Render_Flush();
 
 // A4c: shared GX batch → Vulkan (no D3D11 objects cross the boundary).
-static std::vector<uint32_t> s_vkTexDecode[8];
+static std::vector<uint32_t> s_vkTexMip[8][16];
 static bool FlushVulkan()
 {
     if (!VkGx_IsActive()) return false;
@@ -2716,7 +2716,7 @@ static bool FlushVulkan()
     batch.depthWrite = (zm & 0x10) != 0;
     batch.blendEnable = (BP(0x41) & 1) != 0;
 
-    // A4e: full VSKey/PSKey IR + multi-texture decode (RAM textures; EFB-copy deferred).
+    // A4e/A4f: full VSKey/PSKey IR + multi-texture (RAM mips + EFB-copy textures).
     BuildVSKey(batch.vsKey);
     BuildPSKey(batch.psKey);
     batch.hasShaderKeys = true;
@@ -2739,34 +2739,88 @@ static bool FlushVulkan()
         uint32_t img0 = TexReg(m, 0x88, 0xA8);
         uint32_t img3 = TexReg(m, 0x94, 0xB4);
         uint32_t mode0 = TexReg(m, 0x80, 0xA0);
+        uint32_t mode1 = TexReg(m, 0x84, 0xA4);
         uint32_t tlutReg = TexReg(m, 0x98, 0xB8);
         uint32_t w = (img0 & 0x3FF) + 1;
         uint32_t h = ((img0 >> 10) & 0x3FF) + 1;
         uint32_t fmt = (img0 >> 20) & 15;
         uint32_t addr = (img3 & 0x00FFFFFF) << 5;
-        const uint32_t efbKey = EfbCopyKey(addr);
-        if (EfbCopyMap().count(efbKey))
+
+        // Prefer live Vulkan EFB-copy texture at this guest address (A4f).
         {
-            VkGx_NoteUnsupported("efb-copy-texture");
-            continue;
+            VkImageView ev = VK_NULL_HANDLE;
+            uint32_t ew = 0, eh = 0;
+            if (VkGx_LookupEfbCopy(addr, ev, ew, eh) && ev)
+            {
+                batch.tex[m].efbCopyAddr = addr;
+                batch.tex[m].use = true;
+                batch.tex[m].w = ew;
+                batch.tex[m].h = eh;
+                batch.tex[m].key = (uint64_t)EfbCopyKey(addr) | (1ull << 63);
+                batch.tex[m].wrapU = (uint8_t)(mode0 & 3);
+                batch.tex[m].wrapV = (uint8_t)((mode0 >> 2) & 3);
+                batch.tex[m].magLinear = (uint8_t)((mode0 >> 4) & 1);
+                uint32_t minF = (mode0 >> 5) & 7;
+                batch.tex[m].minLinear = minF >= 4 ? 1 : 0;
+                // texDim for EFB copies uses scaled texel size (matches D3D path).
+                texW[m] = ew ? ew : 1;
+                texH[m] = eh ? eh : 1;
+                continue;
+            }
         }
+
         if (!w || !h || w > 1024 || h > 1024) continue;
         uint32_t tlutOff = (tlutReg & 0x3FF) << 9;
         uint32_t tlutFmt = (tlutReg >> 10) & 3;
         const uint8_t* pal = s_tmem + (tlutOff & (sizeof(s_tmem) - 1));
-        s_vkTexDecode[m].resize((size_t)w * h);
-        GXTex_Decode(s_vkTexDecode[m].data(), PhysPtr(addr), w, h, fmt, pal, tlutFmt);
-        batch.tex[m].rgba = s_vkTexDecode[m].data();
+
+        uint32_t maxLod = ((mode1 >> 8) & 0xFF) >> 4;
+        uint32_t levels = 1;
+        // GX TEX_MODE0 min_filter: 0 near, 1 lin, 2 near_mip_near, 3 lin_mip_near,
+        // 4 near_mip_lin, 5 lin_mip_lin.
+        uint32_t minF = (mode0 >> 5) & 7;
+        if (minF >= 2 && maxLod > 0)
+        {
+            uint32_t lw = w, lh = h;
+            while (levels <= maxLod && (lw > 1 || lh > 1))
+            {
+                lw = std::max(1u, lw / 2);
+                lh = std::max(1u, lh / 2);
+                levels++;
+            }
+        }
+        levels = std::min(levels, 16u);
+
+        // Guest may have overwritten an EFB-copy destination with a CPU texture.
+        VkGx_InvalidateEfbCopy(addr);
+
+        const uint8_t* src = PhysPtr(addr);
+        uint32_t lw = w, lh = h, off = 0;
+        for (uint32_t lv = 0; lv < levels; lv++)
+        {
+            s_vkTexMip[m][lv].resize((size_t)lw * lh);
+            GXTex_Decode(s_vkTexMip[m][lv].data(), src + off, lw, lh, fmt, pal, tlutFmt);
+            batch.tex[m].mipRgba[lv] = s_vkTexMip[m][lv].data();
+            batch.tex[m].mipW[lv] = lw;
+            batch.tex[m].mipH[lv] = lh;
+            off += GXTex_Size(fmt, lw, lh);
+            lw = std::max(1u, lw / 2);
+            lh = std::max(1u, lh / 2);
+        }
+        batch.tex[m].rgba = s_vkTexMip[m][0].data();
         batch.tex[m].w = w;
         batch.tex[m].h = h;
+        batch.tex[m].levels = levels;
+        batch.tex[m].mipFilter = (minF == 4 || minF == 5) ? 1 : 0;
+        batch.tex[m].minLod = 0.0f;
+        batch.tex[m].maxLod = levels > 1 ? (float)(levels - 1) : 0.0f;
         batch.tex[m].key = (uint64_t)addr | ((uint64_t)fmt << 32) | ((uint64_t)w << 36) |
-                            ((uint64_t)h << 47) | ((uint64_t)m << 58);
+                            ((uint64_t)h << 47) | ((uint64_t)(levels > 1) << 58) | ((uint64_t)m << 59);
         batch.tex[m].use = true;
         batch.tex[m].wrapU = (uint8_t)(mode0 & 3);
         batch.tex[m].wrapV = (uint8_t)((mode0 >> 2) & 3);
         batch.tex[m].magLinear = (uint8_t)((mode0 >> 4) & 1);
-        uint32_t minF = (mode0 >> 5) & 7;
-        batch.tex[m].minLinear = minF >= 4 ? 1 : 0;
+        batch.tex[m].minLinear = (minF == 1 || minF == 3 || minF == 5) ? 1 : 0;
         texW[m] = w;
         texH[m] = h;
     }
@@ -3717,7 +3771,7 @@ static void DoEFBCopy()
                     (g_framesPresented % (uint32_t)g_screenshotEvery) == 0)
                 {
                     char path[96];
-                    snprintf(path, sizeof(path), "out/a4e_vk_shot_%04u.bmp",
+                    snprintf(path, sizeof(path), "out/a4f_vk_shot_%04u.bmp",
                              g_framesPresented / (uint32_t)g_screenshotEvery);
                     std::string shotErr;
                     if (!VkGx_SaveEfbBmp(sx, sy, sw, sh, path, shotErr))
@@ -3730,17 +3784,35 @@ static void DoEFBCopy()
                 {
                     auto st = VkGx_Stats();
                     LOG_INFO("vulkan gx: frames={} draws={} verts={} idx={} pipes hit/miss={}/{} "
-                             "shader hit/miss={}/{} spv ok/fail={}/{} texUp={} unsup={}",
+                             "shader hit/miss={}/{} spv ok/fail={}/{} texUp={} mipUp={} efbCopy={} unsup={}",
                              g_framesPresented, st.draws, st.vertices, st.indices, st.pipelineHits,
                              st.pipelineMisses, st.shaderCacheHits, st.shaderCacheMisses, st.spvCompileOk,
-                             st.spvCompileFail, st.texUploads, st.unsupportedOps);
+                             st.spvCompileFail, st.texUploads, st.texMipUploads, st.efbCopies,
+                             st.unsupportedOps);
                 }
             }
             if (clear) ClearEFB(sx, sy, sx + sw, sy + sh);
             s_frame++;
             return;
         }
-        VkGx_NoteUnsupported("efb-copy-to-texture");
+        // A4f: EFB → texture (same ctl decode as D3D11 branch below).
+        {
+            uint32_t tp = (ctl >> 3) & 0xF;
+            uint32_t fmt = (tp >> 1) | ((tp & 1) << 3);
+            GfxEfbCopyRequest req{};
+            req.sx = sx;
+            req.sy = sy;
+            req.sw = sw;
+            req.sh = sh;
+            req.destAddr = destAddr;
+            req.fmt = fmt;
+            req.intensity = (ctl >> 15) & 1;
+            req.depthSrc = PixelFormat() == 3;
+            req.half = half;
+            std::string copyErr;
+            if (!VkGx_CopyEfbToTexture(req, copyErr))
+                LOG_ERROR("vulkan gx efb-copy-to-texture failed: {}", copyErr);
+        }
         if (clear) ClearEFB(sx, sy, sx + sw, sy + sh);
         return;
     }

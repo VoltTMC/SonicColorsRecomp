@@ -1,12 +1,20 @@
 # Progress log
 
+## 2026-11-25 — A4f: EFB-to-texture copies & texture/mip completeness (Vulkan)
+
+**Goal:** Vulkan EFB→texture with GX `pscopy` semantics; multi-mip uploads/sampling; cache invalidation; keep A4d sync + A4e TEV; D3D11 default.
+
+**Shipped:** `VkGx_CopyEfbToTexture` / lookup / invalidate + util GLSL; multi-mip `GfxTexBind` + sampler LOD; GLSL lighting type fix (`int`/`ivec3`); `scr_efb_copy_tex_test`; docs `A4F_EFB_COPIES_AND_TEXTURE_COMPLETENESS.md`.
+
+**Evidence (RTX 3080, validation ON):** title efbCopy≈8985 unsup=0; SPIR-V fail=0; MAE safety≈3.1 vs D3D11; deep play efbCopy≥27k mipUp=40; D3D11 still ~60 unique_xfb. AMD/RADV **deferred**. Win Vulkan GPU **UNVERIFIED**. Vulkan **not** default.
+
 ## 2026-11-24 — A4e: GX TEV shader generation & multi-texture (Vulkan)
 
 **Goal:** Faithful GX TEV → Vulkan GLSL/SPIR-V from real `VSKey`/`PSKey`; multi-tex; keep A4d sync/validation; D3D11 default.
 
 **Shipped:** `shadergen_glsl.*`; `vk_spv_compile` (glslangValidator + `shadercache_vk/`); `GfxDrawBatch` multi-tex + keys + `PSConstants`; VkGx 8-sampler descriptors + hashed shader/pipeline caches; Vulkan NDC Y fix; `VkGx_SaveEfbBmp` for `--shots`; docs `A4E_GX_TEV_AND_MULTITEXTURE_PARITY.md`.
 
-**Evidence (RTX 3080):** validation **0** errors; cold SPIR-V **12/0**; title screenshots vs D3D11 MAE≈3.1 after Y-fix; frames≈600 / draws≈42k class. EFB-copy still unsupported. AMD/RADV **deferred**. Win Vulkan GPU **UNVERIFIED**. Vulkan **not** default.
+**Evidence (RTX 3080):** validation **0** errors; cold SPIR-V **12/0**; title screenshots vs D3D11 MAE≈3.1 after Y-fix; frames≈600 / draws≈42k class. EFB-copy completed in **A4f**. AMD/RADV **deferred**. Win Vulkan GPU **UNVERIFIED**. Vulkan **not** default.
 
 ## 2026-11-24 — A4d: NVIDIA Vulkan validation & sync hardening
 

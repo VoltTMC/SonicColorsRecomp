@@ -47,7 +47,9 @@ static void GenLightGLSL(std::string& s, uint32_t chanReg, int light, bool alpha
     uint32_t diffuse = (chanReg >> 7) & 3;
     uint32_t attn = (chanReg >> 9) & 3;
     std::string swz = alpha ? "a" : "rgb";
-    std::string cmp = alpha ? "" : "3";
+    // GLSL: int/float (alpha) vs ivec3/vec3 (colour). HLSL uses int/float vs int3/float3.
+    const char* ity = alpha ? "int" : "ivec3";
+    const char* fty = alpha ? "float" : "vec3";
     std::string b = std::format("0x{:X}", 0x600 + light * 16);
     if (attn == 1)
     {
@@ -71,9 +73,9 @@ static void GenLightGLSL(std::string& s, uint32_t chanReg, int light, bool alpha
         W(s, "\t\tif (length(ldir) == 0.0) ldir = n;\n");
     }
     if (diffuse == 0)
-        W(s, std::format("\t\tlacc.{0} += ivec{1}(round(attn * vec{1}(lightColor({2}).{0})));\n", swz, cmp, light));
+        W(s, std::format("\t\tlacc.{0} += {1}(round(attn * {2}(lightColor({3}).{0})));\n", swz, ity, fty, light));
     else
-        W(s, std::format("\t\tlacc.{0} += ivec{1}(round(attn * {3}dot(ldir, n)) * vec{1}(lightColor({2}).{0})));\n", swz, cmp, light,
+        W(s, std::format("\t\tlacc.{0} += {1}(round(attn * {4}dot(ldir, n)) * {2}(lightColor({3}).{0})));\n", swz, ity, fty, light,
                          diffuse == 2 ? "max(0.0, " : "("));
 }
 

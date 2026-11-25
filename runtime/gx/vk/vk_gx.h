@@ -1,6 +1,7 @@
 #pragma once
 // A4e TEV: native Vulkan GX draw path (generated TEV shaders, multi-texture).
 #include "../gfx_draw.h"
+#include "vk_device.h"
 
 #include <cstdint>
 #include <string>
@@ -28,6 +29,20 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error);
 // A4e: synchronous EFB readback to a 24-bit BMP (native GX coords × scale). For --shots / comparisons.
 bool VkGx_SaveEfbBmp(int sx, int sy, int sw, int sh, const char* path, std::string& error);
 
+// A4f: EFB → guest-addressed texture (GX copy command, non-XFB).
+struct GfxEfbCopyRequest
+{
+    int sx = 0, sy = 0, sw = 0, sh = 0; // native GX pixels
+    uint32_t destAddr = 0;              // guest EA (EfbCopyKey in renderer)
+    uint32_t fmt = 0;                   // GX copy texture format (ctl-derived)
+    bool intensity = false;
+    bool depthSrc = false;
+    bool half = false; // 2×2 box filter / half resolution
+};
+bool VkGx_CopyEfbToTexture(const GfxEfbCopyRequest& req, std::string& error);
+bool VkGx_LookupEfbCopy(uint32_t destAddr, VkImageView& outView, uint32_t& outW, uint32_t& outH);
+void VkGx_InvalidateEfbCopy(uint32_t destAddr);
+
 struct VkGxStats
 {
     uint64_t draws = 0;
@@ -43,6 +58,9 @@ struct VkGxStats
     uint64_t spvCompileOk = 0;
     uint64_t spvCompileFail = 0;
     uint64_t texUploads = 0;
+    uint64_t efbCopies = 0;
+    uint64_t efbCopyBytes = 0;
+    uint64_t texMipUploads = 0;
     uint64_t unsupportedOps = 0;
 };
 VkGxStats VkGx_Stats();

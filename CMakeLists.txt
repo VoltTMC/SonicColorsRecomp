@@ -430,6 +430,22 @@ if(WIN32 OR LINUX)
                                                             RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
                                                             RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
 
+    # A4f: EFB-copy format conversion + mip dims + GLSL lighting type compile check.
+    add_executable(scr_efb_copy_tex_test EXCLUDE_FROM_ALL
+                   tools/efb_copy_tex_test/main.cpp
+                   runtime/gx/shadergen_glsl.cpp)
+    target_include_directories(scr_efb_copy_tex_test PRIVATE runtime)
+    if(LINUX)
+        target_compile_options(scr_efb_copy_tex_test PRIVATE -include ${CMAKE_SOURCE_DIR}/runtime/platform/compat.h)
+        target_link_options(scr_efb_copy_tex_test PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
+    if(MSVC_FRONTEND)
+        target_compile_options(scr_efb_copy_tex_test PRIVATE /EHsc /utf-8)
+    endif()
+    set_target_properties(scr_efb_copy_tex_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${SCR_OUT_DIR}
+                                                            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
+                                                            RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
+
     add_executable(scr_movie_mod_test EXCLUDE_FROM_ALL
                    tools/movie_mod_test/main.cpp runtime/ios/movie_mod.cpp)
     target_include_directories(scr_movie_mod_test PRIVATE runtime)

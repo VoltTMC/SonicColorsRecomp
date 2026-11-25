@@ -115,13 +115,14 @@ Prior validation-on run (`a4d_vk_nvidia_val1`) caught the UBO/semaphore defects 
 ## Explicitly not claimed
 
 - Visual parity with D3D11
-- Full TEV / lighting / EFB-copy / overlay *(TEV/multi-tex continued in A4e)*
+- Full TEV / lighting / EFB-copy / overlay *(TEV/multi-tex in A4e; EFB-copy/mips in A4f)*
 - Vulkan as default renderer
 - AMD reliability
 
 ## Related
 
-- `docs/A4E_GX_TEV_AND_MULTITEXTURE_PARITY.md` (successor TEV/multi-tex work; preserves A4d sync)
+- `docs/A4F_EFB_COPIES_AND_TEXTURE_COMPLETENESS.md` (EFB-copy / mip successor; preserves A4d sync)
+- `docs/A4E_GX_TEV_AND_MULTITEXTURE_PARITY.md` (TEV/multi-tex; preserves A4d sync)
 - `docs/A4B_NATIVE_VULKAN_RENDERER.md`
 - `docs/A4C_VULKAN_GX_DRAW_PIPELINE.md`
 - `tools/run_nvidia_clean.sh`

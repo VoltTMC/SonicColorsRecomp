@@ -41,6 +41,12 @@ struct GfxTexBind
     // GX TEX_MODE0 wrap/filter (A4e). wrap: 0=clamp, 1=repeat, 2=mirror, 3=repeat.
     uint8_t wrapU = 0, wrapV = 0;
     uint8_t magLinear = 0, minLinear = 0;
+    uint32_t levels = 1;
+    const uint32_t* mipRgba[16]{}; // level 0..levels-1 RGBA8
+    uint32_t mipW[16]{}, mipH[16]{};
+    uint32_t efbCopyAddr = 0; // non-zero → UploadTex uses VkGx EFB-copy cache (rgba optional)
+    uint8_t mipFilter = 0;    // 0=nearest-mip, 1=linear-mip when levels>1
+    float minLod = 0, maxLod = 0;
 };
 
 struct GfxDrawBatch

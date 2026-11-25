@@ -45,7 +45,7 @@ L(vkCmdBindPipeline); L(vkCmdBindVertexBuffers); L(vkCmdBindIndexBuffer);
 L(vkCmdBindDescriptorSets); L(vkCmdSetViewport); L(vkCmdSetScissor);
 L(vkCmdDrawIndexed); L(vkCmdClearAttachments);
 L(vkCmdPipelineBarrier); L(vkCmdCopyBuffer); L(vkCmdCopyBufferToImage); L(vkCmdCopyImageToBuffer);
-L(vkCmdBlitImage);
+L(vkCmdCopyImage); L(vkCmdBlitImage); L(vkCmdDraw);
 L(vkCreateFence); L(vkDestroyFence); L(vkWaitForFences); L(vkResetFences);
 L(vkResetDescriptorPool);
 L(vkGetPhysicalDeviceMemoryProperties);
@@ -85,7 +85,7 @@ static bool LoadFns()
     LD(vkCmdBindDescriptorSets); LD(vkCmdSetViewport); LD(vkCmdSetScissor);
     LD(vkCmdDrawIndexed); LD(vkCmdClearAttachments);
     LD(vkCmdPipelineBarrier); LD(vkCmdCopyBuffer); LD(vkCmdCopyBufferToImage); LD(vkCmdCopyImageToBuffer);
-    LD(vkCmdBlitImage);
+    LD(vkCmdCopyImage); LD(vkCmdBlitImage); LD(vkCmdDraw);
     LD(vkCreateFence); LD(vkDestroyFence); LD(vkWaitForFences); LD(vkResetFences);
     LD(vkResetDescriptorPool);
 #undef LD
@@ -198,7 +198,135 @@ VkPipelineLayout s_blitLayout = VK_NULL_HANDLE;
 VkDescriptorPool s_blitPool = VK_NULL_HANDLE;
 VkDescriptorSet s_blitSet = VK_NULL_HANDLE;
 
+// A4f: EFB→texture util copy + cache
+struct CopyUtilUbo
+{
+    float rect[4];
+    float uv[4];
+    float color[4];
+    float params[4];
+    int32_t iparams[4];
+};
+
+struct EfbCopyCacheEntry
+{
+    Img img{};
+    VkFramebuffer fb = VK_NULL_HANDLE;
+    uint32_t w = 0, h = 0;   // scaled (GPU)
+    uint32_t tw = 0, th = 0; // native GX texel dims
+    uint64_t genId = 0;
+};
+
+VkShaderModule s_copyVs = VK_NULL_HANDLE, s_copyFs = VK_NULL_HANDLE;
+VkRenderPass s_copyPass = VK_NULL_HANDLE;
+VkPipeline s_copyPipe = VK_NULL_HANDLE;
+VkPipelineLayout s_copyLayout = VK_NULL_HANDLE;
+VkDescriptorSetLayout s_copyDsl = VK_NULL_HANDLE;
+VkDescriptorPool s_copyPool = VK_NULL_HANDLE;
+VkDescriptorSet s_copySet = VK_NULL_HANDLE;
+Buf s_copyUbo{};
+Img s_efbColorSnap{}, s_efbDepthSnap{};
+std::unordered_map<uint32_t, EfbCopyCacheEntry> s_efbCopyCache;
+uint64_t s_efbCopyGen = 1;
+
 std::unordered_map<std::string, uint32_t> s_unsupCounts;
+
+static const char* kCopyVertGlsl = R"(#version 450
+layout(location = 0) out vec2 vUV;
+layout(set = 0, binding = 2) uniform UBO {
+    vec4 rect;
+    vec4 uv;
+    vec4 color;
+    vec4 params;
+    ivec4 iparams;
+} u;
+void main() {
+    vec2 t = vec2(float(gl_VertexIndex & 1), float(gl_VertexIndex >> 1));
+    float x = mix(u.rect.x, u.rect.z, t.x);
+    float y = mix(u.rect.y, u.rect.w, t.y);
+    gl_Position = vec4(x, y, u.params.x, 1.0);
+    vUV = mix(u.uv.xy, u.uv.zw, t);
+}
+)";
+
+static const char* kCopyFragGlsl = R"(#version 450
+layout(location = 0) in vec2 vUV;
+layout(location = 0) out vec4 outColor;
+layout(set = 0, binding = 0) uniform sampler2D src;
+layout(set = 0, binding = 1) uniform sampler2D srcDepth;
+layout(set = 0, binding = 2) uniform UBO {
+    vec4 rect;
+    vec4 uv;
+    vec4 color;
+    vec4 params;
+    ivec4 iparams;
+} u;
+void main() {
+    vec4 c;
+    if (u.iparams.z != 0) {
+        float d = texture(srcDepth, vUV).r;
+        uint z = uint(clamp(d, 0.0, 1.0) * 16777215.0);
+        float h = float((z >> 16) & 0xFFu) / 255.0;
+        float m = float((z >> 8) & 0xFFu) / 255.0;
+        float l = float(z & 0xFFu) / 255.0;
+        c = vec4(h, m, l, h);
+        switch (u.iparams.x) {
+        case 0: case 1: case 8: c = vec4(h); break;
+        case 9: c = vec4(m); break;
+        case 10: c = vec4(l); break;
+        case 3: c = vec4(m, m, m, h); break;
+        case 11: case 12: c = vec4(m, l, l, m); break;
+        default: c = vec4(h, m, l, 1.0); break;
+        }
+        outColor = c;
+        return;
+    }
+    c = texture(src, vUV);
+    if (u.iparams.w != 0) {
+        vec2 d = u.params.zw * 0.25;
+        c = (texture(src, vUV + vec2(-d.x, -d.y)) + texture(src, vUV + vec2(d.x, -d.y)) +
+             texture(src, vUV + vec2(-d.x, d.y)) + texture(src, vUV + vec2(d.x, d.y))) * 0.25;
+    }
+    if (u.iparams.y != 0) {
+        float y = dot(c.rgb, vec3(0.257, 0.504, 0.098)) + 16.0 / 255.0;
+        c.rgb = vec3(y);
+    }
+    switch (u.iparams.x) {
+    case 0: case 1: c = vec4(c.r); break;
+    case 2: case 3: c = vec4(c.r, c.r, c.r, c.a); break;
+    case 4: c.a = 1.0; break;
+    case 7: c = vec4(c.a); break;
+    case 8: c = vec4(c.r); break;
+    case 9: c = vec4(c.g); break;
+    case 10: c = vec4(c.b); break;
+    case 11: c = vec4(c.r, c.r, c.r, c.g); break;
+    case 12: c = vec4(c.g, c.g, c.g, c.b); break;
+    default: break;
+    }
+    outColor = c;
+}
+)";
+
+static uint32_t EfbCopyKey(uint32_t ea)
+{
+    if (!ea) return 0;
+    const uint32_t hi = ea >> 28;
+    if (hi == 0x8 || hi == 0x9 || hi == 0xC || hi == 0xD)
+        return ea;
+    return 0x80000000u | (ea & 0x1FFFFFFFu);
+}
+
+static void DestroyImg(Img& im);
+
+static void DestroyEfbCopyEntry(EfbCopyCacheEntry& e)
+{
+    VkDevice dev = Vk_GetDevice();
+    if (dev && e.fb)
+        pfn_vkDestroyFramebuffer(dev, e.fb, nullptr);
+    e.fb = VK_NULL_HANDLE;
+    DestroyImg(e.img);
+    e = {};
+}
 
 static uint32_t FindMemoryType(uint32_t typeBits, VkMemoryPropertyFlags props)
 {
@@ -245,14 +373,15 @@ static void DestroyBuf(Buf& b)
 }
 
 static bool CreateImg2D(Img& im, uint32_t w, uint32_t h, VkFormat fmt, VkImageUsageFlags usage,
-                        VkImageAspectFlags aspect)
+                        VkImageAspectFlags aspect, uint32_t mipLevels = 1)
 {
     VkDevice dev = Vk_GetDevice();
+    mipLevels = std::max(1u, mipLevels);
     VkImageCreateInfo ci{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
     ci.imageType = VK_IMAGE_TYPE_2D;
     ci.format = fmt;
     ci.extent = { w, h, 1 };
-    ci.mipLevels = 1;
+    ci.mipLevels = mipLevels;
     ci.arrayLayers = 1;
     ci.samples = VK_SAMPLE_COUNT_1_BIT;
     ci.tiling = VK_IMAGE_TILING_OPTIMAL;
@@ -272,7 +401,7 @@ static bool CreateImg2D(Img& im, uint32_t w, uint32_t h, VkFormat fmt, VkImageUs
     vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
     vi.format = fmt;
     vi.subresourceRange.aspectMask = aspect;
-    vi.subresourceRange.levelCount = 1;
+    vi.subresourceRange.levelCount = mipLevels;
     vi.subresourceRange.layerCount = 1;
     if (pfn_vkCreateImageView(dev, &vi, nullptr, &im.view) != VK_SUCCESS) return false;
     im.w = w;
@@ -325,8 +454,9 @@ static VkSamplerAddressMode WrapToVk(uint8_t wrap)
 
 static VkSampler GetOrCreateSampler(const GfxTexBind& t)
 {
-    const uint32_t key =
-        (uint32_t)t.wrapU | ((uint32_t)t.wrapV << 2) | ((uint32_t)t.magLinear << 4) | ((uint32_t)t.minLinear << 5);
+    const uint32_t key = (uint32_t)t.wrapU | ((uint32_t)t.wrapV << 2) | ((uint32_t)t.magLinear << 4) |
+                         ((uint32_t)t.minLinear << 5) | ((uint32_t)t.mipFilter << 6) |
+                         ((uint32_t)(t.levels > 1 ? 1 : 0) << 7);
     auto it = s_samplerCache.find(key);
     if (it != s_samplerCache.end()) return it->second;
     VkSamplerCreateInfo si{ VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
@@ -335,6 +465,18 @@ static VkSampler GetOrCreateSampler(const GfxTexBind& t)
     si.addressModeU = WrapToVk(t.wrapU);
     si.addressModeV = WrapToVk(t.wrapV);
     si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    if (t.levels > 1)
+    {
+        // GX mip filters: nearest-mip vs linear-mip; always expose uploaded levels.
+        si.mipmapMode = t.mipFilter ? VK_SAMPLER_MIPMAP_MODE_LINEAR : VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        si.minLod = t.minLod;
+        si.maxLod = t.maxLod > 0.0f ? t.maxLod : (float)(t.levels - 1);
+    }
+    else
+    {
+        si.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        si.maxLod = 0.0f;
+    }
     VkSampler samp = VK_NULL_HANDLE;
     if (pfn_vkCreateSampler(Vk_GetDevice(), &si, nullptr, &samp) != VK_SUCCESS)
         return s_sampNearest;
@@ -408,7 +550,7 @@ static bool GetOrCreateShaderModules(const VSKey& vsKey, const PSKey& psKey, VkS
 
 static void Barrier(VkCommandBuffer cmd, VkImage img, VkImageLayout oldL, VkImageLayout newL,
                     VkImageAspectFlags aspect, VkPipelineStageFlags srcSt, VkPipelineStageFlags dstSt,
-                    VkAccessFlags srcA, VkAccessFlags dstA)
+                    VkAccessFlags srcA, VkAccessFlags dstA, uint32_t mipLevels = 1)
 {
     VkImageMemoryBarrier b{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
     b.oldLayout = oldL;
@@ -417,7 +559,7 @@ static void Barrier(VkCommandBuffer cmd, VkImage img, VkImageLayout oldL, VkImag
     b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     b.image = img;
     b.subresourceRange.aspectMask = aspect;
-    b.subresourceRange.levelCount = 1;
+    b.subresourceRange.levelCount = mipLevels;
     b.subresourceRange.layerCount = 1;
     b.srcAccessMask = srcA;
     b.dstAccessMask = dstA;
@@ -476,6 +618,38 @@ static void EndEfbPass(FrameSlot& fr)
     if (!fr.inEfbPass) return;
     pfn_vkCmdEndRenderPass(fr.cmd);
     fr.inEfbPass = false;
+}
+
+static bool DrainFrameSlot(FrameSlot& fr, std::string& error)
+{
+    if (!fr.recording) return true;
+    EndEfbPass(fr);
+    pfn_vkEndCommandBuffer(fr.cmd);
+    fr.recording = false;
+    VkSubmitInfo si{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    si.commandBufferCount = 1;
+    si.pCommandBuffers = &fr.cmd;
+    VkResult sr = LoadDev<PFN_vkQueueSubmit>("vkQueueSubmit")(Vk_GetGraphicsQueue(), 1, &si, fr.fence);
+    if (sr != VK_SUCCESS)
+    {
+        if (sr == VK_ERROR_DEVICE_LOST) s_deviceLost = true;
+        error = "vkQueueSubmit (drain) failed";
+        return false;
+    }
+    pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
+    return true;
+}
+
+static bool LookupEfbCopyLocked(uint32_t destAddr, VkImageView& outView, uint32_t& outW, uint32_t& outH)
+{
+    const uint32_t key = EfbCopyKey(destAddr);
+    if (!key) return false;
+    auto it = s_efbCopyCache.find(key);
+    if (it == s_efbCopyCache.end() || !it->second.img.view) return false;
+    outView = it->second.img.view;
+    outW = it->second.w;
+    outH = it->second.h;
+    return true;
 }
 
 static VkPipeline GetOrCreatePipe(const PipeKey& key, std::string& error)
@@ -610,11 +784,24 @@ static VkPipeline GetOrCreatePipe(const PipeKey& key, std::string& error)
 
 static bool UploadTex(const GfxTexBind& t, VkImageView& outView, std::string& error)
 {
-    if (!t.use || !t.rgba || t.w == 0 || t.h == 0)
+    if (!t.use)
     {
         outView = s_whiteTex.view;
         return true;
     }
+    if (t.efbCopyAddr)
+    {
+        uint32_t ew = 0, eh = 0;
+        if (LookupEfbCopyLocked(t.efbCopyAddr, outView, ew, eh)) return true;
+        outView = s_whiteTex.view;
+        return true;
+    }
+    if (!t.rgba || t.w == 0 || t.h == 0)
+    {
+        outView = s_whiteTex.view;
+        return true;
+    }
+    const uint32_t levels = std::max(1u, std::min(t.levels, 16u));
     auto it = s_texCache.find(t.key);
     if (it != s_texCache.end() && it->second.img.view)
     {
@@ -625,64 +812,75 @@ static bool UploadTex(const GfxTexBind& t, VkImageView& outView, std::string& er
     if (!EnsureFrameRecording(fr, error)) return false;
     EndEfbPass(fr);
 
-    const VkDeviceSize bytes = (VkDeviceSize)t.w * t.h * 4;
-    if (bytes > s_staging.size)
-    {
-        error = "texture larger than staging buffer";
-        return false;
-    }
-    // A4d: per-upload staging slices — overwriting offset 0 while prior vkCmdCopyBufferToImage
-    // commands in the same CB still reference it is illegal and can DEVICE_LOST on RADV.
     auto align4 = [](VkDeviceSize v) { return (v + 3) & ~VkDeviceSize(3); };
-    VkDeviceSize off = align4(s_stagingPos);
-    if (off + bytes > s_staging.size)
+    VkDeviceSize stagingOff = align4(s_stagingPos);
+    std::vector<VkBufferImageCopy> copies;
+    copies.reserve(levels);
+    uint32_t lw = t.w, lh = t.h;
+    VkDeviceSize uploaded = 0;
+    for (uint32_t lv = 0; lv < levels; lv++)
     {
-        // Drain recorded copies before wrapping the staging ring.
-        if (fr.recording)
+        const uint32_t* px = lv == 0 ? t.rgba : (t.mipRgba[lv] ? t.mipRgba[lv] : nullptr);
+        if (!px)
         {
-            EndEfbPass(fr);
-            pfn_vkEndCommandBuffer(fr.cmd);
-            fr.recording = false;
-            VkSubmitInfo si{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
-            si.commandBufferCount = 1;
-            si.pCommandBuffers = &fr.cmd;
-            LoadDev<PFN_vkQueueSubmit>("vkQueueSubmit")(Vk_GetGraphicsQueue(), 1, &si, fr.fence);
-            pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
+            error = "mip level missing rgba";
+            return false;
         }
-        s_stagingPos = 0;
-        off = 0;
-        if (!EnsureFrameRecording(fr, error)) return false;
+        const uint32_t mw = lv == 0 ? t.w : (t.mipW[lv] ? t.mipW[lv] : std::max(1u, lw / 2));
+        const uint32_t mh = lv == 0 ? t.h : (t.mipH[lv] ? t.mipH[lv] : std::max(1u, lh / 2));
+        const VkDeviceSize bytes = (VkDeviceSize)mw * mh * 4;
+        if (bytes > s_staging.size)
+        {
+            error = "texture larger than staging buffer";
+            return false;
+        }
+        if (stagingOff + bytes > s_staging.size)
+        {
+            if (!DrainFrameSlot(fr, error)) return false;
+            s_stagingPos = 0;
+            stagingOff = 0;
+            if (!EnsureFrameRecording(fr, error)) return false;
+        }
+        memcpy((uint8_t*)s_staging.mapped + stagingOff, px, (size_t)bytes);
+        VkBufferImageCopy region{};
+        region.bufferOffset = stagingOff;
+        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.mipLevel = lv;
+        region.imageSubresource.layerCount = 1;
+        region.imageExtent = { mw, mh, 1 };
+        copies.push_back(region);
+        uploaded += bytes;
+        stagingOff += bytes;
+        stagingOff = align4(stagingOff);
+        lw = mw;
+        lh = mh;
     }
-    memcpy((uint8_t*)s_staging.mapped + off, t.rgba, (size_t)bytes);
-    s_stagingPos = off + bytes;
+    s_stagingPos = stagingOff;
 
     TexCacheEntry e{};
     e.key = t.key;
     e.w = t.w;
     e.h = t.h;
     if (!CreateImg2D(e.img, t.w, t.h, VK_FORMAT_R8G8B8A8_UNORM,
-                     VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT))
+                     VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT, levels))
     {
         error = "CreateImg2D tex failed";
         return false;
     }
     Barrier(fr.cmd, e.img.img, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             VK_IMAGE_ASPECT_COLOR_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
-            VK_ACCESS_TRANSFER_WRITE_BIT);
-    VkBufferImageCopy region{};
-    region.bufferOffset = off;
-    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    region.imageSubresource.layerCount = 1;
-    region.imageExtent = { t.w, t.h, 1 };
-    pfn_vkCmdCopyBufferToImage(fr.cmd, s_staging.buf, e.img.img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+            VK_ACCESS_TRANSFER_WRITE_BIT, levels);
+    pfn_vkCmdCopyBufferToImage(fr.cmd, s_staging.buf, e.img.img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               (uint32_t)copies.size(), copies.data());
     Barrier(fr.cmd, e.img.img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             VK_IMAGE_ASPECT_COLOR_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, levels);
 
     s_texCache[t.key] = std::move(e);
     outView = s_texCache[t.key].img.view;
     s_stats.texUploads++;
-    s_stats.uploadBytes += bytes;
+    if (levels > 1) s_stats.texMipUploads++;
+    s_stats.uploadBytes += uploaded;
     return true;
 }
 
@@ -771,6 +969,255 @@ static void ResetFrameDescriptors()
     s_descCursor = 0;
 }
 
+static void DestroyCopyUtil()
+{
+    VkDevice dev = Vk_GetDevice();
+    if (!dev) return;
+    for (auto& kv : s_efbCopyCache)
+        DestroyEfbCopyEntry(kv.second);
+    s_efbCopyCache.clear();
+    DestroyImg(s_efbColorSnap);
+    DestroyImg(s_efbDepthSnap);
+    DestroyBuf(s_copyUbo);
+    if (s_copyPipe) pfn_vkDestroyPipeline(dev, s_copyPipe, nullptr);
+    if (s_copyPass) pfn_vkDestroyRenderPass(dev, s_copyPass, nullptr);
+    if (s_copyLayout) pfn_vkDestroyPipelineLayout(dev, s_copyLayout, nullptr);
+    if (s_copyPool) pfn_vkDestroyDescriptorPool(dev, s_copyPool, nullptr);
+    if (s_copyDsl) pfn_vkDestroyDescriptorSetLayout(dev, s_copyDsl, nullptr);
+    if (s_copyVs) pfn_vkDestroyShaderModule(dev, s_copyVs, nullptr);
+    if (s_copyFs) pfn_vkDestroyShaderModule(dev, s_copyFs, nullptr);
+    s_copyPipe = VK_NULL_HANDLE;
+    s_copyPass = VK_NULL_HANDLE;
+    s_copyLayout = VK_NULL_HANDLE;
+    s_copyPool = VK_NULL_HANDLE;
+    s_copyDsl = VK_NULL_HANDLE;
+    s_copySet = VK_NULL_HANDLE;
+    s_copyVs = s_copyFs = VK_NULL_HANDLE;
+}
+
+static bool InitCopyUtil(std::string& error)
+{
+    VkDevice dev = Vk_GetDevice();
+    if (!CreateImg2D(s_efbColorSnap, s_efbW, s_efbH, VK_FORMAT_R8G8B8A8_UNORM,
+                     VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT))
+    {
+        error = "efb color snap failed";
+        return false;
+    }
+    if (!CreateImg2D(s_efbDepthSnap, s_efbW, s_efbH, VK_FORMAT_D32_SFLOAT,
+                     VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT))
+    {
+        error = "efb depth snap failed";
+        return false;
+    }
+    if (!CreateBuf(s_copyUbo, 256, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
+    {
+        error = "copy ubo failed";
+        return false;
+    }
+
+    std::vector<uint32_t> vspv, fspv;
+    if (!VkSpv_CompileGlsl(kCopyVertGlsl, "vert", vspv, error) ||
+        !VkSpv_CompileGlsl(kCopyFragGlsl, "frag", fspv, error))
+    {
+        error = "efb-copy SPIR-V compile failed: " + error;
+        return false;
+    }
+    s_copyVs = MakeModule(vspv.data(), (uint32_t)vspv.size());
+    s_copyFs = MakeModule(fspv.data(), (uint32_t)fspv.size());
+    if (!s_copyVs || !s_copyFs)
+    {
+        error = "efb-copy shader modules failed";
+        return false;
+    }
+
+    {
+        VkAttachmentDescription att{};
+        att.format = VK_FORMAT_R8G8B8A8_UNORM;
+        att.samples = VK_SAMPLE_COUNT_1_BIT;
+        att.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        att.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        att.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        att.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        att.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        VkAttachmentReference cref{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+        VkSubpassDescription sub{};
+        sub.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        sub.colorAttachmentCount = 1;
+        sub.pColorAttachments = &cref;
+        VkRenderPassCreateInfo rpci{ VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO };
+        rpci.attachmentCount = 1;
+        rpci.pAttachments = &att;
+        rpci.subpassCount = 1;
+        rpci.pSubpasses = &sub;
+        if (pfn_vkCreateRenderPass(dev, &rpci, nullptr, &s_copyPass) != VK_SUCCESS)
+        {
+            error = "efb-copy render pass failed";
+            return false;
+        }
+    }
+
+    {
+        VkDescriptorSetLayoutBinding binds[3]{};
+        binds[0] = { 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr };
+        binds[1] = { 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr };
+        binds[2] = { 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                     nullptr };
+        VkDescriptorSetLayoutCreateInfo lci{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+        lci.bindingCount = 3;
+        lci.pBindings = binds;
+        if (pfn_vkCreateDescriptorSetLayout(dev, &lci, nullptr, &s_copyDsl) != VK_SUCCESS)
+        {
+            error = "efb-copy dsl failed";
+            return false;
+        }
+        VkPipelineLayoutCreateInfo plci{ VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+        plci.setLayoutCount = 1;
+        plci.pSetLayouts = &s_copyDsl;
+        if (pfn_vkCreatePipelineLayout(dev, &plci, nullptr, &s_copyLayout) != VK_SUCCESS)
+        {
+            error = "efb-copy pipeline layout failed";
+            return false;
+        }
+        VkDescriptorPoolSize ps[2] = {
+            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2 },
+            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 },
+        };
+        VkDescriptorPoolCreateInfo dpi{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+        dpi.maxSets = 1;
+        dpi.poolSizeCount = 2;
+        dpi.pPoolSizes = ps;
+        if (pfn_vkCreateDescriptorPool(dev, &dpi, nullptr, &s_copyPool) != VK_SUCCESS)
+        {
+            error = "efb-copy descriptor pool failed";
+            return false;
+        }
+        VkDescriptorSetAllocateInfo dai{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+        dai.descriptorPool = s_copyPool;
+        dai.descriptorSetCount = 1;
+        dai.pSetLayouts = &s_copyDsl;
+        if (pfn_vkAllocateDescriptorSets(dev, &dai, &s_copySet) != VK_SUCCESS)
+        {
+            error = "efb-copy descriptor set failed";
+            return false;
+        }
+    }
+
+    VkPipelineShaderStageCreateInfo stages[2]{};
+    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].module = s_copyVs;
+    stages[0].pName = "main";
+    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1].module = s_copyFs;
+    stages[1].pName = "main";
+
+    VkPipelineVertexInputStateCreateInfo vi{ VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
+    VkPipelineInputAssemblyStateCreateInfo ia{ VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
+    ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+    VkPipelineViewportStateCreateInfo vp{ VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
+    vp.viewportCount = 1;
+    vp.scissorCount = 1;
+    VkPipelineRasterizationStateCreateInfo rs{ VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
+    rs.polygonMode = VK_POLYGON_MODE_FILL;
+    rs.cullMode = VK_CULL_MODE_NONE;
+    rs.frontFace = VK_FRONT_FACE_CLOCKWISE;
+    rs.lineWidth = 1.0f;
+    VkPipelineMultisampleStateCreateInfo ms{ VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
+    ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkPipelineDepthStencilStateCreateInfo ds{ VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
+    ds.depthTestEnable = VK_FALSE;
+    ds.depthWriteEnable = VK_FALSE;
+    VkPipelineColorBlendAttachmentState ba{};
+    ba.colorWriteMask = 0xF;
+    VkPipelineColorBlendStateCreateInfo cb{ VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
+    cb.attachmentCount = 1;
+    cb.pAttachments = &ba;
+    VkDynamicState dyn[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    VkPipelineDynamicStateCreateInfo dy{ VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO };
+    dy.dynamicStateCount = 2;
+    dy.pDynamicStates = dyn;
+
+    VkGraphicsPipelineCreateInfo pci{ VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
+    pci.stageCount = 2;
+    pci.pStages = stages;
+    pci.pVertexInputState = &vi;
+    pci.pInputAssemblyState = &ia;
+    pci.pViewportState = &vp;
+    pci.pRasterizationState = &rs;
+    pci.pMultisampleState = &ms;
+    pci.pDepthStencilState = &ds;
+    pci.pColorBlendState = &cb;
+    pci.pDynamicState = &dy;
+    pci.layout = s_copyLayout;
+    pci.renderPass = s_copyPass;
+    if (pfn_vkCreateGraphicsPipelines(dev, VK_NULL_HANDLE, 1, &pci, nullptr, &s_copyPipe) != VK_SUCCESS)
+    {
+        error = "efb-copy pipeline failed";
+        return false;
+    }
+
+    VkDescriptorImageInfo snapColor{};
+    snapColor.sampler = s_sampLinear;
+    snapColor.imageView = s_efbColorSnap.view;
+    snapColor.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    VkDescriptorImageInfo snapDepth{};
+    snapDepth.sampler = s_sampLinear;
+    snapDepth.imageView = s_efbDepthSnap.view;
+    snapDepth.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    VkDescriptorBufferInfo ubo{};
+    ubo.buffer = s_copyUbo.buf;
+    ubo.range = 256;
+    VkWriteDescriptorSet writes[3]{};
+    for (int i = 0; i < 3; i++)
+        writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[0].dstSet = s_copySet;
+    writes[0].dstBinding = 0;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[0].descriptorCount = 1;
+    writes[0].pImageInfo = &snapColor;
+    writes[1].dstSet = s_copySet;
+    writes[1].dstBinding = 1;
+    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[1].descriptorCount = 1;
+    writes[1].pImageInfo = &snapDepth;
+    writes[2].dstSet = s_copySet;
+    writes[2].dstBinding = 2;
+    writes[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writes[2].descriptorCount = 1;
+    writes[2].pBufferInfo = &ubo;
+    pfn_vkUpdateDescriptorSets(dev, 3, writes, 0, nullptr);
+    return true;
+}
+
+static bool EnsureEfbCopyDest(EfbCopyCacheEntry& e, uint32_t rw, uint32_t rh, uint32_t tw, uint32_t th)
+{
+    VkDevice dev = Vk_GetDevice();
+    if (e.img.view && e.w == rw && e.h == rh) return true;
+    DestroyEfbCopyEntry(e);
+    if (!CreateImg2D(e.img, rw, rh, VK_FORMAT_R8G8B8A8_UNORM,
+                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                     VK_IMAGE_ASPECT_COLOR_BIT))
+        return false;
+  e.w = rw;
+    e.h = rh;
+    e.tw = tw;
+    e.th = th;
+    VkFramebufferCreateInfo fi{ VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
+    fi.renderPass = s_copyPass;
+    fi.attachmentCount = 1;
+    fi.pAttachments = &e.img.view;
+    fi.width = rw;
+    fi.height = rh;
+    fi.layers = 1;
+    if (pfn_vkCreateFramebuffer(dev, &fi, nullptr, &e.fb) != VK_SUCCESS)
+        return false;
+    return true;
+}
+
 } // namespace
 
 bool VkGx_Init(const VkGxInitOptions& opt, std::string& error)
@@ -847,7 +1294,8 @@ bool VkGx_Init(const VkGxInitOptions& opt, std::string& error)
         return false;
     }
     if (!CreateImg2D(s_efbDepth, s_efbW, s_efbH, VK_FORMAT_D32_SFLOAT,
-                     VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                     VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                         VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                      VK_IMAGE_ASPECT_DEPTH_BIT))
     {
         error = "efb depth create failed";
@@ -1016,6 +1464,12 @@ bool VkGx_Init(const VkGxInitOptions& opt, std::string& error)
         pfn_vkCreateSampler(dev, &si, nullptr, &s_sampLinear);
     }
 
+    if (!InitCopyUtil(error))
+    {
+        DestroyCopyUtil();
+        return false;
+    }
+
     s_blitVs = MakeModule(k_blit_vert_spv, k_blit_vert_spv_words);
     s_blitFs = MakeModule(k_blit_frag_spv, k_blit_frag_spv_words);
     if (!s_blitVs || !s_blitFs)
@@ -1093,6 +1547,7 @@ void VkGx_Shutdown()
     std::lock_guard lk(s_mu);
     if (!s_active) return;
     Vk_DeviceWaitIdle();
+    DestroyCopyUtil();
     VkDevice dev = Vk_GetDevice();
     for (auto& kv : s_pipes)
         if (kv.second) pfn_vkDestroyPipeline(dev, kv.second, nullptr);
@@ -1623,4 +2078,185 @@ void VkGx_NoteUnsupported(const char* op)
         LOG_WARN("vulkan gx: unsupported op '{}' (count {})", op, c + 1);
     c++;
     s_stats.unsupportedOps++;
+}
+
+bool VkGx_CopyEfbToTexture(const GfxEfbCopyRequest& req, std::string& error)
+{
+    std::lock_guard lk(s_mu);
+    if (!s_active)
+    {
+        error = "VkGx inactive";
+        return false;
+    }
+    if (s_deviceLost)
+    {
+        error = "vulkan device previously lost";
+        return false;
+    }
+    if (req.sw <= 0 || req.sh <= 0 || !req.destAddr)
+    {
+        error = "invalid efb copy request";
+        return false;
+    }
+
+    const uint32_t tw = req.half ? (uint32_t)std::max(1, req.sw / 2) : (uint32_t)req.sw;
+    const uint32_t th = req.half ? (uint32_t)std::max(1, req.sh / 2) : (uint32_t)req.sh;
+    const uint32_t rw = tw * (uint32_t)s_scale, rh = th * (uint32_t)s_scale;
+    const uint32_t key = EfbCopyKey(req.destAddr);
+
+    FrameSlot& fr = s_frames[s_frameIdx];
+    if (!DrainFrameSlot(fr, error)) return false;
+    pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
+    pfn_vkResetFences(Vk_GetDevice(), 1, &fr.fence);
+    pfn_vkResetCommandBuffer(fr.cmd, 0);
+    VkCommandBufferBeginInfo bi{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    if (pfn_vkBeginCommandBuffer(fr.cmd, &bi) != VK_SUCCESS)
+    {
+        error = "efb-copy BeginCommandBuffer failed";
+        return false;
+    }
+
+    EfbCopyCacheEntry& entry = s_efbCopyCache[key];
+    if (!EnsureEfbCopyDest(entry, rw, rh, tw, th))
+    {
+        error = "efb-copy dest alloc failed";
+        return false;
+    }
+
+    const float u0 = (float)req.sx / (float)kEfbW, v0 = (float)req.sy / (float)kEfbH;
+    const float u1 = (float)(req.sx + req.sw) / (float)kEfbW, v1 = (float)(req.sy + req.sh) / (float)kEfbH;
+
+    Barrier(fr.cmd, s_efbColor.img, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            VK_IMAGE_ASPECT_COLOR_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+    Barrier(fr.cmd, s_efbColorSnap.img, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_IMAGE_ASPECT_COLOR_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+            VK_ACCESS_TRANSFER_WRITE_BIT);
+    VkImageBlit cblit{};
+    cblit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    cblit.srcSubresource.layerCount = 1;
+    cblit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    cblit.dstSubresource.layerCount = 1;
+    cblit.srcOffsets[1] = { (int32_t)s_efbW, (int32_t)s_efbH, 1 };
+    cblit.dstOffsets[1] = { (int32_t)s_efbW, (int32_t)s_efbH, 1 };
+    pfn_vkCmdBlitImage(fr.cmd, s_efbColor.img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, s_efbColorSnap.img,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &cblit, VK_FILTER_NEAREST);
+
+    Barrier(fr.cmd, s_efbDepth.img, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+    Barrier(fr.cmd, s_efbDepthSnap.img, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_IMAGE_ASPECT_DEPTH_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+            VK_ACCESS_TRANSFER_WRITE_BIT);
+    VkImageCopy dc{};
+    dc.srcSubresource.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    dc.srcSubresource.layerCount = 1;
+    dc.dstSubresource.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    dc.dstSubresource.layerCount = 1;
+    dc.extent = { s_efbW, s_efbH, 1 };
+    pfn_vkCmdCopyImage(fr.cmd, s_efbDepth.img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, s_efbDepthSnap.img,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &dc);
+
+    Barrier(fr.cmd, s_efbColorSnap.img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_IMAGE_ASPECT_COLOR_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
+    Barrier(fr.cmd, s_efbDepthSnap.img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_IMAGE_ASPECT_DEPTH_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
+
+    Barrier(fr.cmd, s_efbColor.img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            VK_IMAGE_ASPECT_COLOR_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+    Barrier(fr.cmd, s_efbDepth.img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            VK_IMAGE_ASPECT_DEPTH_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+            VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
+
+    const VkImageLayout destOld =
+        entry.genId ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED;
+    const VkPipelineStageFlags destSrcSt =
+        entry.genId ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    const VkAccessFlags destSrcA = entry.genId ? VK_ACCESS_SHADER_READ_BIT : 0;
+    Barrier(fr.cmd, entry.img.img, destOld, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT,
+            destSrcSt, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, destSrcA,
+            VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+
+    CopyUtilUbo ubo{};
+    ubo.rect[0] = -1.0f;
+    ubo.rect[1] = 1.0f;
+    ubo.rect[2] = 1.0f;
+    ubo.rect[3] = -1.0f;
+    ubo.uv[0] = u0;
+    ubo.uv[1] = v0;
+    ubo.uv[2] = u1;
+    ubo.uv[3] = v1;
+    ubo.params[2] = 1.0f / (float)kEfbW;
+    ubo.params[3] = 1.0f / (float)kEfbH;
+    ubo.iparams[0] = (int32_t)req.fmt;
+    ubo.iparams[1] = (req.intensity && req.fmt < 4) ? 1 : 0;
+    ubo.iparams[2] = req.depthSrc ? 1 : 0;
+    ubo.iparams[3] = req.half ? 1 : 0;
+    memcpy(s_copyUbo.mapped, &ubo, sizeof(ubo));
+
+    VkRenderPassBeginInfo rp{ VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+    rp.renderPass = s_copyPass;
+    rp.framebuffer = entry.fb;
+    rp.renderArea.extent = { rw, rh };
+    pfn_vkCmdBeginRenderPass(fr.cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
+    pfn_vkCmdBindPipeline(fr.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s_copyPipe);
+    pfn_vkCmdBindDescriptorSets(fr.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s_copyLayout, 0, 1, &s_copySet, 0, nullptr);
+    VkViewport vp{ 0, 0, (float)rw, (float)rh, 0, 1 };
+    pfn_vkCmdSetViewport(fr.cmd, 0, 1, &vp);
+    VkRect2D sc{ { 0, 0 }, { rw, rh } };
+    pfn_vkCmdSetScissor(fr.cmd, 0, 1, &sc);
+    pfn_vkCmdDraw(fr.cmd, 4, 1, 0, 0);
+    pfn_vkCmdEndRenderPass(fr.cmd);
+
+    Barrier(fr.cmd, entry.img.img, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_IMAGE_ASPECT_COLOR_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
+
+    pfn_vkEndCommandBuffer(fr.cmd);
+    VkSubmitInfo si{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    si.commandBufferCount = 1;
+    si.pCommandBuffers = &fr.cmd;
+    VkResult sr = LoadDev<PFN_vkQueueSubmit>("vkQueueSubmit")(Vk_GetGraphicsQueue(), 1, &si, fr.fence);
+    if (sr != VK_SUCCESS)
+    {
+        if (sr == VK_ERROR_DEVICE_LOST) s_deviceLost = true;
+        error = "efb-copy submit failed";
+        return false;
+    }
+    pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
+    fr.recording = false;
+
+    entry.genId = s_efbCopyGen++;
+    s_stats.efbCopies++;
+    s_stats.efbCopyBytes += (uint64_t)rw * rh * 4u;
+    return true;
+}
+
+bool VkGx_LookupEfbCopy(uint32_t destAddr, VkImageView& outView, uint32_t& outW, uint32_t& outH)
+{
+    std::lock_guard lk(s_mu);
+    return LookupEfbCopyLocked(destAddr, outView, outW, outH);
+}
+
+void VkGx_InvalidateEfbCopy(uint32_t destAddr)
+{
+    std::lock_guard lk(s_mu);
+    const uint32_t key = EfbCopyKey(destAddr);
+    if (!key) return;
+    auto it = s_efbCopyCache.find(key);
+    if (it == s_efbCopyCache.end()) return;
+    FrameSlot& fr = s_frames[s_frameIdx];
+    if (fr.recording)
+    {
+        std::string err;
+        DrainFrameSlot(fr, err);
+    }
+    else
+        pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
+    DestroyEfbCopyEntry(it->second);
+    s_efbCopyCache.erase(it);
 }
