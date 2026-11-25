@@ -6,6 +6,7 @@
 
 #include "../../log.h"
 #include "../../kernel/memory.h"
+#include "../gfx_native.h"
 #include "../shadergen_glsl.h"
 #include "../vertex_loader.h"
 
@@ -2619,6 +2620,7 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
                  s_stats.xfDedupHits, s_stats.xfBytesUploaded, s_stats.xfMemcpyNs / 1e6, s_stats.descUpdates,
                  s_stats.descCacheHits, s_stats.gpuEfbCopyNs / 1e6, s_stats.gpuEfbCopySamples,
                  s_stats.gpuPresentNs / 1e6);
+        if (GfxNative_ProfEnabled()) GfxNative_LogStats("present");
     }
     RetireEfbCopyEntries();
     ResetFrameDescriptors();

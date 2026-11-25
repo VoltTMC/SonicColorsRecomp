@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-25 — A5a: native GX front-end audit + direct XF prototype
+
+**Goal:** Document the real GX→GPU path; measure front-end cost; prototype typed SDK→host commands that bypass unnecessary FIFO XF encoding without breaking ordering.
+
+**Shipped:** audit `A5A_NATIVE_GRAPHICS_ARCHITECTURE_AUDIT.md`; `gfx_native.h` + `gfx_direct.cpp`; `SCR_A5A_DIRECT` / `SCR_A5A_PROF`; `PPC_OVERRIDE` SNCP8P `GXLoadPosMtxImm@8036EE10` / `GXLoadNrmMtxImm@8036EE90` (not RENE8P `sdk_names` 8056****); `tools/a5a_tr1_bench.sh`; docs `A5A_NATIVE_GRAPHICS_FRONTEND.md`. Legacy FIFO remains default.
+
+**Evidence (RTX 3080 TR1 ~60s):** DIRECT `directXf≈15k` `fallback=0` `avoided≈787KiB`; mid unique_xfb mean ~12.4 vs legacy ~10.8 (no regression in sample); decode still DL/BP dominated. Unit tests OK. AMD/RADV **deferred**. Win Vulkan **UNVERIFIED**. D3D11 default.
+
 ## 2026-11-25 — A4n: XF payload cut, descriptor/present RCA
 
 **Goal:** Measure XF/descriptor/present CPU costs after A4m; cut redundant XF work; root-cause present-chain hang; reuse descriptors only where safe.

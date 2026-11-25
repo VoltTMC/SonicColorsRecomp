@@ -56,6 +56,16 @@ Reasons:
 - Music mods: file-based CPK host overrides (`Disc_RegisterHostOverride`); launcher Music Library + `tools/music_asset`. No host MixInto / AX mute overlay.
 - Packaging: `tools/package_linux.sh` → AppImage **without** game data.
 
+## Graphics layers (A5a)
+
+Distinguish three layers (see `docs/A5A_NATIVE_GRAPHICS_ARCHITECTURE_AUDIT.md`):
+
+1. **Native CPU recompilation** — DOL gameplay + GX SDK as host x86-64 (not a PPC interpreter).
+2. **GX compatibility processing** — write-gather FIFO / display lists → `g_gx` → `GfxDrawBatch` (default path).
+3. **Native GPU execution** — D3D11 (default) or Vulkan consumes `GfxDrawBatch`.
+
+Opt-in `SCR_A5A_DIRECT=1` replaces selected GX SDK matrix loads with typed GX-thread commands (still ordered vs FIFO). It does **not** mean “the GPU is fully native” by itself — Vulkan draws were already native; A5a moves the *front-end* closer to recompiled code.
+
 ## Known gaps (post-boot)
 
 1. HOME menu RSO still not recompiled (optional polish).

@@ -1,5 +1,6 @@
 // GX command processor: CP/PE registers, write-gather pipe and opcode decoding.
 #include "gx_state.h"
+#include "gfx_native.h"
 #include "../debug/a2b_fifo_archive.h"
 #include "../debug/a2c_scratch_replay.h"
 #include "../debug/a3h_skeleton_palette.h"
@@ -359,7 +360,18 @@ static void CallDisplayList(uint32_t addr, uint32_t size)
 static size_t RunCommands(const uint8_t* p, size_t n, bool inDisplayList)
 {
     size_t pos = 0;
+    uint64_t cmds = 0;
+    const uint64_t t0 = GfxNative_ProfEnabled() ? Platform_PerfCounter() : 0;
     VertexLayout layout;
+    auto finish = [&](size_t ret) -> size_t {
+        if (GfxNative_ProfEnabled() && t0)
+        {
+            const uint64_t freq = Platform_PerfFrequency();
+            const uint64_t ns = freq ? (Platform_PerfCounter() - t0) * 1000000000ull / freq : 0;
+            GfxNative_NoteDecode(ret, cmds, ns);
+        }
+        return ret;
+    };
     while (pos < n)
     {
         const uint8_t* c = p + pos;
@@ -373,34 +385,42 @@ static size_t RunCommands(const uint8_t* p, size_t n, bool inDisplayList)
             continue;
         case 0x08:
             need = 6;
-            if (left < need) return pos;
+            if (left < need) return finish(pos);
             LoadCPReg(c[1], BE32(c + 2));
+            GfxNative_NoteOpcode(op);
+            cmds++;
             pos += need;
             continue;
         case 0x10:
         {
-            if (left < 5) return pos;
+            if (left < 5) return finish(pos);
             uint32_t w = BE32(c + 1);
             uint32_t count = ((w >> 16) & 0xF) + 1;
             need = 5 + 4 * (size_t)count;
-            if (left < need) return pos;
+            if (left < need) return finish(pos);
             LoadXF(w & 0xFFFF, count, c + 5);
+            GfxNative_NoteOpcode(op);
+            cmds++;
             pos += need;
             continue;
         }
         case 0x20: case 0x28: case 0x30: case 0x38:
             need = 5;
-            if (left < need) return pos;
+            if (left < need) return finish(pos);
             LoadIndexedXF(12 + ((op >> 3) & 3), BE32(c + 1));
+            GfxNative_NoteOpcode(op);
+            cmds++;
             pos += need;
             continue;
         case 0x40:
             need = 9;
-            if (left < need) return pos;
+            if (left < need) return finish(pos);
             if (inDisplayList)
                 LOG_WARN("GX: nested display list call ignored");
             else
                 CallDisplayList(BE32(c + 1) & 0x1FFFFFE0, BE32(c + 5));
+            GfxNative_NoteOpcode(op);
+            cmds++;
             pos += need;
             continue;
         case 0x44:   // unknown metrics
@@ -411,14 +431,16 @@ static size_t RunCommands(const uint8_t* p, size_t n, bool inDisplayList)
             continue;
         case 0x61:
             need = 5;
-            if (left < need) return pos;
+            if (left < need) return finish(pos);
             LoadBP(BE32(c + 1));
+            GfxNative_NoteOpcode(op);
+            cmds++;
             pos += need;
             continue;
         default:
             if (op & 0x80)
             {
-                if (left < 3) return pos;
+                if (left < 3) return finish(pos);
                 int vat = op & 7;
                 int prim = (op >> 3) & 7;
                 uint32_t count = BE16(c + 1);
@@ -445,7 +467,7 @@ static size_t RunCommands(const uint8_t* p, size_t n, bool inDisplayList)
                                  g_gx.cp[CP_VCD_LO], g_gx.cp[CP_VCD_HI], vat, g_gx.cp[CP_VAT_A + vat], g_gx.cp[CP_VAT_B + vat], g_gx.cp[CP_VAT_C + vat],
                                  inDisplayList ? "DL" : "FIFO");
                 }
-                if (left < need) return pos;
+                if (left < need) return finish(pos);
                 if (count)
                 {
                     if (!Render_ReplayIsolationActive() && A2b_FifoCaptureEnabled())
@@ -457,6 +479,8 @@ static size_t RunCommands(const uint8_t* p, size_t n, bool inDisplayList)
                     }
                     Render_Draw(prim, vat, count, c + 3, layout);
                 }
+                GfxNative_NoteOpcode(op);
+                cmds++;
                 pos += need;
                 continue;
             }
@@ -476,10 +500,10 @@ static size_t RunCommands(const uint8_t* p, size_t n, bool inDisplayList)
                     LOG_ERROR("GX: further unknown-opcode errors suppressed");
                 }
             }
-            return n;
+            return finish(n);
         }
     }
-    return pos;
+    return finish(pos);
 }
 
 static void ProcessFifo()
@@ -552,7 +576,10 @@ static void GpuThread()
         if (A2b_FifoCaptureEnabled() && n > 0 && !Render_ReplayIsolationActive())
             A2b_OnFifoSubmission(s_fifo.data() + before, n);
         s_ringR.store(w, std::memory_order_release);
+        // A5a: apply typed XF cmds whose watermark ≤ consumed FIFO bytes, then decode.
+        GfxNative_DrainReady(w);
         ProcessFifo();
+        GfxNative_DrainReady(w);
     }
 }
 
@@ -624,6 +651,7 @@ static inline void Gather(const uint8_t* b, int n)
         }
         return;
     }
+    const uint64_t tg0 = GfxNative_ProfEnabled() ? Platform_PerfCounter() : 0;
     if (s_threadStarted)
     {
         while (s_localW + n - s_ringR.load(std::memory_order_acquire) > RING_SIZE)
@@ -645,13 +673,23 @@ static inline void Gather(const uint8_t* b, int n)
         if (A2b_FifoCaptureEnabled() && !Render_ReplayIsolationActive())
             A2b_OnFifoSubmission(b, (size_t)n);
     }
+    if (GfxNative_ProfEnabled() && tg0)
+    {
+        const uint64_t freq = Platform_PerfFrequency();
+        const uint64_t ns = freq ? (Platform_PerfCounter() - tg0) * 1000000000ull / freq : 0;
+        GfxNative_NoteGather((uint64_t)n, ns);
+    }
     s_gatherCount += n;
     if (s_gatherCount >= 32)
     {
         AdvanceWptr(s_gatherCount & ~31u);
         s_gatherCount &= 31;
         if (s_threadStarted) Publish();
-        else ProcessFifo();
+        else
+        {
+            ProcessFifo();
+            GfxNative_DrainReady(s_localW);
+        }
     }
 }
 
@@ -684,4 +722,44 @@ void GX_Init()
     memset(&g_gx, 0, sizeof(g_gx));
     g_gx.bpMaskValue = 0xFFFFFF;
     s_fifo.reserve(1 << 20);
+}
+
+// ---- A5a hooks for typed direct XF (gfx_direct.cpp) ----
+size_t GX_FifoBytesWritten() { return s_localW; }
+void GX_FifoPublishPending()
+{
+    if (s_gatherCount)
+    {
+        // Pad out the current 32-byte gather group as GXFlush would, then publish.
+        static const uint8_t kPad[32]{};
+        const int need = (32 - (int)(s_gatherCount & 31)) & 31;
+        if (need) Gather(kPad, need);
+    }
+    if (s_threadStarted) Publish();
+    else
+    {
+        ProcessFifo();
+        GfxNative_DrainReady(s_localW);
+    }
+}
+void GX_FifoSkipPipeBytes(uint32_t bytes)
+{
+    // Match write-gather accounting for bytes never written to the ring (A5a direct).
+    s_gatherCount += bytes;
+    if (s_gatherCount >= 32)
+    {
+        AdvanceWptr(s_gatherCount & ~31u);
+        s_gatherCount &= 31;
+        if (s_threadStarted) Publish();
+    }
+}
+bool GX_FifoRecordingToRAM() { return RecordingToRAM(); }
+void GX_FifoWakeGpu()
+{
+    if (s_threadStarted && s_gpuSleeping.load()) s_gpuWake->Set();
+    else if (!s_threadStarted)
+    {
+        ProcessFifo();
+        GfxNative_DrainReady(s_localW);
+    }
 }
