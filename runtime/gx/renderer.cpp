@@ -3771,8 +3771,10 @@ static void DoEFBCopy()
                 if (g_screenshotEvery && g_framesPresented >= g_screenshotStart &&
                     (g_framesPresented % (uint32_t)g_screenshotEvery) == 0)
                 {
-                    char path[96];
-                    snprintf(path, sizeof(path), "out/a4g_vk_shot_%04u.bmp",
+                    const char* shotPrefix = std::getenv("SCR_VK_SHOT_PREFIX");
+                    if (!shotPrefix || !shotPrefix[0]) shotPrefix = "out/a4h_vk_shot";
+                    char path[128];
+                    snprintf(path, sizeof(path), "%s_%04u.bmp", shotPrefix,
                              g_framesPresented / (uint32_t)g_screenshotEvery);
                     std::string shotErr;
                     if (!VkGx_SaveEfbBmp(sx, sy, sw, sh, path, shotErr))
@@ -3785,10 +3787,12 @@ static void DoEFBCopy()
                 {
                     auto st = VkGx_Stats();
                     LOG_INFO("vulkan gx: frames={} draws={} verts={} idx={} pipes hit/miss={}/{} "
-                             "shader hit/miss={}/{} spv ok/fail={}/{} texUp={} mipUp={} efbCopy={} unsup={}",
+                             "shader hit/miss={}/{} spv ok/fail={}/{} texUp={} mipUp={} efbCopy={} "
+                             "(inline/sync={}/{}) xfUp={} xfHW={} unsup={}",
                              g_framesPresented, st.draws, st.vertices, st.indices, st.pipelineHits,
                              st.pipelineMisses, st.shaderCacheHits, st.shaderCacheMisses, st.spvCompileOk,
                              st.spvCompileFail, st.texUploads, st.texMipUploads, st.efbCopies,
+                             st.efbCopyInline, st.efbCopySynced, st.xfUploads, st.xfRingHighWater,
                              st.unsupportedOps);
                 }
             }

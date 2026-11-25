@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-25 — A4h: Tropical Resort outdoor Vulkan visual parity (partial)
+
+**Goal:** Fix TR1 outdoor orientation/sky/EFB-copy/mesh gaps vs D3D11; preserve A4g XF ring; D3D11 default.
+
+**Shipped:** Vulkan EFB-copy NDC Y rect (world upright with HUD); region color/depth snaps; XF drain arena recycle + stats; `tools/a4h_tr1_capture.sh`; docs `A4H_TROPICAL_RESORT_OUTDOOR_PARITY.md`. Inline full-EFB copy queues → DEVICE_LOST (documented; sync path retained).
+
+**Evidence (RTX 3080):** stg110; late_half blackish VK ~19% vs D3D ~0.3% (sky void); qualitative outdoor orientation fixed; title val 0 errors; MinGW OK. Sky voids / full parity **not** claimed. AMD/RADV **deferred**. Win Vulkan GPU **UNVERIFIED**.
+
 ## 2026-11-25 — A4g: Tropical Resort Act 1 Vulkan rendering parity (partial)
 
 **Goal:** Reliably enter TR1 (`stg110`) on native Vulkan; same-scene D3D11/VK captures; fix lighting/fog/overlay gaps **actually used** by TR1; D3D11 remains default.

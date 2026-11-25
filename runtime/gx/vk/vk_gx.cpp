@@ -603,6 +603,8 @@ static bool EnsureFrameRecording(FrameSlot& fr, std::string& error)
     return true;
 }
 
+static void ResetFrameDescriptors();
+
 static bool BeginEfbPass(FrameSlot& fr, bool clear, const float* clearCol, float clearDepth)
 {
     if (fr.inEfbPass) return true;
@@ -654,6 +656,14 @@ static bool DrainFrameSlot(FrameSlot& fr, std::string& error)
         return false;
     }
     pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
+    // GPU idle for this slot — recycle host-visible arenas (do not wrap into live ranges).
+    ResetFrameDescriptors();
+    s_dynUboPos = 0;
+    s_xfRingPos = 0;
+    s_xfUploaded = false;
+    s_stats.xfRingWraps++;
+    fr.vbPos = 0;
+    fr.ibPos = 0;
     return true;
 }
 
@@ -901,8 +911,6 @@ static bool UploadTex(const GfxTexBind& t, VkImageView& outView, std::string& er
     s_stats.uploadBytes += uploaded;
     return true;
 }
-
-static void ResetFrameDescriptors();
 
 // A4d: never update a descriptor set after it has been bound in the current CB
 // (Vulkan forbids that without UPDATE_AFTER_BIND). Allocate a fresh set per draw.
@@ -1426,6 +1434,7 @@ bool VkGx_Init(const VkGxInitOptions& opt, std::string& error)
     s_xfRingPos = 0;
     s_xfBindOffset = 0;
     s_xfUploaded = false;
+    s_stats.xfRingBytes = kXfRingBytes;
 
     // White 1x1
     {
@@ -1666,6 +1675,8 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
         s_xfRingPos = off + kXfSlotBytes;
         s_xfUploaded = true;
         s_stats.uploadBytes += n;
+        s_stats.xfUploads++;
+        if (s_xfRingPos > s_stats.xfRingHighWater) s_stats.xfRingHighWater = s_xfRingPos;
         return true;
     };
     auto flushFrame = [&](FrameSlot& fr) {
@@ -2142,7 +2153,9 @@ bool VkGx_CopyEfbToTexture(const GfxEfbCopyRequest& req, std::string& error)
     const uint32_t rw = tw * (uint32_t)s_scale, rh = th * (uint32_t)s_scale;
     const uint32_t key = EfbCopyKey(req.destAddr);
 
-    // Dedicated copy CB + fence wait (A4f-stable). Push constants avoid UBO reuse hazards.
+    // Drain prior draws so the snap observes EFB at the GX copy point. Full-EFB
+    // inline queues (thousands of blits/CB) previously hit GPU TDR / DEVICE_LOST;
+    // region snaps below cut transfer cost while keeping the fence-sync model.
     FrameSlot& fr = s_frames[s_frameIdx];
     if (!DrainFrameSlot(fr, error)) return false;
     pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
@@ -2165,6 +2178,8 @@ bool VkGx_CopyEfbToTexture(const GfxEfbCopyRequest& req, std::string& error)
 
     const float u0 = (float)req.sx / (float)kEfbW, v0 = (float)req.sy / (float)kEfbH;
     const float u1 = (float)(req.sx + req.sw) / (float)kEfbW, v1 = (float)(req.sy + req.sh) / (float)kEfbH;
+    const int32_t rx0 = (int32_t)req.sx * s_scale, ry0 = (int32_t)req.sy * s_scale;
+    const int32_t rx1 = (int32_t)(req.sx + req.sw) * s_scale, ry1 = (int32_t)(req.sy + req.sh) * s_scale;
 
     Barrier(fr.cmd, s_efbColor.img, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
             VK_IMAGE_ASPECT_COLOR_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -2177,8 +2192,10 @@ bool VkGx_CopyEfbToTexture(const GfxEfbCopyRequest& req, std::string& error)
     cblit.srcSubresource.layerCount = 1;
     cblit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     cblit.dstSubresource.layerCount = 1;
-    cblit.srcOffsets[1] = { (int32_t)s_efbW, (int32_t)s_efbH, 1 };
-    cblit.dstOffsets[1] = { (int32_t)s_efbW, (int32_t)s_efbH, 1 };
+    cblit.srcOffsets[0] = { rx0, ry0, 0 };
+    cblit.srcOffsets[1] = { rx1, ry1, 1 };
+    cblit.dstOffsets[0] = { rx0, ry0, 0 };
+    cblit.dstOffsets[1] = { rx1, ry1, 1 };
     pfn_vkCmdBlitImage(fr.cmd, s_efbColor.img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, s_efbColorSnap.img,
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &cblit, VK_FILTER_NEAREST);
 
@@ -2193,7 +2210,9 @@ bool VkGx_CopyEfbToTexture(const GfxEfbCopyRequest& req, std::string& error)
     dc.srcSubresource.layerCount = 1;
     dc.dstSubresource.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
     dc.dstSubresource.layerCount = 1;
-    dc.extent = { s_efbW, s_efbH, 1 };
+    dc.srcOffset = { rx0, ry0, 0 };
+    dc.dstOffset = { rx0, ry0, 0 };
+    dc.extent = { (uint32_t)std::max(1, rx1 - rx0), (uint32_t)std::max(1, ry1 - ry0), 1 };
     pfn_vkCmdCopyImage(fr.cmd, s_efbDepth.img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, s_efbDepthSnap.img,
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &dc);
 
@@ -2221,10 +2240,12 @@ bool VkGx_CopyEfbToTexture(const GfxEfbCopyRequest& req, std::string& error)
             VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
 
     CopyUtilUbo pc{};
+    // Vulkan NDC Y+ is down; D3D util uses {-1,1,1,-1} (Y+ up). Match D3D texture
+    // orientation so EFB-sampled meshes are not vertically flipped vs the HUD.
     pc.rect[0] = -1.0f;
-    pc.rect[1] = 1.0f;
+    pc.rect[1] = -1.0f;
     pc.rect[2] = 1.0f;
-    pc.rect[3] = -1.0f;
+    pc.rect[3] = 1.0f;
     pc.uv[0] = u0;
     pc.uv[1] = v0;
     pc.uv[2] = u1;
@@ -2272,6 +2293,7 @@ bool VkGx_CopyEfbToTexture(const GfxEfbCopyRequest& req, std::string& error)
 
     entry.genId = s_efbCopyGen++;
     s_stats.efbCopies++;
+    s_stats.efbCopySynced++;
     s_stats.efbCopyBytes += (uint64_t)rw * rh * 4u;
     return true;
 }

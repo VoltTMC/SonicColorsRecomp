@@ -1,6 +1,6 @@
 # A4g — Tropical Resort Act 1 Vulkan Rendering Parity
 
-**Status (2026-11-25):** Stage entry + capture workflow **established**. Material TR1 improvement via **versioned XF SSBO ring**. Depth-compare + cull/winding fixes shipped. **Full TR1 visual parity is not claimed** — residual upside-down/missing-sky/EFB-window defects remain vs D3D11.
+**Status (2026-11-25):** Stage entry + capture workflow **established**. Material TR1 improvement via **versioned XF SSBO ring**. Depth-compare + cull/winding fixes shipped. **Full TR1 visual parity is not claimed**. Upside-down outdoor content addressed in **A4h** (EFB-copy Y); sky voids remain — see `docs/A4H_TROPICAL_RESORT_OUTDOOR_PARITY.md`.
 
 **Starting baseline:** A4f `c7f4220` (EFB copies, mips, TEV).
 

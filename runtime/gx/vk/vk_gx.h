@@ -62,6 +62,13 @@ struct VkGxStats
     uint64_t efbCopyBytes = 0;
     uint64_t texMipUploads = 0;
     uint64_t unsupportedOps = 0;
+    // A4h: XF SSBO ring diagnostics
+    uint64_t xfUploads = 0;
+    uint64_t xfRingWraps = 0;
+    uint64_t xfRingHighWater = 0; // bytes
+    uint64_t xfRingBytes = 0;     // capacity
+    uint64_t efbCopyInline = 0;   // copies recorded in the draw CB (no per-copy wait)
+    uint64_t efbCopySynced = 0;   // copies that forced a drain+wait
 };
 VkGxStats VkGx_Stats();
 void VkGx_ResetStats();
