@@ -106,10 +106,12 @@ Khronos validation title smoke: clean of `Validation Error` / `DEVICE_LOST` in c
 
 ## 17. Remaining bottlenecks
 
-- Present-path submit/wait of large CBs (necessary retirement)
-- XF SSBO upload volume / ring high-water
-- Draw recording + descriptor allocation
-- GPU cost of region snaps + convert (real work)
+Addressed / measured further in **A4m** (`docs/A4M_VULKAN_FRAME_SUBMISSION_AND_THROUGHPUT.md`):
+
+- Present-path submit/wait of large CBs (necessary retirement) — profiled; optional draw→present sem chain
+- XF SSBO upload volume / ring high-water — content dedup shipped; outdoor still upload-heavy
+- Draw recording + descriptor allocation — counted (`descUpdates`)
+- GPU cost of region snaps + convert — opt-in timestamps (`SCR_A4M_GPU_TS`)
 - D3D11 still ~10× unique_xfb
 
 ## 18–20. Deferred / out of scope

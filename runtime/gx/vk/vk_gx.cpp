@@ -50,6 +50,8 @@ L(vkCmdDrawIndexed); L(vkCmdClearAttachments);
 L(vkCmdPipelineBarrier); L(vkCmdCopyBuffer); L(vkCmdCopyBufferToImage); L(vkCmdCopyImageToBuffer);
 L(vkCmdCopyImage); L(vkCmdBlitImage); L(vkCmdDraw); L(vkCmdPushConstants);
 L(vkCreateFence); L(vkDestroyFence); L(vkWaitForFences); L(vkResetFences);
+L(vkCreateSemaphore); L(vkDestroySemaphore);
+L(vkCreateQueryPool); L(vkDestroyQueryPool); L(vkCmdWriteTimestamp); L(vkGetQueryPoolResults); L(vkCmdResetQueryPool);
 L(vkResetDescriptorPool);
 L(vkGetPhysicalDeviceMemoryProperties);
 #undef L
@@ -90,6 +92,9 @@ static bool LoadFns()
     LD(vkCmdPipelineBarrier); LD(vkCmdCopyBuffer); LD(vkCmdCopyBufferToImage); LD(vkCmdCopyImageToBuffer);
     LD(vkCmdCopyImage); LD(vkCmdBlitImage); LD(vkCmdDraw); LD(vkCmdPushConstants);
     LD(vkCreateFence); LD(vkDestroyFence); LD(vkWaitForFences); LD(vkResetFences);
+    LD(vkCreateSemaphore); LD(vkDestroySemaphore);
+    LD(vkCreateQueryPool); LD(vkDestroyQueryPool); LD(vkCmdWriteTimestamp); LD(vkGetQueryPoolResults);
+    LD(vkCmdResetQueryPool);
     LD(vkResetDescriptorPool);
 #undef LD
     pfn_vkGetPhysicalDeviceMemoryProperties =
@@ -255,6 +260,22 @@ int s_frameIdx = 0;
 bool s_xfUploaded = false;
 bool s_deviceLost = false;
 VkCommandBuffer s_presentCmd = VK_NULL_HANDLE;
+// A4m: draw-flush → present GPU dependency (avoids a separate CPU WaitForFences on the draw fence).
+VkSemaphore s_efbReadySem = VK_NULL_HANDLE;
+bool s_efbReadySemPending = false; // signaled by draw flush, must be waited by present
+// XF content dedup within the current arena lifetime.
+uint64_t s_xfLastHash = 0;
+VkDeviceSize s_xfLastOff = 0;
+uint32_t s_xfLastBytes = 0;
+// A4m GPU timestamp queries (opt-in SCR_A4M_GPU_TS=1).
+constexpr uint32_t kTsQueries = 256; // pairs of begin/end
+VkQueryPool s_tsPool = VK_NULL_HANDLE;
+float s_tsPeriodNs = 0.f;
+uint64_t s_tsValidMask = ~0ull;
+uint32_t s_tsCursor = 0;     // next free query index
+uint32_t s_tsPending = 0;    // queries written since last resolve
+int s_gpuTs = 0;             // 0 off, 1 on
+bool s_tsNeedReset = true;
 
 std::unordered_map<PipeKey, VkPipeline, PipeKeyHash> s_pipes;
 VkPipeline s_blitPipe = VK_NULL_HANDLE;
@@ -365,6 +386,66 @@ static int EnvFlag(const char* name)
 {
     const char* e = std::getenv(name);
     return (e && e[0] && e[0] != '0') ? 1 : 0;
+}
+
+// Kind ring parallel to timestamp pairs: 0=efb, 1=present
+uint8_t s_tsKind[kTsQueries / 2]{};
+uint32_t s_tsPairCount = 0;
+
+static void ResolveGpuTimestamps()
+{
+    if (!s_gpuTs || !s_tsPool || s_tsPending == 0) return;
+    uint64_t raw[kTsQueries];
+    const VkResult r = pfn_vkGetQueryPoolResults(Vk_GetDevice(), s_tsPool, 0, s_tsPending, sizeof(raw), raw,
+                                                 sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
+    if (r == VK_SUCCESS)
+    {
+        const uint32_t pairs = s_tsPending / 2;
+        for (uint32_t p = 0; p < pairs && p < s_tsPairCount; p++)
+        {
+            const uint64_t a = raw[p * 2] & (uint64_t)s_tsValidMask;
+            const uint64_t b = raw[p * 2 + 1] & (uint64_t)s_tsValidMask;
+            if (b < a) continue;
+            const uint64_t ns = (uint64_t)((double)(b - a) * (double)s_tsPeriodNs);
+            if (s_tsKind[p] == 1)
+            {
+                s_stats.gpuPresentNs += ns;
+                s_stats.gpuPresentSamples++;
+            }
+            else
+            {
+                s_stats.gpuEfbCopyNs += ns;
+                s_stats.gpuEfbCopySamples++;
+            }
+        }
+    }
+    s_tsPending = 0;
+    s_tsCursor = 0;
+    s_tsPairCount = 0;
+    s_tsNeedReset = true;
+}
+
+static int TsBegin(VkCommandBuffer cmd, uint8_t kind)
+{
+    if (!s_gpuTs || !s_tsPool) return -1;
+    if (s_tsCursor + 2 > kTsQueries) return -1;
+    if (s_tsNeedReset)
+    {
+        pfn_vkCmdResetQueryPool(cmd, s_tsPool, 0, kTsQueries);
+        s_tsNeedReset = false;
+    }
+    const uint32_t q = s_tsCursor;
+    pfn_vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, s_tsPool, q);
+    s_tsCursor = q + 2;
+    s_tsPending = s_tsCursor;
+    if (s_tsPairCount < kTsQueries / 2) s_tsKind[s_tsPairCount++] = kind;
+    return (int)q;
+}
+
+static void TsEnd(VkCommandBuffer cmd, int beginQ)
+{
+    if (beginQ < 0 || !s_tsPool) return;
+    pfn_vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, s_tsPool, (uint32_t)beginQ + 1);
 }
 
 std::unordered_map<std::string, uint32_t> s_unsupCounts;
@@ -787,6 +868,7 @@ static bool DrainFrameSlot(FrameSlot& fr, std::string& error, bool accountEfbCop
     }
     const uint64_t tw0 = accountEfbCopy ? MonoNs() : 0;
     pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
+    ResolveGpuTimestamps();
     if (accountEfbCopy)
     {
         s_stats.efbCopySubmitNs += (t1 - t0);
@@ -799,6 +881,9 @@ static bool DrainFrameSlot(FrameSlot& fr, std::string& error, bool accountEfbCop
     s_dynUboPos = 0;
     s_xfRingPos = 0;
     s_xfUploaded = false;
+    s_xfLastHash = 0;
+    s_xfLastOff = 0;
+    s_xfLastBytes = 0;
     s_stats.xfRingWraps++;
     fr.vbPos = 0;
     fr.ibPos = 0;
@@ -828,6 +913,7 @@ static bool SoftSubmitContinue(FrameSlot& fr, std::string& error, bool accountEf
     }
     const uint64_t tw0 = accountEfbCopy ? MonoNs() : 0;
     pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
+    ResolveGpuTimestamps();
     if (accountEfbCopy)
     {
         s_stats.efbCopySubmitNs += (t1 - t0);
@@ -1199,6 +1285,7 @@ static bool AllocDrawDescriptors(const GfxDrawBatch& batch, VkImageView views[8]
     writes[3].descriptorCount = 8;
     writes[3].pImageInfo = imgs;
     pfn_vkUpdateDescriptorSets(Vk_GetDevice(), 4, writes, 0, nullptr);
+    s_stats.descUpdates++;
     outSet = set;
     return true;
 }
@@ -1602,6 +1689,56 @@ bool VkGx_Init(const VkGxInitOptions& opt, std::string& error)
         // Dedicated present CB — never shared with the GX draw thread's in-flight recording.
         s_presentCmd = cmds[kFrames];
 
+        {
+            VkSemaphoreCreateInfo sei{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+            if (pfn_vkCreateSemaphore(dev, &sei, nullptr, &s_efbReadySem) != VK_SUCCESS)
+            {
+                error = "efb-ready semaphore failed";
+                return false;
+            }
+            s_efbReadySemPending = false;
+        }
+
+        // Optional GPU timestamps (SCR_A4M_GPU_TS=1). Harmless if disabled — pool still created
+        // only when requested so normal path has zero query overhead.
+        s_gpuTs = EnvFlag("SCR_A4M_GPU_TS");
+        if (s_gpuTs)
+        {
+            VkPhysicalDeviceProperties props{};
+            auto getProps = LoadInst<PFN_vkGetPhysicalDeviceProperties>("vkGetPhysicalDeviceProperties");
+            if (getProps) getProps(Vk_GetPhysicalDevice(), &props);
+            s_tsPeriodNs = props.limits.timestampPeriod;
+            uint32_t qCount = 0;
+            auto getQ = LoadInst<PFN_vkGetPhysicalDeviceQueueFamilyProperties>(
+                "vkGetPhysicalDeviceQueueFamilyProperties");
+            s_tsValidMask = ~0ull;
+            if (getQ)
+            {
+                getQ(Vk_GetPhysicalDevice(), &qCount, nullptr);
+                std::vector<VkQueueFamilyProperties> qfp(qCount);
+                getQ(Vk_GetPhysicalDevice(), &qCount, qfp.data());
+                const uint32_t qf = Vk_GetGraphicsQueueFamily();
+                if (qf < qCount && qfp[qf].timestampValidBits > 0 && qfp[qf].timestampValidBits < 64)
+                    s_tsValidMask = (1ull << qfp[qf].timestampValidBits) - 1ull;
+            }
+            VkQueryPoolCreateInfo qci{ VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
+            qci.queryType = VK_QUERY_TYPE_TIMESTAMP;
+            qci.queryCount = kTsQueries;
+            if (pfn_vkCreateQueryPool(dev, &qci, nullptr, &s_tsPool) != VK_SUCCESS)
+            {
+                LOG_WARN("A4m: timestamp query pool failed — GPU_TS disabled");
+                s_gpuTs = 0;
+                s_tsPool = VK_NULL_HANDLE;
+            }
+            else
+            {
+                LOG_INFO("A4m: GPU timestamps enabled (period={:.3f} ns)", s_tsPeriodNs);
+                s_tsCursor = 0;
+                s_tsPending = 0;
+                s_tsPairCount = 0;
+            }
+        }
+
         VkCommandBuffer setup = cmds[0];
         pfn_vkResetFences(dev, 1, &s_frames[0].fence);
         pfn_vkResetCommandBuffer(setup, 0);
@@ -1843,6 +1980,18 @@ void VkGx_Shutdown()
     s_blitVs = s_blitFs = VK_NULL_HANDLE;
     s_sampNearest = s_sampLinear = VK_NULL_HANDLE;
     s_pool = VK_NULL_HANDLE;
+    if (s_efbReadySem)
+    {
+        pfn_vkDestroySemaphore(dev, s_efbReadySem, nullptr);
+        s_efbReadySem = VK_NULL_HANDLE;
+    }
+    s_efbReadySemPending = false;
+    if (s_tsPool)
+    {
+        pfn_vkDestroyQueryPool(dev, s_tsPool, nullptr);
+        s_tsPool = VK_NULL_HANDLE;
+    }
+    s_gpuTs = 0;
     s_presentCmd = VK_NULL_HANDLE;
     s_frameDescSets.clear();
     s_descCursor = 0;
@@ -1850,6 +1999,9 @@ void VkGx_Shutdown()
     s_xfRingPos = 0;
     s_xfBindOffset = 0;
     s_xfUploaded = false;
+    s_xfLastHash = 0;
+    s_xfLastOff = 0;
+    s_xfLastBytes = 0;
     s_deviceLost = false;
     s_active = false;
 }
@@ -1888,7 +2040,26 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
     (void)fsMod;
 
     auto align = [](VkDeviceSize v, VkDeviceSize a) { return (v + a - 1) / a * a; };
+    static int s_xfDedup = -1;
+    if (s_xfDedup < 0)
+    {
+        const char* e = std::getenv("SCR_A4M_XF_DEDUP");
+        s_xfDedup = (!e || (e[0] && e[0] != '0')) ? 1 : 0; // default on
+    }
     auto uploadXfSlot = [&](const GfxDrawBatch& b, std::string& err) -> bool {
+        const size_t n = (size_t)std::min(b.xfFloatCount, 0x1000u) * sizeof(float);
+        // A4m: reuse last ring slot when XF payload is byte-identical (hash + memcmp).
+        if (s_xfDedup && s_xfUploaded && b.xfmem && n == s_xfLastBytes && n > 0)
+        {
+            const uint64_t h = Hash64Bytes(b.xfmem, n);
+            if (h == s_xfLastHash &&
+                std::memcmp(b.xfmem, (const uint8_t*)s_xfBuf.mapped + s_xfLastOff, n) == 0)
+            {
+                s_xfBindOffset = s_xfLastOff;
+                s_stats.xfDedupHits++;
+                return true;
+            }
+        }
         // Storage-buffer offset alignment is typically ≤256; keep slots 16 KiB-aligned.
         const VkDeviceSize off = align(s_xfRingPos, kXfSlotBytes);
         if (off + kXfSlotBytes > s_xfBuf.size)
@@ -1896,12 +2067,15 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
             err = "xf ring exhausted (flush required)";
             return false;
         }
-        const size_t n = (size_t)std::min(b.xfFloatCount, 0x1000u) * sizeof(float);
         if (b.xfmem) memcpy((uint8_t*)s_xfBuf.mapped + off, b.xfmem, n);
         s_xfBindOffset = off;
         s_xfRingPos = off + kXfSlotBytes;
         s_xfUploaded = true;
+        s_xfLastOff = off;
+        s_xfLastBytes = (uint32_t)n;
+        s_xfLastHash = (b.xfmem && n) ? Hash64Bytes(b.xfmem, n) : 0;
         s_stats.uploadBytes += n;
+        s_stats.xfBytesUploaded += n;
         s_stats.xfUploads++;
         if (s_xfRingPos > s_stats.xfRingHighWater) s_stats.xfRingHighWater = s_xfRingPos;
         return true;
@@ -1923,6 +2097,9 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
         s_dynUboPos = 0;
         s_xfRingPos = 0;
         s_xfUploaded = false;
+        s_xfLastHash = 0;
+        s_xfLastOff = 0;
+        s_xfLastBytes = 0;
         fr.vbPos = 0;
         fr.ibPos = 0;
         ResetInlineCopyBudget();
@@ -2107,6 +2284,39 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
     }
 
     FrameSlot& fr = s_frames[s_frameIdx];
+    static int s_presentChain = -1;
+    static int s_a4mProf = -1;
+    if (s_presentChain < 0)
+    {
+        // Default OFF: opt-in until outdoor TR1 hang with chain=1 is fully root-caused.
+        // Profiling still attributes drawFlush vs presentWait via SCR_A4M_PROF.
+        s_presentChain = EnvFlag("SCR_A4M_PRESENT_CHAIN");
+        if (s_presentChain)
+            LOG_INFO("A4m: draw→present semaphore chain ENABLED (SCR_A4M_PRESENT_CHAIN=1)");
+        else
+            LOG_INFO("A4m: present chain off (set SCR_A4M_PRESENT_CHAIN=1 to enable)");
+    }
+    if (s_a4mProf < 0) s_a4mProf = EnvFlag("SCR_A4M_PROF");
+
+    // Consume a signaled efb-ready semaphore if present submit will not wait on it
+    // (Acquire/Begin failure after draw flush). Binary semaphores must be waited once.
+    auto consumeEfbReadySem = [&]() {
+        if (!s_efbReadySemPending || !s_efbReadySem) return;
+        pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
+        VkPipelineStageFlags st = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+        VkSubmitInfo drain{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+        drain.waitSemaphoreCount = 1;
+        drain.pWaitSemaphores = &s_efbReadySem;
+        drain.pWaitDstStageMask = &st;
+        auto qsubmit = LoadDev<PFN_vkQueueSubmit>("vkQueueSubmit");
+        // Reuse fr.fence: already signaled; reset then signal again after empty wait.
+        pfn_vkResetFences(Vk_GetDevice(), 1, &fr.fence);
+        qsubmit(Vk_GetGraphicsQueue(), 1, &drain, fr.fence);
+        pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
+        s_efbReadySemPending = false;
+    };
+
+    bool drawSignaledSem = false;
     // Finish any in-progress GX draws before present (separate submit).
     if (fr.recording)
     {
@@ -2116,6 +2326,12 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
         VkSubmitInfo si{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
         si.commandBufferCount = 1;
         si.pCommandBuffers = &fr.cmd;
+        if (s_presentChain && s_efbReadySem && !s_efbReadySemPending)
+        {
+            si.signalSemaphoreCount = 1;
+            si.pSignalSemaphores = &s_efbReadySem;
+            drawSignaledSem = true;
+        }
         auto qsubmit = LoadDev<PFN_vkQueueSubmit>("vkQueueSubmit");
         VkResult sr = qsubmit(Vk_GetGraphicsQueue(), 1, &si, fr.fence);
         if (sr != VK_SUCCESS)
@@ -2125,7 +2341,15 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
                     std::to_string(Vk_PresentSerial());
             return false;
         }
-        pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
+        if (drawSignaledSem)
+            s_efbReadySemPending = true;
+        else
+        {
+            // Legacy: CPU-serialise draw completion before present recording.
+            const uint64_t tw0 = MonoNs();
+            pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
+            s_stats.presentDrawFlushNs += MonoNs() - tw0;
+        }
     }
 
     // Present uses a dedicated CB so draw-frame recording state stays untouched.
@@ -2134,6 +2358,7 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     if (pfn_vkBeginCommandBuffer(s_presentCmd, &bi) != VK_SUCCESS)
     {
+        consumeEfbReadySem();
         error = "present BeginCommandBuffer failed";
         return false;
     }
@@ -2147,6 +2372,7 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
     if (!Vk_AcquireImage(imageIndex, acqErr))
     {
         pfn_vkEndCommandBuffer(s_presentCmd);
+        consumeEfbReadySem();
         error = acqErr;
         if (acqErr.find("(-4)") != std::string::npos) s_deviceLost = true;
         return false;
@@ -2190,8 +2416,10 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
     if (blit.srcOffsets[1].x <= blit.srcOffsets[0].x) blit.srcOffsets[1].x = blit.srcOffsets[0].x + 1;
     if (blit.srcOffsets[1].y <= blit.srcOffsets[0].y) blit.srcOffsets[1].y = blit.srcOffsets[0].y + 1;
 
+    const int presentTs = TsBegin(s_presentCmd, 1);
     pfn_vkCmdBlitImage(s_presentCmd, s_efbColor.img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, swapImg,
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
+    TsEnd(s_presentCmd, presentTs);
 
     Barrier(s_presentCmd, swapImg, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
             VK_IMAGE_ASPECT_COLOR_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
@@ -2203,27 +2431,60 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
     pfn_vkEndCommandBuffer(s_presentCmd);
 
     std::string subErr;
-    if (!Vk_SubmitPresent(s_presentCmd, imageIndex, subErr, VK_PIPELINE_STAGE_TRANSFER_BIT))
+    VkSemaphore extraWait = (drawSignaledSem && s_efbReadySemPending) ? s_efbReadySem : VK_NULL_HANDLE;
+    const bool presentOk =
+        Vk_SubmitPresent(s_presentCmd, imageIndex, subErr, VK_PIPELINE_STAGE_TRANSFER_BIT, extraWait);
+    if (extraWait != VK_NULL_HANDLE)
+    {
+        if (Vk_LastSubmitWaitedExtraSem())
+            s_efbReadySemPending = false;
+        else if (s_efbReadySemPending)
+            consumeEfbReadySem();
+    }
+    if (!presentOk)
     {
         error = subErr;
         if (subErr.find("(-4)") != std::string::npos) s_deviceLost = true;
         return false;
     }
-    // Retire present blit via its submission fence (not full device idle). Draw CBs were
-    // already fence-waited above; descriptor/dynUbo/staging were only used by those CBs.
+
+    // Single CPU wait: present fence implies draw CB completed (GPU sem order) when chained.
     Vk_WaitLastSubmit();
+    ResolveGpuTimestamps();
+    s_stats.presentWaitNs += Vk_LastPresentWaitNs();
+    s_stats.presentCount++;
+    if (s_a4mProf && (s_stats.presentCount % 64ull) == 1ull)
+    {
+        LOG_INFO("A4m-present: n={} chain={} drawFlushMs={:.1f} presentWaitMs={:.1f} "
+                 "xfUp={} xfDedup={} xfBytes={} descUp={} gpuEfbMs={:.1f} (n={}) gpuPresentMs={:.1f}",
+                 s_stats.presentCount, s_presentChain ? 1 : 0, s_stats.presentDrawFlushNs / 1e6,
+                 s_stats.presentWaitNs / 1e6, s_stats.xfUploads, s_stats.xfDedupHits,
+                 s_stats.xfBytesUploaded, s_stats.descUpdates, s_stats.gpuEfbCopyNs / 1e6,
+                 s_stats.gpuEfbCopySamples, s_stats.gpuPresentNs / 1e6);
+    }
     RetireEfbCopyEntries();
     ResetFrameDescriptors();
     s_dynUboPos = 0;
     s_xfRingPos = 0;
     s_xfUploaded = false;
+    s_xfLastHash = 0;
+    s_xfLastOff = 0;
+    s_xfLastBytes = 0;
     s_stagingPos = 0;
     ResetInlineCopyBudget();
-    // Present did not use fr.fence; keep it signaled for EnsureFrameRecording.
+    // Draw fence: with chain, present wait already implies draw completion; wait is near-free.
+    // Use a bounded wait so a stuck fence surfaces as an error instead of a silent hang.
     if (!fr.recording)
     {
-        pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
-        // If unsignaled somehow, wait may hang — fence stays signaled from draw flush or init.
+        const VkResult wr = pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, 5ull * 1000ull * 1000ull * 1000ull);
+        if (wr == VK_TIMEOUT)
+        {
+            LOG_ERROR("A4m: draw fence wait TIMEOUT after present (chain={} pendingSem={})",
+                      s_presentChain ? 1 : 0, s_efbReadySemPending ? 1 : 0);
+            error = "present draw-fence timeout";
+            s_deviceLost = true;
+            return false;
+        }
     }
     s_frameIdx = (s_frameIdx + 1) % kFrames;
     return true;
@@ -2366,6 +2627,7 @@ void VkGx_NoteUnsupported(const char* op)
 static void RecordEfbCopyCommands(FrameSlot& fr, const GfxEfbCopyRequest& req, EfbCopyCacheEntry& entry,
                                   uint32_t rw, uint32_t rh)
 {
+    const int tsQ = TsBegin(fr.cmd, 0);
     const float u0 = (float)req.sx / (float)kEfbW, v0 = (float)req.sy / (float)kEfbH;
     const float u1 = (float)(req.sx + req.sw) / (float)kEfbW, v1 = (float)(req.sy + req.sh) / (float)kEfbH;
     const int32_t rx0 = (int32_t)req.sx * s_scale, ry0 = (int32_t)req.sy * s_scale;
@@ -2466,6 +2728,7 @@ static void RecordEfbCopyCommands(FrameSlot& fr, const GfxEfbCopyRequest& req, E
     Barrier(fr.cmd, entry.img.img, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             VK_IMAGE_ASPECT_COLOR_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT);
+    TsEnd(fr.cmd, tsQ);
 }
 
 bool VkGx_CopyEfbToTexture(const GfxEfbCopyRequest& req, std::string& error)

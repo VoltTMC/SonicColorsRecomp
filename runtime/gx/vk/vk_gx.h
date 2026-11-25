@@ -83,6 +83,19 @@ struct VkGxStats
     uint64_t efbCopyFenceWaitNs = 0;     // total CPU ns blocked on those waits
     uint64_t efbCopyRecordNs = 0;        // CPU ns recording copy commands (excl. waits)
     uint64_t efbCopySubmitNs = 0;        // CPU ns in queue submit for sync copies
+    // A4m frame-pipeline
+    uint64_t xfDedupHits = 0;            // XF ring slots reused (identical content)
+    uint64_t xfBytesUploaded = 0;        // memcpy bytes into XF ring
+    uint64_t presentDrawFlushNs = 0;     // CPU wait on draw fence before present (legacy path)
+    uint64_t presentWaitNs = 0;          // CPU WaitLastSubmit after present
+    uint64_t presentCount = 0;
+    uint64_t drawRecordNs = 0;           // CPU time in VkGx_Draw body (approx)
+    uint64_t descUpdates = 0;
+    // A4m GPU timestamps (SCR_A4M_GPU_TS=1); 0 when unsupported / disabled
+    uint64_t gpuEfbCopyNs = 0;           // sum of timed EFB-copy regions
+    uint64_t gpuEfbCopySamples = 0;
+    uint64_t gpuPresentNs = 0;           // sum of timed present blit CBs
+    uint64_t gpuPresentSamples = 0;
 };
 VkGxStats VkGx_Stats();
 void VkGx_ResetStats();

@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-25 — A4m: Vulkan frame submission & throughput
+
+**Goal:** Measure remaining TR1 bottlenecks after A4l; cut the largest safe CPU costs without weakening A4d–A4l lifetime/sync.
+
+**Shipped:** draw→present sem chain (opt-in `SCR_A4M_PRESENT_CHAIN`); XF ring content dedup (default on); `SCR_A4M_PROF` / `SCR_A4M_GPU_TS`; `tools/a4m_tr1_bench.sh`; docs `A4M_VULKAN_FRAME_SUBMISSION_AND_THROUGHPUT.md`.
+
+**Evidence (RTX 3080):** profiled drawFlush + presentWait + ~tens of GiB XF uploads/explore; title can ~60 unique_xfb; outdoor sustained still ~5–6.5 (A4l-class). Present chain default **off** (outdoor/load hang under investigation). late_half ~0.19%. Linux + MinGW OK. D3D11 ~60 still ahead. AMD/RADV **deferred**. Win Vulkan **UNVERIFIED**. I1 **out of scope**. D3D11 default.
+
 ## 2026-11-25 — A4l: Vulkan EFB-copy sync & throughput
 
 **Goal:** Remove per-copy CPU fence waits on EFB→texture while preserving GX order, A4h TDR safety, A4j sky, and validation cleanliness.

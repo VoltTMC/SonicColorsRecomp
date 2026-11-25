@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
@@ -1041,19 +1042,38 @@ bool Vk_AcquireImage(uint32_t& imageIndex, std::string& error)
     return true;
 }
 
-bool Vk_SubmitPresent(VkCommandBuffer cmd, uint32_t imageIndex, std::string& error, VkPipelineStageFlags waitStage)
+static uint64_t s_lastPresentWaitNs = 0;
+static bool s_lastExtraWaitConsumed = false;
+
+bool Vk_LastSubmitWaitedExtraSem() { return s_lastExtraWaitConsumed; }
+
+bool Vk_SubmitPresent(VkCommandBuffer cmd, uint32_t imageIndex, std::string& error, VkPipelineStageFlags waitStage,
+                      VkSemaphore extraWaitSem)
 {
+    s_lastExtraWaitConsumed = false;
     const uint32_t fi = s_syncFrame % kSyncFrames;
     if (imageIndex >= s_renderFinished.size() || s_renderFinished[imageIndex] == VK_NULL_HANDLE)
     {
         error = "present semaphore missing for imageIndex=" + std::to_string(imageIndex);
         return false;
     }
+    VkSemaphore waits[2]{};
+    VkPipelineStageFlags stages[2]{};
+    uint32_t waitCount = 0;
+    waits[waitCount] = s_imageAvailable[fi];
+    stages[waitCount] = waitStage;
+    waitCount++;
+    if (extraWaitSem != VK_NULL_HANDLE)
+    {
+        waits[waitCount] = extraWaitSem;
+        stages[waitCount] = waitStage;
+        waitCount++;
+    }
     VkSubmitInfo si{};
     si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    si.waitSemaphoreCount = 1;
-    si.pWaitSemaphores = &s_imageAvailable[fi];
-    si.pWaitDstStageMask = &waitStage;
+    si.waitSemaphoreCount = waitCount;
+    si.pWaitSemaphores = waits;
+    si.pWaitDstStageMask = stages;
     si.commandBufferCount = 1;
     si.pCommandBuffers = &cmd;
     si.signalSemaphoreCount = 1;
@@ -1066,6 +1086,7 @@ bool Vk_SubmitPresent(VkCommandBuffer cmd, uint32_t imageIndex, std::string& err
                     " syncFrame=" + std::to_string(fi);
             return false;
         }
+        if (extraWaitSem != VK_NULL_HANDLE) s_lastExtraWaitConsumed = true;
     }
     VkPresentInfoKHR pi{};
     pi.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -1108,12 +1129,21 @@ void Vk_DeviceWaitIdle()
 
 void Vk_WaitLastSubmit()
 {
+    s_lastPresentWaitNs = 0;
     if (!s_device || !pfn_vkWaitForFences) return;
     // SubmitPresent advances s_syncFrame after queue submit; wait the fence that was just signaled.
     const uint32_t fi = (s_syncFrame + kSyncFrames - 1) % kSyncFrames;
     if (s_inFlight[fi])
+    {
+        using clock = std::chrono::steady_clock;
+        const auto t0 = clock::now();
         pfn_vkWaitForFences(s_device, 1, &s_inFlight[fi], VK_TRUE, UINT64_MAX);
+        s_lastPresentWaitNs =
+            (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(clock::now() - t0).count();
+    }
 }
+
+uint64_t Vk_LastPresentWaitNs() { return s_lastPresentWaitNs; }
 
 int Vk_SmokePresentFrames(int frames, const VkInitOptions& opt, std::string& error)
 {

@@ -85,8 +85,13 @@ PFN_vkVoidFunction Vk_GetDeviceProc(const char* name);
 // Shared present sync: acquire → caller records cmd → submit+present.
 bool Vk_AcquireImage(uint32_t& imageIndex, std::string& error);
 // waitStage: COLOR_ATTACHMENT for clear/renderpass presents; TRANSFER for blit-to-swapchain.
+// A4m: optional extraWaitSem is waited at the same stage (e.g. EFB-ready from draw flush).
+// Successful vkQueueSubmit waits extraWaitSem even if present fails afterward.
 bool Vk_SubmitPresent(VkCommandBuffer cmd, uint32_t imageIndex, std::string& error,
-                      VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+                      VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                      VkSemaphore extraWaitSem = VK_NULL_HANDLE);
+bool Vk_LastSubmitWaitedExtraSem();
 void Vk_DeviceWaitIdle();
 // Wait for the most recently submitted present/graphics fence (not a full device idle).
 void Vk_WaitLastSubmit();
+uint64_t Vk_LastPresentWaitNs(); // CPU ns spent in most recent WaitLastSubmit (0 if none)
