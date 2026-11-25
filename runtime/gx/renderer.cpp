@@ -785,11 +785,31 @@ static void BuildPSKey(PSKey& k)
     k.indOrder = k.numIndStages ? BP(0x27) & 0xFFFFFF : 0;
     uint32_t af = BP(0xF3);
     k.alphaFunc = ((af >> 16) & 7) | (((af >> 19) & 7) << 3) | (((af >> 22) & 3) << 6);
+    {
+        static int s_noA = -1;
+        if (s_noA < 0)
+        {
+            const char* e = std::getenv("SCR_A4I_NO_ALPHA_TEST");
+            s_noA = (e && e[0] && e[0] != '0') ? 1 : 0;
+        }
+        // Always/Always AND → never discard (comp0=7,comp1=7,logic=0).
+        if (s_noA) k.alphaFunc = 7 | (7 << 3) | (0 << 6);
+    }
     k.zTexType = (BP(0xF5) & 3) | (((BP(0xF5) >> 2) & 3) << 2);
     uint32_t fogc = BP(0xF1);
     uint32_t fsel = (fogc >> 21) & 7;
     k.fogType = fsel | (((fogc >> 20) & 1) << 3) | (((BP(0xE8) >> 10) & 1) << 4);
     if (fsel < 2) k.fogType = 0;
+    // A4i probe: SCR_A4I_NO_FOG=1 disables fog in PSKey (both backends share BuildPSKey).
+    {
+        static int s_noFog = -1;
+        if (s_noFog < 0)
+        {
+            const char* e = std::getenv("SCR_A4I_NO_FOG");
+            s_noFog = (e && e[0] && e[0] != '0') ? 1 : 0;
+        }
+        if (s_noFog) k.fogType = 0;
+    }
     k.pixelFormat = PixelFormat();
     k.dstAlphaEnable = (BP(0x42) >> 8) & 1;
     bool zEnable = BP(0x40) & 1;
@@ -2716,6 +2736,26 @@ static bool FlushVulkan()
     batch.depthWrite = (zm & 0x10) != 0;
     batch.depthCompare = (uint8_t)((zm >> 1) & 7);
     batch.blendEnable = (BP(0x41) & 1) != 0;
+    // A4i probe: force Always depth for far/world-space verts (candidate skydome).
+    {
+        static int s_farZ = -1;
+        if (s_farZ < 0)
+        {
+            const char* e = std::getenv("SCR_A4I_FAR_DEPTH_ALWAYS");
+            s_farZ = (e && e[0] && e[0] != '0') ? 1 : 0;
+        }
+        if (s_farZ && !s_verts.empty())
+        {
+            const float* p = s_verts[0].pos;
+            const float r2 = p[0] * p[0] + p[1] * p[1] + p[2] * p[2];
+            if (r2 > 1.0e6f)
+            {
+                batch.depthTest = true;
+                batch.depthCompare = 7; // Always
+                batch.depthWrite = false;
+            }
+        }
+    }
 
     // A4e/A4f: full VSKey/PSKey IR + multi-texture (RAM mips + EFB-copy textures).
     BuildVSKey(batch.vsKey);
@@ -2747,11 +2787,22 @@ static bool FlushVulkan()
         uint32_t fmt = (img0 >> 20) & 15;
         uint32_t addr = (img3 & 0x00FFFFFF) << 5;
 
-        // Prefer live Vulkan EFB-copy texture at this guest address (A4f).
+        // Prefer live Vulkan EFB-copy texture at this guest address (A4f/A4i).
+        // Pass s_frame so stale copies whose guest RAM was overwritten invalidate
+        // (D3D GetTexture ramHash parity) — otherwise sky/background CPU textures
+        // stay permanently shadowed by an earlier EFB copy at the same EA.
+        // SCR_A4I_NO_EFB_TEX=1: force RAM decode (diagnostic for sky voids).
+        static int s_a4iNoEfbTex = -1;
+        if (s_a4iNoEfbTex < 0)
+        {
+            const char* e = std::getenv("SCR_A4I_NO_EFB_TEX");
+            s_a4iNoEfbTex = (e && e[0] && e[0] != '0') ? 1 : 0;
+        }
+        if (!s_a4iNoEfbTex)
         {
             VkImageView ev = VK_NULL_HANDLE;
             uint32_t ew = 0, eh = 0;
-            if (VkGx_LookupEfbCopy(addr, ev, ew, eh) && ev)
+            if (VkGx_LookupEfbCopy(addr, ev, ew, eh, s_frame) && ev)
             {
                 batch.tex[m].efbCopyAddr = addr;
                 batch.tex[m].use = true;
@@ -2839,6 +2890,41 @@ static bool FlushVulkan()
         {
             LOG_ERROR("vulkan gx draw failed: {}", err);
             if (err.find("previously lost") != std::string::npos) s_loggedVkDrawFail = true;
+        }
+    }
+    else
+    {
+        // A4i: log candidate sky/background draws (fog, no Z write, or large tex).
+        static int s_bgLog = -1;
+        static uint32_t s_bgLogLeft = 0;
+        if (s_bgLog < 0)
+        {
+            const char* e = std::getenv("SCR_A4I_DRAW_LOG");
+            s_bgLog = (e && e[0] && e[0] != '0') ? 1 : 0;
+            s_bgLogLeft = 120;
+        }
+        if (s_bgLog && s_bgLogLeft && g_framesPresented >= 1800)
+        {
+            const bool interesting = batch.psKey.fogType != 0 || !batch.depthWrite ||
+                                     (batch.tex[0].use && batch.tex[0].w >= 128) ||
+                                     batch.cull == GfxCull::None;
+            if (interesting)
+            {
+                const uint32_t pmtx = batch.vertCount ? (batch.verts[0].mtx[0] & 0xFF) : 0;
+                LOG_INFO("A4i-draw f={} idx={} z={}/{} cmp={} cull={} fog={:x} blend={} tex0={}x{} efb={:08x} "
+                         "v0=({:.1f},{:.1f},{:.1f}) pmtx={} projType={} flipY={:.0f} vp=({:.0f},{:.0f},{:.0f},{:.0f}) sc=({},{},{},{})",
+                         g_framesPresented, batch.indexCount, (int)batch.depthTest, (int)batch.depthWrite,
+                         (int)batch.depthCompare, (int)batch.cull, batch.psKey.fogType, (int)batch.blendEnable,
+                         batch.tex[0].use ? batch.tex[0].w : 0, batch.tex[0].use ? batch.tex[0].h : 0,
+                         batch.tex[0].efbCopyAddr,
+                         batch.vertCount ? batch.verts[0].pos[0] : 0.f,
+                         batch.vertCount ? batch.verts[0].pos[1] : 0.f,
+                         batch.vertCount ? batch.verts[0].pos[2] : 0.f, pmtx,
+                         g_gx.xfregs[XF_PROJECTION + 6], batch.vs.depth[3],
+                         batch.viewport.x, batch.viewport.y, batch.viewport.w, batch.viewport.h,
+                         batch.scissor.x, batch.scissor.y, batch.scissor.w, batch.scissor.h);
+                s_bgLogLeft--;
+            }
         }
     }
     s_drawCalls++;
@@ -3541,6 +3627,20 @@ static void ClearEFB(int x0, int y0, int x1, int y1)
         float g = ((gb >> 8) & 0xFF) / 255.0f;
         float b = (gb & 0xFF) / 255.0f;
         if (PixelFormat() != 1) a = 1.0f;
+        {
+            static int s_mag = -1;
+            if (s_mag < 0)
+            {
+                const char* e = std::getenv("SCR_A4I_MAGENTA_CLEAR");
+                s_mag = (e && e[0] && e[0] != '0') ? 1 : 0;
+            }
+            if (s_mag)
+            {
+                r = 1.0f;
+                g = 0.0f;
+                b = 1.0f;
+            }
+        }
         float depth = (float)(BP(0x51) & 0xFFFFFF) / 16777216.0f;
         std::string err;
         if (!VkGx_ClearEfb(x0, y0, x1, y1, r, g, b, a, depth, colorUpd || alphaUpd, zUpd, err))
@@ -3814,6 +3914,7 @@ static void DoEFBCopy()
             req.intensity = (ctl >> 15) & 1;
             req.depthSrc = PixelFormat() == 3;
             req.half = half;
+            req.gxFrame = s_frame;
             std::string copyErr;
             if (!VkGx_CopyEfbToTexture(req, copyErr))
                 LOG_ERROR("vulkan gx efb-copy-to-texture failed: {}", copyErr);

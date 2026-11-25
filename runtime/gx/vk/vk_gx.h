@@ -38,9 +38,14 @@ struct GfxEfbCopyRequest
     bool intensity = false;
     bool depthSrc = false;
     bool half = false; // 2×2 box filter / half resolution
+    uint32_t gxFrame = ~0u; // renderer s_frame at copy time (RAM fingerprint freshness)
 };
 bool VkGx_CopyEfbToTexture(const GfxEfbCopyRequest& req, std::string& error);
-bool VkGx_LookupEfbCopy(uint32_t destAddr, VkImageView& outView, uint32_t& outW, uint32_t& outH);
+// gxFrame: GX s_frame for same-frame freshness (D3D hashedFrame parity). When the guest
+// overwrites the copy destination in RAM, Lookup returns false so the caller can decode
+// the CPU texture (A4i — fixes stale EFB copies shadowing sky/background textures).
+bool VkGx_LookupEfbCopy(uint32_t destAddr, VkImageView& outView, uint32_t& outW, uint32_t& outH,
+                        uint32_t gxFrame = ~0u);
 void VkGx_InvalidateEfbCopy(uint32_t destAddr);
 
 struct VkGxStats

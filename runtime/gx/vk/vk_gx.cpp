@@ -5,6 +5,7 @@
 #include "vk_spv_compile.h"
 
 #include "../../log.h"
+#include "../../kernel/memory.h"
 #include "../shadergen_glsl.h"
 #include "../vertex_loader.h"
 
@@ -233,7 +234,53 @@ struct EfbCopyCacheEntry
     uint32_t w = 0, h = 0;   // scaled (GPU)
     uint32_t tw = 0, th = 0; // native GX texel dims
     uint64_t genId = 0;
+    // D3D TexEntry parity: invalidate when guest RAM at destAddr changes.
+    uint64_t ramHash = 0;
+    uint32_t ramSize = 0;
+    uint32_t hashedFrame = ~0u;
 };
+
+static uint64_t Hash64Bytes(const void* data, size_t n, uint64_t seed = 0x9E3779B97F4A7C15ull)
+{
+    const uint8_t* p = (const uint8_t*)data;
+    const uint64_t M = 0x9FB21C651E98DF25ull;
+    uint64_t h0 = seed ^ (n * 0xff51afd7ed558ccdull), h1 = h0 ^ 0x2545F4914F6CDD1Dull,
+             h2 = h0 ^ 0x632BE59BD9B4E019ull, h3 = h0 ^ 0x85EBCA77C2B2AE63ull;
+    size_t i = 0;
+    for (; i + 32 <= n; i += 32)
+    {
+        uint64_t v0, v1, v2, v3;
+        memcpy(&v0, p + i, 8);
+        memcpy(&v1, p + i + 8, 8);
+        memcpy(&v2, p + i + 16, 8);
+        memcpy(&v3, p + i + 24, 8);
+        h0 = (h0 ^ v0) * M;
+        h0 ^= h0 >> 29;
+        h1 = (h1 ^ v1) * M;
+        h1 ^= h1 >> 29;
+        h2 = (h2 ^ v2) * M;
+        h2 ^= h2 >> 29;
+        h3 = (h3 ^ v3) * M;
+        h3 ^= h3 >> 29;
+    }
+    uint64_t h = h0 ^ (h1 * 3) ^ (h2 * 5) ^ (h3 * 7);
+    for (; i + 8 <= n; i += 8)
+    {
+        uint64_t v;
+        memcpy(&v, p + i, 8);
+        h = (h ^ v) * M;
+        h ^= h >> 29;
+    }
+    for (; i < n; i++)
+    {
+        h = (h ^ p[i]) * M;
+        h ^= h >> 29;
+    }
+    h ^= h >> 33;
+    h *= 0xff51afd7ed558ccdull;
+    h ^= h >> 33;
+    return h;
+}
 
 VkShaderModule s_copyVs = VK_NULL_HANDLE, s_copyFs = VK_NULL_HANDLE;
 VkRenderPass s_copyPass = VK_NULL_HANDLE;
@@ -667,15 +714,28 @@ static bool DrainFrameSlot(FrameSlot& fr, std::string& error)
     return true;
 }
 
-static bool LookupEfbCopyLocked(uint32_t destAddr, VkImageView& outView, uint32_t& outW, uint32_t& outH)
+static bool LookupEfbCopyLocked(uint32_t destAddr, VkImageView& outView, uint32_t& outW, uint32_t& outH,
+                                uint32_t gxFrame)
 {
     const uint32_t key = EfbCopyKey(destAddr);
     if (!key) return false;
     auto it = s_efbCopyCache.find(key);
     if (it == s_efbCopyCache.end() || !it->second.img.view) return false;
-    outView = it->second.img.view;
-    outW = it->second.w;
-    outH = it->second.h;
+    EfbCopyCacheEntry& e = it->second;
+    // Same-frame: always trust the GPU copy (matches D3D hashedFrame == s_frame).
+    // Later frames: keep only while guest RAM at the dest still matches the fingerprint
+    // taken at copy time — otherwise the game replaced it with a CPU texture.
+    // Do not DestroyImg here (may still be referenced by the in-flight draw CB); treat as
+    // a miss so the Flush path decodes from RAM. A later copy to the same EA refreshes.
+    if (gxFrame != ~0u && e.ramSize != 0 && e.hashedFrame != gxFrame)
+    {
+        const uint64_t now = Hash64Bytes(PhysPtr(destAddr), e.ramSize);
+        if (now != e.ramHash)
+            return false;
+    }
+    outView = e.img.view;
+    outW = e.w;
+    outH = e.h;
     return true;
 }
 
@@ -820,7 +880,8 @@ static bool UploadTex(const GfxTexBind& t, VkImageView& outView, std::string& er
     if (t.efbCopyAddr)
     {
         uint32_t ew = 0, eh = 0;
-        if (LookupEfbCopyLocked(t.efbCopyAddr, outView, ew, eh)) return true;
+        // Frame already validated in renderer Flush; ~0u skips re-hash under draw lock.
+        if (LookupEfbCopyLocked(t.efbCopyAddr, outView, ew, eh, ~0u)) return true;
         outView = s_whiteTex.view;
         return true;
     }
@@ -2292,16 +2353,23 @@ bool VkGx_CopyEfbToTexture(const GfxEfbCopyRequest& req, std::string& error)
     fr.recording = false;
 
     entry.genId = s_efbCopyGen++;
+    // Fingerprint guest RAM so a later CPU texture at the same EA invalidates this copy
+    // (D3D TexEntry::ramHash / ramSize parity — A4i sky/background).
+    static const uint32_t bppTable[16] = { 4, 8, 8, 16, 16, 16, 32, 8, 8, 8, 8, 16, 16, 16, 16, 16 };
+    entry.ramSize = std::max<uint32_t>(32u, tw * th * bppTable[req.fmt & 15u] / 8u);
+    entry.ramHash = Hash64Bytes(PhysPtr(req.destAddr), entry.ramSize);
+    entry.hashedFrame = req.gxFrame;
     s_stats.efbCopies++;
     s_stats.efbCopySynced++;
     s_stats.efbCopyBytes += (uint64_t)rw * rh * 4u;
     return true;
 }
 
-bool VkGx_LookupEfbCopy(uint32_t destAddr, VkImageView& outView, uint32_t& outW, uint32_t& outH)
+bool VkGx_LookupEfbCopy(uint32_t destAddr, VkImageView& outView, uint32_t& outW, uint32_t& outH,
+                        uint32_t gxFrame)
 {
     std::lock_guard lk(s_mu);
-    return LookupEfbCopyLocked(destAddr, outView, outW, outH);
+    return LookupEfbCopyLocked(destAddr, outView, outW, outH, gxFrame);
 }
 
 void VkGx_InvalidateEfbCopy(uint32_t destAddr)

@@ -504,7 +504,9 @@ ivec4 sampleTex(uint m, ivec2 uv)
             W(s, "\tfloat ze = ps.fogF.x * float(zCoord) / 16777216.0;\n");
         if (frange)
         {
-            W(s, "\tfloat offset = (2.0 * (inClipFinal.x / ps.fogF.w)) - 1.0 - ps.fogF.z;\n"
+            // Match D3D11: fogF.w is viewport width in pixels; HLSL uses SV_Position.x
+            // (pixel X). inClipFinal.x is clip-space and over-scales offset → full fog.
+            W(s, "\tfloat offset = (2.0 * (gl_FragCoord.x / ps.fogF.w)) - 1.0 - ps.fogF.z;\n"
                  "\tfloat floatindex = clamp(9.0 - abs(offset) * 9.0, 0.0, 9.0);\n"
                  "\tuint indexlower = uint(floatindex); uint indexupper = indexlower + 1u;\n"
                  "\tfloat klower = ps.fogRange[indexlower >> 2u][indexlower & 3u];\n"

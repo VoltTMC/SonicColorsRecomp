@@ -48,6 +48,8 @@ Timeout no longer aborts post-copy of screenshots (`set +e` around `timeout`).
 
 **Sky:** Still a solid black void on Vulkan outdoor captures while D3D fills sky (~0.3% blackish late_half). Not explained by copy Y alone — likely missing/culled skydome or background pass. Left open.
 
+**A4i follow-up:** Magenta-clear probe shows voids are **uncovered EFB clear**, not fog-to-black. Fog-range X + EFB RAM-hash fixes shipped; sky coverage still open — see `docs/A4I_SKY_BACKGROUND_AND_EFB_ORDERING.md`.
+
 ## 5. XF SSBO ring audit
 
 - Ring 16 MiB / 16 KiB slots preserved.

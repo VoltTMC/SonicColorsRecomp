@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-25 — A4i: Sky/background RCA & EFB ordering (partial)
+
+**Goal:** Close TR1 sky voids / EFB ordering vs D3D11; preserve A4g XF ring + A4h copy Y; D3D11 default.
+
+**Shipped:** GLSL fog-range uses `gl_FragCoord.x` (D3D `SV_Position` parity); Vulkan EFB-copy **RAM fingerprint** invalidation (D3D `ramHash`); `tools/a4i_tr1_capture.sh` + sky/geom blackish split; docs `A4I_SKY_BACKGROUND_AND_EFB_ORDERING.md`. Magenta-clear probe: voids are **uncovered clear**, not fogged black.
+
+**Evidence (RTX 3080):** stg110; late_half VK ~21% (A4h ~19%) vs D3D ~0.3% — **sky not fixed**; title val clean; MinGW OK. AMD/RADV **deferred**. Win Vulkan GPU **UNVERIFIED**.
+
 ## 2026-11-25 — A4h: Tropical Resort outdoor Vulkan visual parity (partial)
 
 **Goal:** Fix TR1 outdoor orientation/sky/EFB-copy/mesh gaps vs D3D11; preserve A4g XF ring; D3D11 default.
