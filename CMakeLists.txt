@@ -416,6 +416,23 @@ if(WIN32 OR LINUX)
                                                              RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
                                                              RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
 
+    # A4k: HLSL/GLSL fog + lighting formula parity (TR1 outdoor configs).
+    add_executable(scr_fog_light_parity_test EXCLUDE_FROM_ALL
+                   tools/fog_light_parity_test/main.cpp
+                   runtime/gx/shadergen.cpp
+                   runtime/gx/shadergen_glsl.cpp)
+    target_include_directories(scr_fog_light_parity_test PRIVATE runtime)
+    if(LINUX)
+        target_compile_options(scr_fog_light_parity_test PRIVATE -include ${CMAKE_SOURCE_DIR}/runtime/platform/compat.h)
+        target_link_options(scr_fog_light_parity_test PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
+    if(MSVC_FRONTEND)
+        target_compile_options(scr_fog_light_parity_test PRIVATE /EHsc /utf-8)
+    endif()
+    set_target_properties(scr_fog_light_parity_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${SCR_OUT_DIR}
+                                                                  RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
+                                                                  RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
+
     # I1: short-press edge latch (host→guest transition preservation).
     add_executable(scr_input_edges_test EXCLUDE_FROM_ALL
                    tools/input_edges_test/main.cpp

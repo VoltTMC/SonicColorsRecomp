@@ -810,6 +810,51 @@ static void BuildPSKey(PSKey& k)
         }
         if (s_noFog) k.fogType = 0;
     }
+    // A4k: opt-in fog-mode histogram for TR1 outdoor sign-off (SCR_A4K_FOG_STATS=1).
+    {
+        extern uint32_t g_framesPresented;
+        static int s_fogStats = -1;
+        static uint64_t s_fogHist[32]{};
+        static uint64_t s_fogDraws = 0;
+        static uint32_t s_lastLogFrame = 0;
+        if (s_fogStats < 0)
+        {
+            const char* e = std::getenv("SCR_A4K_FOG_STATS");
+            s_fogStats = (e && e[0] && e[0] != '0') ? 1 : 0;
+            if (s_fogStats) LOG_INFO("A4k-fog: stats enabled (SCR_A4K_FOG_STATS)");
+        }
+        if (s_fogStats)
+        {
+            s_fogHist[k.fogType & 31]++;
+            s_fogDraws++;
+            if (g_framesPresented >= 1800 && g_framesPresented != s_lastLogFrame &&
+                (g_framesPresented % 300) == 0)
+            {
+                s_lastLogFrame = g_framesPresented;
+                // Top 4 fogType keys by count.
+                int top[4] = { -1, -1, -1, -1 };
+                for (int t = 0; t < 32; t++)
+                {
+                    for (int r = 0; r < 4; r++)
+                    {
+                        if (top[r] < 0 || s_fogHist[t] > s_fogHist[top[r]])
+                        {
+                            for (int s = 3; s > r; s--) top[s] = top[s - 1];
+                            top[r] = t;
+                            break;
+                        }
+                    }
+                }
+                LOG_INFO("A4k-fog f={} draws={} top=[{:02x}:{} {:02x}:{} {:02x}:{} {:02x}:{}] "
+                         "(low3=fsel,bit3=proj,bit4=range)",
+                         g_framesPresented, s_fogDraws,
+                         top[0] < 0 ? 0 : top[0], top[0] < 0 ? 0ull : s_fogHist[top[0]],
+                         top[1] < 0 ? 0 : top[1], top[1] < 0 ? 0ull : s_fogHist[top[1]],
+                         top[2] < 0 ? 0 : top[2], top[2] < 0 ? 0ull : s_fogHist[top[2]],
+                         top[3] < 0 ? 0 : top[3], top[3] < 0 ? 0ull : s_fogHist[top[3]]);
+            }
+        }
+    }
     k.pixelFormat = PixelFormat();
     k.dstAlphaEnable = (BP(0x42) >> 8) & 1;
     bool zEnable = BP(0x40) & 1;

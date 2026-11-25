@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-25 — A4k: Tropical Resort visual sign-off (expanded coverage)
+
+**Goal:** Broader TR1 D3D11/Vulkan scene captures; audit fog/lighting actually used outdoors (no rewrite); isolate post/UI timing; preserve A4j CW cull; profile VK bottleneck; document honestly.
+
+**Shipped:** `tools/a4k_tr1_capture.sh` + `a4k_tr1_explore.txt`; `SCR_A4K_FOG_STATS` histogram in `BuildPSKey`; `scr_fog_light_parity_test`; docs `A4K_TROPICAL_RESORT_VISUAL_SIGNOFF.md`. Captures: `out/a4k_{vk,d3d}_tr1/`, `out/a4k_compare/`.
+
+**Evidence (RTX 3080):** outdoor late_half VK ~0.6% / sky ~1.2% (A4j cull intact); fogTypes `00`/`02`/`0a`; parity test PASS; unique_xfb VK ~4.9–5.2 vs D3D ~60 (sync EFB-copy); title val no Validation Error in log; Linux + MinGW OK. Pixel-locked fog/lighting MAE **not** claimed (capture phase/res differ). AMD/RADV **deferred**. Win Vulkan **UNVERIFIED**. I1 **out of scope**. D3D11 default.
+
 ## 2026-11-25 — I1: Windows input reliability & latency
 
 **Goal:** Stop short Windows taps from vanishing between host polls and guest WPAD/PAD reads; reduce unnecessary host→guest delay without changing sim/audio/Wii semantics.

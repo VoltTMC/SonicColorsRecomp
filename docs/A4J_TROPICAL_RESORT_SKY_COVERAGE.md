@@ -114,8 +114,8 @@ Correctness prioritized; no device-wide idle waits added.
 
 ## 15. Remaining visual differences
 
-- Outdoor fog / lighting not signed off for pixel parity.
-- Occasional post/UI timing differences vs D3D.
+- Outdoor fog / lighting: **A4k** audited TR1 fogTypes `0x00`/`0x02`/`0x0a` + generator parity; pixel-locked MAE still not claimed — see `A4K_TROPICAL_RESORT_VISUAL_SIGNOFF.md`.
+- Occasional post/UI timing differences vs D3D (A4k: largely capture/FPS phase, not missing overlay).
 - Early-shot blackish spikes during fades/loads (exclude from late_half claims).
 - AMD/RADV: **deferred, unverified**.
 - Native Windows Vulkan GPU: **unverified**.

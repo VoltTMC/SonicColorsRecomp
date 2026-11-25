@@ -1,0 +1,51 @@
+# A4k: extended TR1 coverage after stage entry (append-style landmarks).
+# Same early menu mash as a2g_tr1_enter.txt, then longer outdoor walk for fog/lighting/UI.
+
+# --- Menu mash (leave logos / title / load) ---
+2.0 0.10 A
+4.0 0.10 A
+6.0 0.10 A
+8.0 0.10 A
+10.0 0.10 A
+12.0 0.10 A
+14.0 0.10 A
+16.0 0.10 A
+18.0 0.10 A
+20.0 0.12 START
+21.5 0.12 START
+23.0 0.12 START
+24.5 0.12 START
+26.0 0.10 A
+28.0 0.10 A
+30.0 0.10 A
+32.0 0.10 A
+34.0 0.10 A
+36.0 0.10 A
+
+# --- Opening platform / early walkway ---
+38.0 8.0 LY=0.70
+46.0 1.5 NONE
+47.5 0.18 A
+48.0 0.18 A
+48.5 0.18 A
+
+# --- First outdoor stretch (fog/planet/lit materials) ---
+50.0 10.0 LY=0.75
+60.0 2.0 NONE
+# Slight camera look (right stick) for second orientation
+62.0 1.5 RX=0.55
+63.5 1.0 NONE
+64.5 8.0 LY=0.70
+72.5 1.5 NONE
+# Jump against outdoor backdrop
+74.0 0.20 A
+74.5 0.20 A
+75.0 2.0 NONE
+# Continue walkway
+77.0 10.0 LY=0.65
+87.0 2.0 NONE
+# Opposite look
+89.0 1.5 RX=-0.55
+90.5 1.0 NONE
+91.5 8.0 LY=0.60
+99.5 3.0 NONE
