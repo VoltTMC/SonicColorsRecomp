@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-25 — A4n: XF payload cut, descriptor/present RCA
+
+**Goal:** Measure XF/descriptor/present CPU costs after A4m; cut redundant XF work; root-cause present-chain hang; reuse descriptors only where safe.
+
+**Shipped:** default XF SSBO payload `0x680` floats (D3D parity) with full 16 KiB slot bind + zero-pad; dynamic UBO descriptor layout; opt-in desc cache (`SCR_A4N_DESC_CACHE=1`, default off — hang); safe present-chain record-overlap (`SCR_A4M_PRESENT_CHAIN`) vs async (`SCR_A4N_PRESENT_ASYNC`); `SCR_A4N_PROF` / chain diag; `tools/a4n_tr1_bench.sh`; docs `A4N_VULKAN_DRAW_STATE_AND_SUBMISSION_OPTIMISATION.md`.
+
+**Evidence (RTX 3080):** XF bytes/explore ~45 GiB → ~6 GiB; xfMemcpy ~245 ms/run; sustained unique_xfb ~6.5 (A4m-class, last-40 ~6.5); tight XF descriptor range and desc-cache-on hung load/outdoor (watchdog, no Validation Error) — both left disabled/fixed; present chain default **off**. Linux + MinGW OK. AMD/RADV **deferred**. Win Vulkan **UNVERIFIED**. I1 **out of scope**. D3D11 default.
+
 ## 2026-11-25 — A4m: Vulkan frame submission & throughput
 
 **Goal:** Measure remaining TR1 bottlenecks after A4l; cut the largest safe CPU costs without weakening A4d–A4l lifetime/sync.

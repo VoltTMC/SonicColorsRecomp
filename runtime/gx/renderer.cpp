@@ -2770,10 +2770,24 @@ static bool FlushVulkan()
     batch.indices = s_indices.data();
     batch.indexCount = (uint32_t)s_indices.size();
     batch.xfmem = reinterpret_cast<const float*>(g_gx.xfmem);
-    batch.xfFloatCount = 0x1000;
+    // A4n: D3D uploads 0x680 floats; Vulkan previously copied 0x1000 (xfregs live elsewhere).
+    // SCR_A4N_XF_FULL=1 restores the A4m 0x1000 payload for A/B byte comparisons.
+    {
+        static int s_xfFull = -1;
+        if (s_xfFull < 0)
+        {
+            const char* e = std::getenv("SCR_A4N_XF_FULL");
+            s_xfFull = (e && e[0] && e[0] != '0') ? 1 : 0;
+        }
+        batch.xfFloatCount = s_xfFull ? 0x1000u : 0x680u;
+    }
     batch.xfDirty = s_xfDirty;
+    batch.xfDirtyBegin = s_xfDirtyBegin;
+    batch.xfDirtyEnd = s_xfDirtyEnd;
     FillVSConstants(batch.vs, &flipX, &flipY);
     s_xfDirty = false;
+    s_xfDirtyBegin = 0;
+    s_xfDirtyEnd = 0;
 
     uint32_t zm = BP(0x40) & 0x1F;
     if (g_dbgNoDepth) zm &= ~1u;
@@ -3955,14 +3969,16 @@ static void DoEFBCopy()
                     LOG_INFO("vulkan gx: frames={} draws={} verts={} idx={} pipes hit/miss={}/{} "
                              "shader hit/miss={}/{} spv ok/fail={}/{} texUp={} mipUp={} efbCopy={} "
                              "(inline/sync={}/{} softFlush={} fenceWaitMs={:.1f}) xfUp={} xfDedup={} "
-                             "xfBytes={} descUp={} presentWaitMs={:.1f} drawFlushMs={:.1f} xfHW={} unsup={}",
+                             "xfBytes={} xfMemcpyMs={:.1f} descUp={} descHit/miss={}/{} "
+                             "presentWaitMs={:.1f} drawFlushMs={:.1f} xfHW={} unsup={}",
                              g_framesPresented, st.draws, st.vertices, st.indices, st.pipelineHits,
                              st.pipelineMisses, st.shaderCacheHits, st.shaderCacheMisses, st.spvCompileOk,
                              st.spvCompileFail, st.texUploads, st.texMipUploads, st.efbCopies,
                              st.efbCopyInline, st.efbCopySynced, st.efbCopySoftFlushes,
                              st.efbCopyFenceWaitNs / 1e6, st.xfUploads, st.xfDedupHits, st.xfBytesUploaded,
-                             st.descUpdates, st.presentWaitNs / 1e6, st.presentDrawFlushNs / 1e6,
-                             st.xfRingHighWater, st.unsupportedOps);
+                             st.xfMemcpyNs / 1e6, st.descUpdates, st.descCacheHits, st.descCacheMisses,
+                             st.presentWaitNs / 1e6, st.presentDrawFlushNs / 1e6, st.xfRingHighWater,
+                             st.unsupportedOps);
                 }
             }
             if (clear) ClearEFB(sx, sy, sx + sw, sy + sh);

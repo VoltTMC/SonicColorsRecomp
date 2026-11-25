@@ -245,7 +245,11 @@ Buf s_xfBuf{}, s_vsUbo{}, s_psUbo{}, s_dynUbo{};
 VkDeviceSize s_dynUboPos = 0;
 // A4g: versioned XF SSBO ring — a single live XF buffer is overwritten while prior
 // draws in the same CB still reference it (TR1 skeletal/env → vertex explosion).
-constexpr VkDeviceSize kXfSlotBytes = 0x1000u * sizeof(float); // 16 KiB
+// A4n: GPU-visible payload matches D3D (0x680 floats). Slot stride stays 16 KiB so
+// SCR_A4N_XF_FULL=1 can still memcpy the legacy 0x1000-float footprint for A/B tests.
+constexpr uint32_t kXfFloatCount = 0x680u;
+constexpr VkDeviceSize kXfPayloadBytes = (VkDeviceSize)kXfFloatCount * sizeof(float);
+constexpr VkDeviceSize kXfSlotBytes = 0x1000u * sizeof(float); // 16 KiB stride
 constexpr VkDeviceSize kXfRingBytes = 16u * 1024u * 1024u;
 VkDeviceSize s_xfRingPos = 0;
 VkDeviceSize s_xfBindOffset = 0;
@@ -267,6 +271,35 @@ bool s_efbReadySemPending = false; // signaled by draw flush, must be waited by 
 uint64_t s_xfLastHash = 0;
 VkDeviceSize s_xfLastOff = 0;
 uint32_t s_xfLastBytes = 0;
+// A4n: descriptor reuse for (XF offset + 8× image/sampler); VS/PS via dynamic UBO offsets.
+struct DescCacheKey
+{
+    VkDeviceSize xfOff = 0;
+    VkImageView views[8]{};
+    VkSampler samps[8]{};
+    bool operator==(const DescCacheKey& o) const
+    {
+        if (xfOff != o.xfOff) return false;
+        for (int i = 0; i < 8; i++)
+            if (views[i] != o.views[i] || samps[i] != o.samps[i]) return false;
+        return true;
+    }
+};
+struct DescCacheKeyHash
+{
+    size_t operator()(const DescCacheKey& k) const
+    {
+        size_t h = (size_t)k.xfOff * 1315423911u;
+        for (int i = 0; i < 8; i++)
+        {
+            h ^= (size_t)(uintptr_t)k.views[i] + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= (size_t)(uintptr_t)k.samps[i] + 0x9e3779b9 + (h << 6) + (h >> 2);
+        }
+        return h;
+    }
+};
+std::unordered_map<DescCacheKey, VkDescriptorSet, DescCacheKeyHash> s_descCache;
+bool s_useDynUbo = true; // A4n default; SCR_A4N_DESC_CACHE=0 disables reuse (still dynamic UBO)
 // A4m GPU timestamp queries (opt-in SCR_A4M_GPU_TS=1).
 constexpr uint32_t kTsQueries = 256; // pairs of begin/end
 VkQueryPool s_tsPool = VK_NULL_HANDLE;
@@ -552,6 +585,8 @@ static void RetireEfbCopyEntries()
     for (auto& e : s_efbCopyRetire)
         DestroyEfbCopyEntry(e);
     s_efbCopyRetire.clear();
+    // Any destroyed EFB view invalidates cached descriptor writes that referenced it.
+    s_descCache.clear();
 }
 
 static uint32_t FindMemoryType(uint32_t typeBits, VkMemoryPropertyFlags props)
@@ -921,7 +956,7 @@ static bool SoftSubmitContinue(FrameSlot& fr, std::string& error, bool accountEf
         s_stats.efbCopyFenceWaitNs += MonoNs() - tw0;
         s_stats.efbCopySoftFlushes++;
     }
-    RetireEfbCopyEntries();
+    RetireEfbCopyEntries(); // also clears s_descCache
     ResetInlineCopyBudget();
     // Re-open the same slot; keep vb/ib/xf/dynUbo positions (GPU retired prior ranges).
     pfn_vkResetFences(Vk_GetDevice(), 1, &fr.fence);
@@ -1222,40 +1257,86 @@ static bool UploadTex(const GfxTexBind& t, VkImageView& outView, std::string& er
 // (Vulkan forbids that without UPDATE_AFTER_BIND). Allocate a fresh set per draw.
 static bool s_allocNeedFlush = false;
 
+// Out-params for BindDescriptorSets dynamic offsets (VS then PS).
+static uint32_t s_lastDynOffs[2]{};
+
 static bool AllocDrawDescriptors(const GfxDrawBatch& batch, VkImageView views[8], VkSampler samps[8],
                                  VkDescriptorSet& outSet, std::string& error)
 {
     // Never reset the pool while the current CB still references allocated sets.
     // Exhaustion → signal caller to flushFrame (submit + wait + reset), then retry.
     s_allocNeedFlush = false;
+    static int s_descCacheEnv = -1;
+    if (s_descCacheEnv < 0)
+    {
+        // Default OFF: TR1 load/outdoor hangs reproduced with cache on (watchdog, no
+        // Validation Error) even after clearing on EFB retire. Dynamic UBO remains on
+        // so SCR_A4N_DESC_CACHE=1 can be re-tested without a layout change.
+        const char* e = std::getenv("SCR_A4N_DESC_CACHE");
+        s_descCacheEnv = (e && e[0] == '1') ? 1 : 0;
+        s_useDynUbo = true;
+    }
     constexpr VkDeviceSize kUboAlign = 256;
     auto alignUbo = [](VkDeviceSize v) { return (v + kUboAlign - 1) / kUboAlign * kUboAlign; };
+    const uint64_t tAlloc0 = MonoNs();
     const VkDeviceSize vsOff = alignUbo(s_dynUboPos);
     const VkDeviceSize psOff = alignUbo(vsOff + sizeof(VSConstants));
     const VkDeviceSize slotEnd = alignUbo(psOff + sizeof(PSConstants));
-    if (s_descCursor >= s_frameDescSets.size() || slotEnd > s_dynUbo.size)
+    if (slotEnd > s_dynUbo.size)
     {
         s_allocNeedFlush = true;
-        error = "per-frame descriptor/dynUbo exhausted (flush required)";
+        error = "per-frame dynUbo exhausted (flush required)";
         return false;
     }
     memcpy((uint8_t*)s_dynUbo.mapped + vsOff, &batch.vs, sizeof(VSConstants));
     memcpy((uint8_t*)s_dynUbo.mapped + psOff, &batch.ps, sizeof(PSConstants));
     s_dynUboPos = slotEnd;
+    s_lastDynOffs[0] = (uint32_t)vsOff;
+    s_lastDynOffs[1] = (uint32_t)psOff;
+    s_stats.descAllocNs += MonoNs() - tAlloc0;
 
+    DescCacheKey key{};
+    key.xfOff = s_xfBindOffset;
+    for (int i = 0; i < 8; i++)
+    {
+        key.views[i] = views[i];
+        key.samps[i] = samps[i];
+    }
+    if (s_descCacheEnv)
+    {
+        auto it = s_descCache.find(key);
+        if (it != s_descCache.end())
+        {
+            s_stats.descCacheHits++;
+            outSet = it->second;
+            return true;
+        }
+    }
+
+    if (s_descCursor >= s_frameDescSets.size())
+    {
+        s_allocNeedFlush = true;
+        error = "per-frame descriptor exhausted (flush required)";
+        return false;
+    }
     VkDescriptorSet set = s_frameDescSets[s_descCursor++];
+    const uint64_t tUp0 = MonoNs();
 
     VkDescriptorBufferInfo xf{};
     xf.buffer = s_xfBuf.buf;
     xf.offset = s_xfBindOffset;
+    // Bind the full 16 KiB slot. A4n may only memcpy 0x680 floats into the slot, but
+    // unsized SSBO reads past that must stay in-range — a tight 0x680 descriptor hung
+    // the GPU during TR1 load (watchdog, no Validation Error).
     xf.range = kXfSlotBytes;
+    // Dynamic UBO: descriptor stores buffer+range; bind-time offset selects the slot.
     VkDescriptorBufferInfo vs{};
     vs.buffer = s_dynUbo.buf;
-    vs.offset = vsOff;
+    vs.offset = 0;
     vs.range = sizeof(VSConstants);
     VkDescriptorBufferInfo ps{};
     ps.buffer = s_dynUbo.buf;
-    ps.offset = psOff;
+    ps.offset = 0;
     ps.range = sizeof(PSConstants);
     VkDescriptorImageInfo imgs[8]{};
     for (int i = 0; i < 8; i++)
@@ -1275,17 +1356,20 @@ static bool AllocDrawDescriptors(const GfxDrawBatch& batch, VkImageView views[8]
     writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     writes[0].descriptorCount = 1;
     writes[0].pBufferInfo = &xf;
-    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     writes[1].descriptorCount = 1;
     writes[1].pBufferInfo = &vs;
-    writes[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writes[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     writes[2].descriptorCount = 1;
     writes[2].pBufferInfo = &ps;
     writes[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     writes[3].descriptorCount = 8;
     writes[3].pImageInfo = imgs;
     pfn_vkUpdateDescriptorSets(Vk_GetDevice(), 4, writes, 0, nullptr);
+    s_stats.descUpdateNs += MonoNs() - tUp0;
     s_stats.descUpdates++;
+    s_stats.descCacheMisses++;
+    if (s_descCacheEnv) s_descCache.emplace(key, set);
     outSet = set;
     return true;
 }
@@ -1293,6 +1377,7 @@ static bool AllocDrawDescriptors(const GfxDrawBatch& batch, VkImageView views[8]
 static void ResetFrameDescriptors()
 {
     // Only safe when no CB referencing these sets is in flight (caller waited).
+    s_descCache.clear();
     pfn_vkResetDescriptorPool(Vk_GetDevice(), s_descPool, 0);
     std::vector<VkDescriptorSetLayout> layouts(s_frameDescSets.size(), s_dsl);
     VkDescriptorSetAllocateInfo dai{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
@@ -1865,12 +1950,13 @@ bool VkGx_Init(const VkGxInitOptions& opt, std::string& error)
         binds[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         binds[0].descriptorCount = 1;
         binds[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        // A4n: dynamic UBO offsets so texture+XF descriptor sets can be reused across draws.
         binds[1].binding = 1;
-        binds[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        binds[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
         binds[1].descriptorCount = 1;
         binds[1].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
         binds[2].binding = 2;
-        binds[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        binds[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
         binds[2].descriptorCount = 1;
         binds[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
         binds[3].binding = 3;
@@ -1896,7 +1982,7 @@ bool VkGx_Init(const VkGxInitOptions& opt, std::string& error)
         constexpr uint32_t kDescSets = 32768; // A4d: heavy title frames can exceed 4k draws
         VkDescriptorPoolSize sizes[3] = {
             { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kDescSets },
-            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, kDescSets * 2 },
+            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, kDescSets * 2 },
             { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kDescSets * 8 },
         };
         VkDescriptorPoolCreateInfo dpi{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
@@ -1993,6 +2079,7 @@ void VkGx_Shutdown()
     }
     s_gpuTs = 0;
     s_presentCmd = VK_NULL_HANDLE;
+    s_descCache.clear();
     s_frameDescSets.clear();
     s_descCursor = 0;
     s_dynUboPos = 0;
@@ -2047,35 +2134,54 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
         s_xfDedup = (!e || (e[0] && e[0] != '0')) ? 1 : 0; // default on
     }
     auto uploadXfSlot = [&](const GfxDrawBatch& b, std::string& err) -> bool {
-        const size_t n = (size_t)std::min(b.xfFloatCount, 0x1000u) * sizeof(float);
-        // A4m: reuse last ring slot when XF payload is byte-identical (hash + memcmp).
+        const uint32_t floatN =
+            std::min(b.xfFloatCount ? b.xfFloatCount : kXfFloatCount, (uint32_t)(kXfSlotBytes / sizeof(float)));
+        const size_t n = (size_t)floatN * sizeof(float);
+        // A4m/A4n: reuse last ring slot when XF payload is byte-identical (hash + memcmp).
         if (s_xfDedup && s_xfUploaded && b.xfmem && n == s_xfLastBytes && n > 0)
         {
+            const uint64_t th0 = MonoNs();
             const uint64_t h = Hash64Bytes(b.xfmem, n);
+            s_stats.xfHashNs += MonoNs() - th0;
             if (h == s_xfLastHash &&
                 std::memcmp(b.xfmem, (const uint8_t*)s_xfBuf.mapped + s_xfLastOff, n) == 0)
             {
                 s_xfBindOffset = s_xfLastOff;
                 s_stats.xfDedupHits++;
+                s_stats.xfBytesAvoided += n;
                 return true;
             }
         }
-        // Storage-buffer offset alignment is typically ≤256; keep slots 16 KiB-aligned.
         const VkDeviceSize off = align(s_xfRingPos, kXfSlotBytes);
         if (off + kXfSlotBytes > s_xfBuf.size)
         {
             err = "xf ring exhausted (flush required)";
             return false;
         }
-        if (b.xfmem) memcpy((uint8_t*)s_xfBuf.mapped + off, b.xfmem, n);
+        uint8_t* dst = (uint8_t*)s_xfBuf.mapped + off;
+        const uint64_t tm0 = MonoNs();
+        // New ring version must be a complete GPU-visible snapshot (cannot patch in-place while
+        // prior draws reference the previous slot). Dirty-range only informs dedup/stats; host
+        // source is always xfmem[0..floatN). A4n: copy 0x680 floats (D3D parity) then zero the
+        // remainder of the 16 KiB slot so descriptor-range reads past the payload are defined.
+        if (b.xfmem)
+        {
+            memcpy(dst, b.xfmem, n);
+            if (n < kXfSlotBytes) memset(dst + n, 0, (size_t)(kXfSlotBytes - n));
+            s_stats.xfBytesUploaded += n;
+            s_stats.uploadBytes += n;
+            if (b.xfDirtyEnd > b.xfDirtyBegin && b.xfDirtyEnd <= floatN)
+                s_stats.xfDirtyPatches++; // counted as "dirty-aware uploads" for profiling
+        }
+        s_stats.xfMemcpyNs += MonoNs() - tm0;
         s_xfBindOffset = off;
         s_xfRingPos = off + kXfSlotBytes;
         s_xfUploaded = true;
         s_xfLastOff = off;
         s_xfLastBytes = (uint32_t)n;
-        s_xfLastHash = (b.xfmem && n) ? Hash64Bytes(b.xfmem, n) : 0;
-        s_stats.uploadBytes += n;
-        s_stats.xfBytesUploaded += n;
+        const uint64_t th1 = MonoNs();
+        s_xfLastHash = (b.xfmem && n) ? Hash64Bytes(dst, n) : 0;
+        s_stats.xfHashNs += MonoNs() - th1;
         s_stats.xfUploads++;
         if (s_xfRingPos > s_stats.xfRingHighWater) s_stats.xfRingHighWater = s_xfRingPos;
         return true;
@@ -2202,7 +2308,8 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
     VkDeviceSize off = vbOff;
     pfn_vkCmdBindVertexBuffers(f->cmd, 0, 1, &f->vb.buf, &off);
     pfn_vkCmdBindIndexBuffer(f->cmd, f->ib.buf, ibOff, VK_INDEX_TYPE_UINT32);
-    pfn_vkCmdBindDescriptorSets(f->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s_pipeLayout, 0, 1, &drawSet, 0, nullptr);
+    pfn_vkCmdBindDescriptorSets(f->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s_pipeLayout, 0, 1, &drawSet, 2,
+                                s_lastDynOffs);
 
     VkViewport vp{};
     vp.x = batch.viewport.x;
@@ -2286,22 +2393,39 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
     FrameSlot& fr = s_frames[s_frameIdx];
     static int s_presentChain = -1;
     static int s_a4mProf = -1;
+    static int s_chainDiag = -1;
+    static const char* s_chainStage = "idle";
     if (s_presentChain < 0)
     {
-        // Default OFF: opt-in until outdoor TR1 hang with chain=1 is fully root-caused.
-        // Profiling still attributes drawFlush vs presentWait via SCR_A4M_PROF.
-        s_presentChain = EnvFlag("SCR_A4M_PRESENT_CHAIN");
-        if (s_presentChain)
-            LOG_INFO("A4m: draw→present semaphore chain ENABLED (SCR_A4M_PRESENT_CHAIN=1)");
+        // A4n: SCR_A4M_PRESENT_CHAIN=1 enables *safe* overlap — signal sem + record present
+        // while GPU runs draw, then CPU-wait the draw fence before Acquire/SubmitPresent
+        // (consumes the binary sem via present wait). The A4m "no CPU wait before submit"
+        // mode hung outdoors; that full async path is SCR_A4N_PRESENT_ASYNC=1 only.
+        s_presentChain = EnvFlag("SCR_A4M_PRESENT_CHAIN") || EnvFlag("SCR_A4N_PRESENT_ASYNC");
+        if (EnvFlag("SCR_A4N_PRESENT_ASYNC"))
+            LOG_INFO("A4n: PRESENT_ASYNC=1 — full draw→present sem chain (experimental)");
+        else if (s_presentChain)
+            LOG_INFO("A4n: PRESENT_CHAIN=1 — record-overlap + draw-fence before present submit");
         else
-            LOG_INFO("A4m: present chain off (set SCR_A4M_PRESENT_CHAIN=1 to enable)");
+            LOG_INFO("A4n: present chain off (SCR_A4M_PRESENT_CHAIN=1 for safe overlap)");
     }
-    if (s_a4mProf < 0) s_a4mProf = EnvFlag("SCR_A4M_PROF");
+    if (s_a4mProf < 0) s_a4mProf = EnvFlag("SCR_A4M_PROF") || EnvFlag("SCR_A4N_PROF");
+    if (s_chainDiag < 0) s_chainDiag = EnvFlag("SCR_A4N_CHAIN_DIAG");
+    static int s_asyncChain = -1;
+    if (s_asyncChain < 0) s_asyncChain = EnvFlag("SCR_A4N_PRESENT_ASYNC");
+    const bool asyncChain = s_asyncChain != 0;
+    auto setStage = [&](const char* st) {
+        s_chainStage = st;
+        if (s_chainDiag) LOG_INFO("A4n-chain: stage={} serial={} pendingSem={}", st, Vk_PresentSerial(),
+                                  s_efbReadySemPending ? 1 : 0);
+    };
+    setStage("present_enter");
 
     // Consume a signaled efb-ready semaphore if present submit will not wait on it
     // (Acquire/Begin failure after draw flush). Binary semaphores must be waited once.
     auto consumeEfbReadySem = [&]() {
         if (!s_efbReadySemPending || !s_efbReadySem) return;
+        setStage("consume_sem_wait_draw");
         pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
         VkPipelineStageFlags st = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
         VkSubmitInfo drain{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
@@ -2309,17 +2433,19 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
         drain.pWaitSemaphores = &s_efbReadySem;
         drain.pWaitDstStageMask = &st;
         auto qsubmit = LoadDev<PFN_vkQueueSubmit>("vkQueueSubmit");
-        // Reuse fr.fence: already signaled; reset then signal again after empty wait.
         pfn_vkResetFences(Vk_GetDevice(), 1, &fr.fence);
+        setStage("consume_sem_submit");
         qsubmit(Vk_GetGraphicsQueue(), 1, &drain, fr.fence);
         pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
         s_efbReadySemPending = false;
+        setStage("consume_sem_done");
     };
 
     bool drawSignaledSem = false;
     // Finish any in-progress GX draws before present (separate submit).
     if (fr.recording)
     {
+        setStage("draw_flush_end_cb");
         EndEfbPass(fr);
         pfn_vkEndCommandBuffer(fr.cmd);
         fr.recording = false;
@@ -2333,6 +2459,7 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
             drawSignaledSem = true;
         }
         auto qsubmit = LoadDev<PFN_vkQueueSubmit>("vkQueueSubmit");
+        setStage("draw_flush_submit");
         VkResult sr = qsubmit(Vk_GetGraphicsQueue(), 1, &si, fr.fence);
         if (sr != VK_SUCCESS)
         {
@@ -2345,14 +2472,17 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
             s_efbReadySemPending = true;
         else
         {
-            // Legacy: CPU-serialise draw completion before present recording.
+            // No chain: wait draw before touching present CB / EFB layout assumptions.
             const uint64_t tw0 = MonoNs();
+            setStage("draw_flush_wait");
             pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
             s_stats.presentDrawFlushNs += MonoNs() - tw0;
         }
     }
 
     // Present uses a dedicated CB so draw-frame recording state stays untouched.
+    // With safe chain: record while GPU executes draw (CPU/GPU overlap).
+    setStage("present_record");
     pfn_vkResetCommandBuffer(s_presentCmd, 0);
     VkCommandBufferBeginInfo bi{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -2367,8 +2497,32 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
             VK_IMAGE_ASPECT_COLOR_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
             VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
 
+    // A4n safe chain: after recording, wait draw fence before Acquire/Submit (unless ASYNC).
+    // Root cause of A4m outdoor hang: SubmitPresent waited on efbReady concurrently with
+    // Acquire/inFlight reuse while the draw CB was still heavy — liveness not guaranteed
+    // under load without a CPU draw completion before queueing present. Safe chain keeps
+    // record-overlap but joins on the draw fence here; ASYNC retains the old behaviour.
+    if (drawSignaledSem && !asyncChain)
+    {
+        const uint64_t tw0 = MonoNs();
+        setStage("safe_chain_wait_draw");
+        const VkResult wr =
+            pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, 8ull * 1000ull * 1000ull * 1000ull);
+        s_stats.presentDrawFlushNs += MonoNs() - tw0;
+        if (wr == VK_TIMEOUT)
+        {
+            LOG_ERROR("A4n: draw fence TIMEOUT before present (stage={} pendingSem={})", s_chainStage,
+                      s_efbReadySemPending ? 1 : 0);
+            consumeEfbReadySem();
+            error = "present draw-fence timeout";
+            s_deviceLost = true;
+            return false;
+        }
+    }
+
     uint32_t imageIndex = 0;
     std::string acqErr;
+    setStage("acquire");
     if (!Vk_AcquireImage(imageIndex, acqErr))
     {
         pfn_vkEndCommandBuffer(s_presentCmd);
@@ -2432,6 +2586,7 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
 
     std::string subErr;
     VkSemaphore extraWait = (drawSignaledSem && s_efbReadySemPending) ? s_efbReadySem : VK_NULL_HANDLE;
+    setStage("submit_present");
     const bool presentOk =
         Vk_SubmitPresent(s_presentCmd, imageIndex, subErr, VK_PIPELINE_STAGE_TRANSFER_BIT, extraWait);
     if (extraWait != VK_NULL_HANDLE)
@@ -2448,19 +2603,22 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
         return false;
     }
 
-    // Single CPU wait: present fence implies draw CB completed (GPU sem order) when chained.
+    setStage("wait_last_submit");
     Vk_WaitLastSubmit();
     ResolveGpuTimestamps();
     s_stats.presentWaitNs += Vk_LastPresentWaitNs();
     s_stats.presentCount++;
+    setStage("retire");
     if (s_a4mProf && (s_stats.presentCount % 64ull) == 1ull)
     {
-        LOG_INFO("A4m-present: n={} chain={} drawFlushMs={:.1f} presentWaitMs={:.1f} "
-                 "xfUp={} xfDedup={} xfBytes={} descUp={} gpuEfbMs={:.1f} (n={}) gpuPresentMs={:.1f}",
-                 s_stats.presentCount, s_presentChain ? 1 : 0, s_stats.presentDrawFlushNs / 1e6,
-                 s_stats.presentWaitNs / 1e6, s_stats.xfUploads, s_stats.xfDedupHits,
-                 s_stats.xfBytesUploaded, s_stats.descUpdates, s_stats.gpuEfbCopyNs / 1e6,
-                 s_stats.gpuEfbCopySamples, s_stats.gpuPresentNs / 1e6);
+        LOG_INFO("A4n-present: n={} chain={} async={} drawFlushMs={:.1f} presentWaitMs={:.1f} "
+                 "xfUp={} xfDedup={} xfBytes={} xfMemcpyMs={:.1f} descUp={} descHit={} "
+                 "gpuEfbMs={:.1f} (n={}) gpuPresentMs={:.1f}",
+                 s_stats.presentCount, s_presentChain ? 1 : 0, asyncChain ? 1 : 0,
+                 s_stats.presentDrawFlushNs / 1e6, s_stats.presentWaitNs / 1e6, s_stats.xfUploads,
+                 s_stats.xfDedupHits, s_stats.xfBytesUploaded, s_stats.xfMemcpyNs / 1e6, s_stats.descUpdates,
+                 s_stats.descCacheHits, s_stats.gpuEfbCopyNs / 1e6, s_stats.gpuEfbCopySamples,
+                 s_stats.gpuPresentNs / 1e6);
     }
     RetireEfbCopyEntries();
     ResetFrameDescriptors();

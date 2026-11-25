@@ -82,9 +82,12 @@ struct GfxDrawBatch
     const uint32_t* indices = nullptr;
     uint32_t indexCount = 0;
 
-    const float* xfmem = nullptr; // 0x1000 floats (g_gx.xfmem as float*)
-    uint32_t xfFloatCount = 0x1000;
+    const float* xfmem = nullptr; // g_gx.xfmem as float*; GPU path uses [0, xfFloatCount)
+    uint32_t xfFloatCount = 0x680; // A4n: match D3D SSBO/SRV size (matrices/lights); xfregs are separate
     bool xfDirty = true;
+    // Inclusive/exclusive float indices into xfmem for partial uploads (0/0 ⇒ full xfFloatCount).
+    uint32_t xfDirtyBegin = 0;
+    uint32_t xfDirtyEnd = 0;
 
     VSConstants vs{};
     PSConstants ps{};

@@ -63,6 +63,8 @@ Unnecessary serialization candidates vs required safety waits are classified in 
 
 **Hang note:** with `SCR_A4M_PRESENT_CHAIN=1`, some TR1 load/outdoor transitions stopped producing XFBs (watchdog, guest VI still ~60) without Khronos `Validation Error` / `DEVICE_LOST`. Default leaves chain **off**.
 
+**A4n follow-up:** root cause attributed to async draw→present sem wait without a CPU draw-fence join under heavy CBs. A4n keeps async behind `SCR_A4N_PRESENT_ASYNC=1` and makes `SCR_A4M_PRESENT_CHAIN=1` the safer record-overlap + fence-join path. XF byte volume is addressed in A4n by matching the D3D `0x680` payload (see `A4N_VULKAN_DRAW_STATE_AND_SUBMISSION_OPTIMISATION.md`).
+
 ## 4. CPU/GPU profiling methodology
 
 | Knob | Effect |

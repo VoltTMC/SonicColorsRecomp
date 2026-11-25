@@ -96,6 +96,15 @@ struct VkGxStats
     uint64_t gpuEfbCopySamples = 0;
     uint64_t gpuPresentNs = 0;           // sum of timed present blit CBs
     uint64_t gpuPresentSamples = 0;
+    // A4n: XF / descriptor CPU attribution
+    uint64_t xfMemcpyNs = 0;
+    uint64_t xfHashNs = 0;
+    uint64_t xfDirtyPatches = 0;         // uploads that patched a dirty range onto prior slot
+    uint64_t xfBytesAvoided = 0;         // bytes skipped via dedup or dirty-only path
+    uint64_t descCacheHits = 0;          // reused set (textures+XF); UBO via dynamic offsets
+    uint64_t descCacheMisses = 0;
+    uint64_t descUpdateNs = 0;
+    uint64_t descAllocNs = 0;
 };
 VkGxStats VkGx_Stats();
 void VkGx_ResetStats();
