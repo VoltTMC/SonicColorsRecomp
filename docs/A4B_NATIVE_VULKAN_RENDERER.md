@@ -1,7 +1,7 @@
 # A4b — Native cross-platform Vulkan renderer
 
 **Status (2026-11-24):** **Stage A complete**; **Stage B started** (see `docs/A4C_VULKAN_GX_DRAW_PIPELINE.md`).  
-Stage A: device / surface / swapchain / clear-present. Stage B: real GX `DrawIndexed` via Vulkan (partial). A4d: NVIDIA sync/validation. A4e: TEV GLSL/SPIR-V + multi-tex. A4f: EFB→texture + mips (see `A4F_EFB_COPIES_AND_TEXTURE_COMPLETENESS.md`). AMD/RADV deferred.  
+Stage A: device / surface / swapchain / clear-present. Stage B: real GX `DrawIndexed` via Vulkan (partial). A4d: NVIDIA sync/validation. A4e: TEV GLSL/SPIR-V + multi-tex. A4f: EFB→texture + mips. A4g: TR1 entry + XF ring (parity incomplete; see `A4G_TROPICAL_RESORT_VULKAN_PARITY.md`). AMD/RADV deferred.  
 Gameplay default is still **D3D11** (Linux: DXVK; Windows: native D3D11).
 
 ## 1. Original architecture

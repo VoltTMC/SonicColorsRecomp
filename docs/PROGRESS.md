@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-25 — A4g: Tropical Resort Act 1 Vulkan rendering parity (partial)
+
+**Goal:** Reliably enter TR1 (`stg110`) on native Vulkan; same-scene D3D11/VK captures; fix lighting/fog/overlay gaps **actually used** by TR1; D3D11 remains default.
+
+**Shipped:** Repeatable `tools/a4g_tr1_capture.sh` (stg110 proven D3D+VK without validation); **versioned XF SSBO ring** (fixes mid-CB XF overwrite → TR1 vertex explosion; in-stage blackish ~70%→~20%); GX depth-compare in PipeKey; cull/winding for NDC Y flip; docs `A4G_TROPICAL_RESORT_VULKAN_PARITY.md`.
+
+**Evidence (RTX 3080):** stg110 + HUD on Vulkan; spv fail=0; title val 0 errors; D3D11 ~60 unique_xfb; VK TR1 ~5–6 (EFB-copy fences). **Full TR1 visual parity not claimed** (orientation/sky/EFB-window residuals). AMD/RADV **deferred**. Win Vulkan GPU **UNVERIFIED**. Vulkan **not** default.
+
 ## 2026-11-25 — A4f: EFB-to-texture copies & texture/mip completeness (Vulkan)
 
 **Goal:** Vulkan EFB→texture with GX `pscopy` semantics; multi-mip uploads/sampling; cache invalidation; keep A4d sync + A4e TEV; D3D11 default.

@@ -197,6 +197,16 @@ int main()
         CHECK(tw == 320 && th == 264);
     }
 
+    // --- GX Z-mode compare encoding (matches D3D11 funcs[] / Vulkan GxDepthCompareToVk) ---
+    {
+        // zm bits: enable | compare<<1 | update<<4
+        auto cmp = [](uint32_t zm) { return (zm >> 1) & 7; };
+        CHECK(cmp(0x17) == 3); // enable + <= + update (common)
+        CHECK(cmp(0x1B) == 5); // !=
+        CHECK(cmp(0x1D) == 6); // >=
+        CHECK(cmp(0x1F) == 7); // always
+    }
+
     // --- VS GLSL with colour+alpha lighting must compile (catches int3/float3 bug) ---
     {
         VSKey k{};

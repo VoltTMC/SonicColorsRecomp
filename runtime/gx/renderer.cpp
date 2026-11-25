@@ -2714,6 +2714,7 @@ static bool FlushVulkan()
     if (g_dbgNoDepth) zm &= ~1u;
     batch.depthTest = (zm & 1) != 0;
     batch.depthWrite = (zm & 0x10) != 0;
+    batch.depthCompare = (uint8_t)((zm >> 1) & 7);
     batch.blendEnable = (BP(0x41) & 1) != 0;
 
     // A4e/A4f: full VSKey/PSKey IR + multi-texture (RAM mips + EFB-copy textures).
@@ -3771,7 +3772,7 @@ static void DoEFBCopy()
                     (g_framesPresented % (uint32_t)g_screenshotEvery) == 0)
                 {
                     char path[96];
-                    snprintf(path, sizeof(path), "out/a4f_vk_shot_%04u.bmp",
+                    snprintf(path, sizeof(path), "out/a4g_vk_shot_%04u.bmp",
                              g_framesPresented / (uint32_t)g_screenshotEvery);
                     std::string shotErr;
                     if (!VkGx_SaveEfbBmp(sx, sy, sw, sh, path, shotErr))

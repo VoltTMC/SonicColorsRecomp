@@ -113,7 +113,7 @@ Input: `tools/a2g_tr1_enter.txt` + `out/test_nand` (TR-unlocked save). Validatio
 | Draws / verts | ~0.9M–1.2M draws; tens of millions of verts |
 | unique_xfb | ~9–10 /s |
 
-`SCR_A2G_NATURAL_TRACE=1` (passed **inside** `run_nvidia_vk_validation.sh` via `env …`, because the wrapper uses `env -i`) confirmed natural EFB lifetime tracing. Explicit `A2g-Stage: entered 'stg110'` was **not** observed in the timed runs (input script advances slowly under validation); workload shape (mip uploads + mass geometry after menu mash) matches deep stage/menu 3D content. **Not** claimed pixel-identical TR1 parity.
+`SCR_A2G_NATURAL_TRACE=1` (passed **inside** `run_nvidia_vk_validation.sh` via `env …`, because the wrapper uses `env -i`) confirmed natural EFB lifetime tracing. Explicit `A2g-Stage: entered 'stg110'` was **not** observed in the timed A4f validation runs (input script advances slowly under validation); workload shape (mip uploads + mass geometry after menu mash) matches deep stage/menu 3D content. **A4g** later reached `stg110` on Vulkan without validation (`tools/a4g_tr1_capture.sh`) — see `docs/A4G_TROPICAL_RESORT_VULKAN_PARITY.md`. **Not** claimed pixel-identical TR1 parity.
 
 ## 13. D3D11 versus Vulkan screenshot comparisons
 

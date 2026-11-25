@@ -45,7 +45,7 @@ L(vkCmdBindPipeline); L(vkCmdBindVertexBuffers); L(vkCmdBindIndexBuffer);
 L(vkCmdBindDescriptorSets); L(vkCmdSetViewport); L(vkCmdSetScissor);
 L(vkCmdDrawIndexed); L(vkCmdClearAttachments);
 L(vkCmdPipelineBarrier); L(vkCmdCopyBuffer); L(vkCmdCopyBufferToImage); L(vkCmdCopyImageToBuffer);
-L(vkCmdCopyImage); L(vkCmdBlitImage); L(vkCmdDraw);
+L(vkCmdCopyImage); L(vkCmdBlitImage); L(vkCmdDraw); L(vkCmdPushConstants);
 L(vkCreateFence); L(vkDestroyFence); L(vkWaitForFences); L(vkResetFences);
 L(vkResetDescriptorPool);
 L(vkGetPhysicalDeviceMemoryProperties);
@@ -85,7 +85,7 @@ static bool LoadFns()
     LD(vkCmdBindDescriptorSets); LD(vkCmdSetViewport); LD(vkCmdSetScissor);
     LD(vkCmdDrawIndexed); LD(vkCmdClearAttachments);
     LD(vkCmdPipelineBarrier); LD(vkCmdCopyBuffer); LD(vkCmdCopyBufferToImage); LD(vkCmdCopyImageToBuffer);
-    LD(vkCmdCopyImage); LD(vkCmdBlitImage); LD(vkCmdDraw);
+    LD(vkCmdCopyImage); LD(vkCmdBlitImage); LD(vkCmdDraw); LD(vkCmdPushConstants);
     LD(vkCreateFence); LD(vkDestroyFence); LD(vkWaitForFences); LD(vkResetFences);
     LD(vkResetDescriptorPool);
 #undef LD
@@ -117,12 +117,13 @@ struct Img
 
 struct PipeKey
 {
-    uint8_t topo = 0, cull = 0, blend = 0, depthWrite = 1, depthTest = 1;
+    uint8_t topo = 0, cull = 0, blend = 0, depthWrite = 1, depthTest = 1, depthCompare = 3;
     uint64_t vsHash = 0, psHash = 0;
     bool operator==(const PipeKey& o) const
     {
         return topo == o.topo && cull == o.cull && blend == o.blend && depthWrite == o.depthWrite &&
-               depthTest == o.depthTest && vsHash == o.vsHash && psHash == o.psHash;
+               depthTest == o.depthTest && depthCompare == o.depthCompare && vsHash == o.vsHash &&
+               psHash == o.psHash;
     }
 };
 struct PipeKeyHash
@@ -130,12 +131,23 @@ struct PipeKeyHash
     size_t operator()(const PipeKey& k) const
     {
         size_t h = (size_t)k.topo | ((size_t)k.cull << 8) | ((size_t)k.blend << 16) |
-                   ((size_t)k.depthWrite << 24) | ((size_t)k.depthTest << 25);
+                   ((size_t)k.depthWrite << 24) | ((size_t)k.depthTest << 25) |
+                   ((size_t)k.depthCompare << 26);
         h ^= k.vsHash + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
         h ^= k.psHash + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
         return h;
     }
 };
+
+static VkCompareOp GxDepthCompareToVk(uint8_t cmp)
+{
+    static const VkCompareOp kOps[8] = {
+        VK_COMPARE_OP_NEVER,           VK_COMPARE_OP_LESS,           VK_COMPARE_OP_EQUAL,
+        VK_COMPARE_OP_LESS_OR_EQUAL,   VK_COMPARE_OP_GREATER,        VK_COMPARE_OP_NOT_EQUAL,
+        VK_COMPARE_OP_GREATER_OR_EQUAL, VK_COMPARE_OP_ALWAYS,
+    };
+    return kOps[cmp & 7];
+}
 
 struct FrameSlot
 {
@@ -178,6 +190,12 @@ uint32_t s_descCursor = 0;
 
 Buf s_xfBuf{}, s_vsUbo{}, s_psUbo{}, s_dynUbo{};
 VkDeviceSize s_dynUboPos = 0;
+// A4g: versioned XF SSBO ring — a single live XF buffer is overwritten while prior
+// draws in the same CB still reference it (TR1 skeletal/env → vertex explosion).
+constexpr VkDeviceSize kXfSlotBytes = 0x1000u * sizeof(float); // 16 KiB
+constexpr VkDeviceSize kXfRingBytes = 16u * 1024u * 1024u;
+VkDeviceSize s_xfRingPos = 0;
+VkDeviceSize s_xfBindOffset = 0;
 Buf s_staging{}; // texture uploads
 VkDeviceSize s_stagingPos = 0;
 Img s_whiteTex{};
@@ -224,7 +242,6 @@ VkPipelineLayout s_copyLayout = VK_NULL_HANDLE;
 VkDescriptorSetLayout s_copyDsl = VK_NULL_HANDLE;
 VkDescriptorPool s_copyPool = VK_NULL_HANDLE;
 VkDescriptorSet s_copySet = VK_NULL_HANDLE;
-Buf s_copyUbo{};
 Img s_efbColorSnap{}, s_efbDepthSnap{};
 std::unordered_map<uint32_t, EfbCopyCacheEntry> s_efbCopyCache;
 uint64_t s_efbCopyGen = 1;
@@ -233,7 +250,7 @@ std::unordered_map<std::string, uint32_t> s_unsupCounts;
 
 static const char* kCopyVertGlsl = R"(#version 450
 layout(location = 0) out vec2 vUV;
-layout(set = 0, binding = 2) uniform UBO {
+layout(push_constant) uniform PC {
     vec4 rect;
     vec4 uv;
     vec4 color;
@@ -254,7 +271,7 @@ layout(location = 0) in vec2 vUV;
 layout(location = 0) out vec4 outColor;
 layout(set = 0, binding = 0) uniform sampler2D src;
 layout(set = 0, binding = 1) uniform sampler2D srcDepth;
-layout(set = 0, binding = 2) uniform UBO {
+layout(push_constant) uniform PC {
     vec4 rect;
     vec4 uv;
     vec4 color;
@@ -702,11 +719,12 @@ static VkPipeline GetOrCreatePipe(const PipeKey& key, std::string& error)
 
     VkPipelineRasterizationStateCreateInfo rs{ VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
     rs.polygonMode = VK_POLYGON_MODE_FILL;
-    // GX: cull 1 = back, 2 = front; screen-space front faces are clockwise (match D3D11).
-    rs.cullMode = key.cull == 1   ? VK_CULL_MODE_FRONT_BIT
-                  : key.cull == 2 ? VK_CULL_MODE_BACK_BIT
-                                  : VK_CULL_MODE_NONE;
-    rs.frontFace = VK_FRONT_FACE_CLOCKWISE;
+    // GfxCull::Back/Front after Vulkan NDC Y flip (clip.y = -clip.y): winding reverses
+    // vs D3D11, so use CCW front and map cull normally (Back→BACK, Front→FRONT).
+    rs.cullMode = key.cull == (uint8_t)GfxCull::Back    ? VK_CULL_MODE_BACK_BIT
+                  : key.cull == (uint8_t)GfxCull::Front ? VK_CULL_MODE_FRONT_BIT
+                                                        : VK_CULL_MODE_NONE;
+    rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rs.lineWidth = 1.0f;
 
     VkPipelineMultisampleStateCreateInfo ms{ VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
@@ -715,7 +733,7 @@ static VkPipeline GetOrCreatePipe(const PipeKey& key, std::string& error)
     VkPipelineDepthStencilStateCreateInfo ds{ VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
     ds.depthTestEnable = key.depthTest ? VK_TRUE : VK_FALSE;
     ds.depthWriteEnable = key.depthWrite ? VK_TRUE : VK_FALSE;
-    ds.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    ds.depthCompareOp = GxDepthCompareToVk(key.depthCompare);
 
     VkPipelineColorBlendAttachmentState ba{};
     ba.colorWriteMask = 0xF;
@@ -915,7 +933,8 @@ static bool AllocDrawDescriptors(const GfxDrawBatch& batch, VkImageView views[8]
 
     VkDescriptorBufferInfo xf{};
     xf.buffer = s_xfBuf.buf;
-    xf.range = VK_WHOLE_SIZE;
+    xf.offset = s_xfBindOffset;
+    xf.range = kXfSlotBytes;
     VkDescriptorBufferInfo vs{};
     vs.buffer = s_dynUbo.buf;
     vs.offset = vsOff;
@@ -978,7 +997,6 @@ static void DestroyCopyUtil()
     s_efbCopyCache.clear();
     DestroyImg(s_efbColorSnap);
     DestroyImg(s_efbDepthSnap);
-    DestroyBuf(s_copyUbo);
     if (s_copyPipe) pfn_vkDestroyPipeline(dev, s_copyPipe, nullptr);
     if (s_copyPass) pfn_vkDestroyRenderPass(dev, s_copyPass, nullptr);
     if (s_copyLayout) pfn_vkDestroyPipelineLayout(dev, s_copyLayout, nullptr);
@@ -1008,12 +1026,6 @@ static bool InitCopyUtil(std::string& error)
                      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_DEPTH_BIT))
     {
         error = "efb depth snap failed";
-        return false;
-    }
-    if (!CreateBuf(s_copyUbo, 256, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
-    {
-        error = "copy ubo failed";
         return false;
     }
 
@@ -1060,35 +1072,36 @@ static bool InitCopyUtil(std::string& error)
     }
 
     {
-        VkDescriptorSetLayoutBinding binds[3]{};
+        VkDescriptorSetLayoutBinding binds[2]{};
         binds[0] = { 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr };
         binds[1] = { 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr };
-        binds[2] = { 2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                     nullptr };
         VkDescriptorSetLayoutCreateInfo lci{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-        lci.bindingCount = 3;
+        lci.bindingCount = 2;
         lci.pBindings = binds;
         if (pfn_vkCreateDescriptorSetLayout(dev, &lci, nullptr, &s_copyDsl) != VK_SUCCESS)
         {
             error = "efb-copy dsl failed";
             return false;
         }
+        VkPushConstantRange pcr{};
+        pcr.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+        pcr.offset = 0;
+        pcr.size = sizeof(CopyUtilUbo);
         VkPipelineLayoutCreateInfo plci{ VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
         plci.setLayoutCount = 1;
         plci.pSetLayouts = &s_copyDsl;
+        plci.pushConstantRangeCount = 1;
+        plci.pPushConstantRanges = &pcr;
         if (pfn_vkCreatePipelineLayout(dev, &plci, nullptr, &s_copyLayout) != VK_SUCCESS)
         {
             error = "efb-copy pipeline layout failed";
             return false;
         }
-        VkDescriptorPoolSize ps[2] = {
-            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2 },
-            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1 },
-        };
+        VkDescriptorPoolSize ps{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2 };
         VkDescriptorPoolCreateInfo dpi{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
         dpi.maxSets = 1;
-        dpi.poolSizeCount = 2;
-        dpi.pPoolSizes = ps;
+        dpi.poolSizeCount = 1;
+        dpi.pPoolSizes = &ps;
         if (pfn_vkCreateDescriptorPool(dev, &dpi, nullptr, &s_copyPool) != VK_SUCCESS)
         {
             error = "efb-copy descriptor pool failed";
@@ -1168,11 +1181,8 @@ static bool InitCopyUtil(std::string& error)
     snapDepth.sampler = s_sampLinear;
     snapDepth.imageView = s_efbDepthSnap.view;
     snapDepth.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    VkDescriptorBufferInfo ubo{};
-    ubo.buffer = s_copyUbo.buf;
-    ubo.range = 256;
-    VkWriteDescriptorSet writes[3]{};
-    for (int i = 0; i < 3; i++)
+    VkWriteDescriptorSet writes[2]{};
+    for (int i = 0; i < 2; i++)
         writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[0].dstSet = s_copySet;
     writes[0].dstBinding = 0;
@@ -1184,12 +1194,7 @@ static bool InitCopyUtil(std::string& error)
     writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     writes[1].descriptorCount = 1;
     writes[1].pImageInfo = &snapDepth;
-    writes[2].dstSet = s_copySet;
-    writes[2].dstBinding = 2;
-    writes[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    writes[2].descriptorCount = 1;
-    writes[2].pBufferInfo = &ubo;
-    pfn_vkUpdateDescriptorSets(dev, 3, writes, 0, nullptr);
+    pfn_vkUpdateDescriptorSets(dev, 2, writes, 0, nullptr);
     return true;
 }
 
@@ -1402,7 +1407,7 @@ bool VkGx_Init(const VkGxInitOptions& opt, std::string& error)
         pfn_vkWaitForFences(dev, 1, &s_frames[0].fence, VK_TRUE, UINT64_MAX);
     }
 
-    if (!CreateBuf(s_xfBuf, 0x1000 * sizeof(float),
+    if (!CreateBuf(s_xfBuf, kXfRingBytes,
                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                                                             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) ||
         !CreateBuf(s_vsUbo, sizeof(VSConstants), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
@@ -1418,6 +1423,9 @@ bool VkGx_Init(const VkGxInitOptions& opt, std::string& error)
         return false;
     }
     s_dynUboPos = 0;
+    s_xfRingPos = 0;
+    s_xfBindOffset = 0;
+    s_xfUploaded = false;
 
     // White 1x1
     {
@@ -1603,6 +1611,9 @@ void VkGx_Shutdown()
     s_frameDescSets.clear();
     s_descCursor = 0;
     s_dynUboPos = 0;
+    s_xfRingPos = 0;
+    s_xfBindOffset = 0;
+    s_xfUploaded = false;
     s_deviceLost = false;
     s_active = false;
 }
@@ -1641,7 +1652,23 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
     (void)fsMod;
 
     auto align = [](VkDeviceSize v, VkDeviceSize a) { return (v + a - 1) / a * a; };
-        auto flushFrame = [&](FrameSlot& fr) {
+    auto uploadXfSlot = [&](const GfxDrawBatch& b, std::string& err) -> bool {
+        // Storage-buffer offset alignment is typically ≤256; keep slots 16 KiB-aligned.
+        const VkDeviceSize off = align(s_xfRingPos, kXfSlotBytes);
+        if (off + kXfSlotBytes > s_xfBuf.size)
+        {
+            err = "xf ring exhausted (flush required)";
+            return false;
+        }
+        const size_t n = (size_t)std::min(b.xfFloatCount, 0x1000u) * sizeof(float);
+        if (b.xfmem) memcpy((uint8_t*)s_xfBuf.mapped + off, b.xfmem, n);
+        s_xfBindOffset = off;
+        s_xfRingPos = off + kXfSlotBytes;
+        s_xfUploaded = true;
+        s_stats.uploadBytes += n;
+        return true;
+    };
+    auto flushFrame = [&](FrameSlot& fr) {
         // A4d: do not mid-frame submit while sharing host-visible UBO/SSBO/descriptors.
         // Drain, then reuse the same frame arena from offset 0.
         if (!fr.recording) return;
@@ -1656,6 +1683,8 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
         pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
         ResetFrameDescriptors();
         s_dynUboPos = 0;
+        s_xfRingPos = 0;
+        s_xfUploaded = false;
         fr.vbPos = 0;
         fr.ibPos = 0;
     };
@@ -1701,10 +1730,15 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
 
     if (batch.xfDirty || !s_xfUploaded)
     {
-        const size_t n = (size_t)std::min(batch.xfFloatCount, 0x1000u) * sizeof(float);
-        if (batch.xfmem) memcpy(s_xfBuf.mapped, batch.xfmem, n);
-        s_xfUploaded = true;
-        s_stats.uploadBytes += n;
+        std::string xfErr;
+        if (!uploadXfSlot(batch, xfErr))
+        {
+            flushFrame(*f);
+            f = &s_frames[s_frameIdx];
+            if (!EnsureFrameRecording(*f, error)) return false;
+            vbOff = 0;
+            if (!uploadXfSlot(batch, error)) return false;
+        }
     }
     VkDescriptorSet drawSet = VK_NULL_HANDLE;
     if (!AllocDrawDescriptors(batch, texViews, texSamps, drawSet, error))
@@ -1720,6 +1754,7 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
             error = "draw exceeds ring after flush";
             return false;
         }
+        if (!uploadXfSlot(batch, error)) return false;
         if (!AllocDrawDescriptors(batch, texViews, texSamps, drawSet, error))
             return false;
     }
@@ -1739,6 +1774,7 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
     pk.blend = batch.blendEnable ? 1 : 0;
     pk.depthTest = batch.depthTest ? 1 : 0;
     pk.depthWrite = batch.depthWrite ? 1 : 0;
+    pk.depthCompare = batch.depthCompare;
     pk.vsHash = vsHash;
     pk.psHash = psHash;
     VkPipeline pipe = GetOrCreatePipe(pk, error);
@@ -1937,6 +1973,8 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
     Vk_WaitLastSubmit();
     ResetFrameDescriptors();
     s_dynUboPos = 0;
+    s_xfRingPos = 0;
+    s_xfUploaded = false;
     s_stagingPos = 0;
     // Present did not use fr.fence; keep it signaled for EnsureFrameRecording.
     if (!fr.recording)
@@ -2104,6 +2142,7 @@ bool VkGx_CopyEfbToTexture(const GfxEfbCopyRequest& req, std::string& error)
     const uint32_t rw = tw * (uint32_t)s_scale, rh = th * (uint32_t)s_scale;
     const uint32_t key = EfbCopyKey(req.destAddr);
 
+    // Dedicated copy CB + fence wait (A4f-stable). Push constants avoid UBO reuse hazards.
     FrameSlot& fr = s_frames[s_frameIdx];
     if (!DrainFrameSlot(fr, error)) return false;
     pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
@@ -2181,22 +2220,21 @@ bool VkGx_CopyEfbToTexture(const GfxEfbCopyRequest& req, std::string& error)
             destSrcSt, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, destSrcA,
             VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
 
-    CopyUtilUbo ubo{};
-    ubo.rect[0] = -1.0f;
-    ubo.rect[1] = 1.0f;
-    ubo.rect[2] = 1.0f;
-    ubo.rect[3] = -1.0f;
-    ubo.uv[0] = u0;
-    ubo.uv[1] = v0;
-    ubo.uv[2] = u1;
-    ubo.uv[3] = v1;
-    ubo.params[2] = 1.0f / (float)kEfbW;
-    ubo.params[3] = 1.0f / (float)kEfbH;
-    ubo.iparams[0] = (int32_t)req.fmt;
-    ubo.iparams[1] = (req.intensity && req.fmt < 4) ? 1 : 0;
-    ubo.iparams[2] = req.depthSrc ? 1 : 0;
-    ubo.iparams[3] = req.half ? 1 : 0;
-    memcpy(s_copyUbo.mapped, &ubo, sizeof(ubo));
+    CopyUtilUbo pc{};
+    pc.rect[0] = -1.0f;
+    pc.rect[1] = 1.0f;
+    pc.rect[2] = 1.0f;
+    pc.rect[3] = -1.0f;
+    pc.uv[0] = u0;
+    pc.uv[1] = v0;
+    pc.uv[2] = u1;
+    pc.uv[3] = v1;
+    pc.params[2] = 1.0f / (float)kEfbW;
+    pc.params[3] = 1.0f / (float)kEfbH;
+    pc.iparams[0] = (int32_t)req.fmt;
+    pc.iparams[1] = (req.intensity && req.fmt < 4) ? 1 : 0;
+    pc.iparams[2] = req.depthSrc ? 1 : 0;
+    pc.iparams[3] = req.half ? 1 : 0;
 
     VkRenderPassBeginInfo rp{ VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
     rp.renderPass = s_copyPass;
@@ -2205,6 +2243,8 @@ bool VkGx_CopyEfbToTexture(const GfxEfbCopyRequest& req, std::string& error)
     pfn_vkCmdBeginRenderPass(fr.cmd, &rp, VK_SUBPASS_CONTENTS_INLINE);
     pfn_vkCmdBindPipeline(fr.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s_copyPipe);
     pfn_vkCmdBindDescriptorSets(fr.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s_copyLayout, 0, 1, &s_copySet, 0, nullptr);
+    pfn_vkCmdPushConstants(fr.cmd, s_copyLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                           sizeof(pc), &pc);
     VkViewport vp{ 0, 0, (float)rw, (float)rh, 0, 1 };
     pfn_vkCmdSetViewport(fr.cmd, 0, 1, &vp);
     VkRect2D sc{ { 0, 0 }, { rw, rh } };

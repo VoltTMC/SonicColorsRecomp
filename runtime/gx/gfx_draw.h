@@ -77,6 +77,7 @@ struct GfxDrawBatch
 
     bool depthTest = true;
     bool depthWrite = true;
+    uint8_t depthCompare = 3; // GX Z mode bits 1..3; 3 = <= (matches D3D11 funcs[])
     bool blendEnable = false;
     // GX BP blend approx: src_alpha / inv_src_alpha when blendEnable.
 };

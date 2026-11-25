@@ -1,6 +1,6 @@
 # A4c — Native Vulkan GX Draw Pipeline (Stage B)
 
-**Status (2026-11-24):** Stage B **partial** — real GX `HostVertex` geometry is submitted through native Vulkan (`vkCmdDrawIndexed`). **Superseded for shaders/textures by A4e/A4f** (`docs/A4E_GX_TEV_AND_MULTITEXTURE_PARITY.md`, `docs/A4F_EFB_COPIES_AND_TEXTURE_COMPLETENESS.md`). D3D11 remains the **default** gameplay renderer. Title/menus/TR1 are **not** at full visual parity yet.
+**Status (2026-11-24):** Stage B **partial** — real GX `HostVertex` geometry is submitted through native Vulkan (`vkCmdDrawIndexed`). **Superseded for shaders/textures by A4e/A4f/A4g** (`docs/A4E_…`, `A4F_…`, `A4G_TROPICAL_RESORT_VULKAN_PARITY.md`). D3D11 remains the **default** gameplay renderer. Title/menus/TR1 are **not** at full visual parity yet.
 
 ## Architecture
 
