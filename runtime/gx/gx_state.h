@@ -105,6 +105,8 @@ void Render_SetReplayIsolation(bool on);
 bool Render_ReplayIsolationActive();
 void Render_ForceXfDirty();
 void Render_Flush();  // submit pending host draw batch
+// True if Flush would submit geometry (non-empty index buffer).
+bool Render_HasPendingDraw();
 void Render_ResetHostDrawState();  // flush batches; force XF upload next draw
 // A3x: drop A3s/A3t Flush bind/CB cache after external D3D11 state changes
 // (EFB copy unbind, XFB present blit, util draws).

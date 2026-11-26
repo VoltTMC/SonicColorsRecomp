@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-26 — A5f: deferred BP derived-state propagation
+
+**Goal:** Cut remaining DL BP CPU cost by skipping empty `Render_Flush`/`Render_OnBP` and coalescing `PSKey`/`VSKey` rebuilds, without reordering canonical BP writes or caching display lists.
+
+**Shipped:** `gx_defer` dirty families; `SCR_A5F_DEFERRED_BP` (default off); `Render_HasPendingDraw`; KSEL dirty→draw flush; `scr_a5f_bp_deferred_state_test`; `tools/a5f_tr1_bench.sh`; docs `A5F_*`. Special/trigger regs (`0x45`/`47`/`48`/`52`/`65`/`66`/`E0–E7`) remain immediate. DL record still `PPC_ORIGINAL`.
+
+**Evidence (RTX 3080, 90s TR1 explore, A5e adapters on):** baseline `bpCatMs≈31721` / `bpLoads≈8.21M` (~3.86 µs/bp), title unique_xfb mean≈59.3, mid≈8.6; deferred `flushSkip≈5.36M` `onBpSkip≈1.70M` `psReuse≈718k`/`psBuild≈228k` `vsReuse≈809k`/`vsBuild≈138k`, `bpCatMs≈30367` / `bpLoads≈8.67M` (~3.50 µs/bp, ~9% less per BP; more FIFO processed in-window), title≈59.3 mid≈9.5. Unit + Linux/MinGW OK. Validation not claimed (perf runs). AMD/RADV **deferred**. Win Vulkan **UNVERIFIED**. D3D11 default; `SCR_A5F_DEFERRED_BP` opt-in.
+
 ## 2026-11-26 — A5e: native GXLoadTexObj / TX unit state
 
 **Goal:** Migrate immediate `GXLoadTexObj` / `PreLoaded` / `GXLoadTlut` TX BP (`0x80–0x94` family) into typed native adapters without a second texture state machine.

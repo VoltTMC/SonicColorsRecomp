@@ -1,6 +1,7 @@
 // A5c: BP shadow validity + shared apply path (FIFO and typed direct).
 #include "gx_shadow.h"
 #include "gfx_native.h"
+#include "gx_defer.h"
 #include "gx_state.h"
 #include "../log.h"
 
@@ -51,6 +52,7 @@ void GxShadow_InvalidateAll(const char* why)
     std::memset(s_valid, 0, sizeof(s_valid));
     s_gen++;
     s_invalidations++;
+    GxDefer_InvalidateAll(why);
     if (why && GfxNative_ProfEnabled())
         LOG_INFO("A5c-shadow: invalidate-all gen={} ({})", s_gen, why);
 }
@@ -226,8 +228,15 @@ void GX_ApplyBpWord(uint32_t word)
 
     // Never skip special/trigger; also never skip when shadow was invalid
     // (re-establish by applying).
+    // A5f: when deferred, skip empty Flush (no pending geometry) — canonical
+    // BP/`__gx` still update below; derived keys rebuild at the next consumer.
     if (nv != old || special)
-        Render_Flush();
+    {
+        if (GxDefer_Enabled() && !Render_HasPendingDraw())
+            GxDefer_NoteFlushSkipped();
+        else
+            Render_Flush();
+    }
     g_gx.bp[reg] = nv;
     {
         std::lock_guard lk(s_mu);
@@ -252,5 +261,18 @@ void GX_ApplyBpWord(uint32_t word)
     default:
         break;
     }
-    Render_OnBP(reg, old, nv);
+
+    if (GxDefer_Enabled())
+    {
+        GxDefer_MarkBp(reg);
+        // Only call OnBP for registers with immediate side effects (EFB/TLUT/konst).
+        if (GxDefer_NeedsImmediateOnBp(reg))
+            Render_OnBP(reg, old, nv);
+        else
+            GxDefer_NoteOnBpSkipped();
+    }
+    else
+    {
+        Render_OnBP(reg, old, nv);
+    }
 }

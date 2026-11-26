@@ -1,5 +1,6 @@
 // A5a–A5c: opt-in direct GX SDK → typed GX-thread commands (ordered vs FIFO).
 #include "gfx_native.h"
+#include "gx_defer.h"
 #include "gx_shadow.h"
 #include "gx_state.h"
 #include "../cpu/ppc_context.h"
@@ -361,6 +362,7 @@ void GfxNative_LogStats(const char* tag)
              s.catNs[(size_t)GfxDecodeCat::XfIdx] / 1e6, s.catNs[(size_t)GfxDecodeCat::Bp] / 1e6,
              s.catNs[(size_t)GfxDecodeCat::DlCall] / 1e6, s.catNs[(size_t)GfxDecodeCat::Draw] / 1e6);
     GxShadow_LogProfile(tag);
+    GxDefer_LogStats(tag);
 }
 
 bool GfxNative_EnqueueXfImm(uint32_t addr, uint32_t count, const uint32_t* words, bool wordsAreBE)

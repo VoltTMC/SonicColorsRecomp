@@ -1,5 +1,6 @@
 // GX -> host renderer (D3D11 today; native Vulkan in A4b stages).
 #include "gx_state.h"
+#include "gx_defer.h"
 #include "gfx_backend.h"
 #include "gfx_draw.h"
 #include "dxbc_fixup.h"
@@ -747,8 +748,16 @@ void Renderer_Init()
 // ------------------------------------------------------------------ state -> keys
 static uint32_t BP(uint32_t r) { return g_gx.bp[r]; }
 
+static VSKey s_cachedVsKey{};
+static PSKey s_cachedPsKey{};
+
 static void BuildVSKey(VSKey& k)
 {
+    if (!GxDefer_VsKeyNeedsRebuild(s_batchComponents))
+    {
+        k = s_cachedVsKey;
+        return;
+    }
     memset(&k, 0, sizeof(k));
     k.components = s_batchComponents;
     k.numTexGens = BP(0x00) & 15;
@@ -768,12 +777,19 @@ static void BuildVSKey(VSKey& k)
     // lighting details only matter when lighting is enabled
     for (int c = 0; c < 4; c++)
         if (!(k.chan[c] & 2)) k.chan[c] &= 0x41;
+    s_cachedVsKey = k;
+    GxDefer_NoteVsKeyBuilt(s_batchComponents);
 }
 
 static uint32_t PixelFormat() { return BP(0x43) & 7; }
 
 static void BuildPSKey(PSKey& k)
 {
+    if (!GxDefer_PsKeyNeedsRebuild())
+    {
+        k = s_cachedPsKey;
+        return;
+    }
     memset(&k, 0, sizeof(k));
     uint32_t gen = BP(0x00);
     k.numTexGens = gen & 15;
@@ -867,6 +883,8 @@ static void BuildPSKey(PSKey& k)
     k.dstAlphaEnable = (BP(0x42) >> 8) & 1;
     bool zEnable = BP(0x40) & 1;
     k.perPixelDepth = ((k.zTexType >> 2) & 3) != 0 && zEnable ? 1 : 0;
+    s_cachedPsKey = k;
+    GxDefer_NotePsKeyBuilt();
 }
 
 // ------------------------------------------------------------------ shader cache
@@ -2054,6 +2072,7 @@ void Render_ResetHostDrawState()
     s_xfDirtyBegin = 0;
     s_xfDirtyEnd = 0x680u;
     s_batchComponents = 0;
+    GxDefer_InvalidateAll("ResetHostDrawState");
     InvalidateHostBindCache();
 }
 
@@ -3592,9 +3611,14 @@ void Render_Draw(int prim, int vat, uint32_t count, const uint8_t* data, const V
 
 void Render_Flush() { Flush(); }
 
+bool Render_HasPendingDraw() { return !s_indices.empty(); }
+
 void Render_OnXF(uint32_t addr, uint32_t count, bool indexed)
 {
     if (addr < 0x1000) MarkXfDirtyRange(addr, count);
+    // Channel / dual-tex / texmtx XF regs feed VSKey — invalidate when deferred.
+    if (GxDefer_Enabled() && addr >= XF_NUMCOLORS && addr < XF_POSTMTXINFO + 8)
+        GxDefer_Mark(GxDeferFamily::Light | GxDeferFamily::GenMode);
     // A1b: first full pos-matrix-0 upload of the XFB frame ≈ guest view/modelview seed.
     if (A1b_PoseCaptureEnabled() && addr == 0 && count >= 12)
     {
