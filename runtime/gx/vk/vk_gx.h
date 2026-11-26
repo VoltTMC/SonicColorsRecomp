@@ -108,9 +108,29 @@ struct VkGxStats
     uint64_t descCacheMisses = 0;
     uint64_t descUpdateNs = 0;
     uint64_t descAllocNs = 0;
+    // A5l: exclusive VkGx_Draw stage CPU (ns); not GPU time.
+    uint64_t drawEntryNs = 0;            // whole VkGx_Draw wall
+    uint64_t drawShaderNs = 0;
+    uint64_t drawXfNs = 0;
+    uint64_t drawTexNs = 0;
+    uint64_t drawDescNs = 0;
+    uint64_t drawCopyNs = 0;             // VB/IB host memcpy
+    uint64_t drawPipeNs = 0;
+    uint64_t drawRecordNsEx = 0;         // bind + draw cmd recording (excl. above)
+    uint64_t drawFlushWaitNs = 0;        // mid-draw flushFrame fence waits
+    uint64_t descStickyFull = 0;         // A5l: reuse set+dyn offs (VS/PS identical)
+    uint64_t descStickyPartial = 0;      // A5l: reuse set, new UBO slots
+    uint64_t descStickyMiss = 0;         // A5l: full UpdateDescriptorSets
+    uint64_t bindPipeSkip = 0;
+    uint64_t bindVpSkip = 0;
+    uint64_t bindScissorSkip = 0;
+    uint64_t midFrameFlushes = 0;
 };
 VkGxStats VkGx_Stats();
 void VkGx_ResetStats();
+
+// A5l: SCR_A5L_VULKAN_DRAW_OPT=1 — sticky in-CB descriptor reuse + bind skip. Default off.
+bool VkGx_DrawOptEnabled();
 
 // Rate-limited diagnostic for ops not yet on Vulkan.
 void VkGx_NoteUnsupported(const char* op);

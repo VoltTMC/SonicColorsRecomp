@@ -301,6 +301,24 @@ struct DescCacheKeyHash
 };
 std::unordered_map<DescCacheKey, VkDescriptorSet, DescCacheKeyHash> s_descCache;
 bool s_useDynUbo = true; // A4n default; SCR_A4N_DESC_CACHE=0 disables reuse (still dynamic UBO)
+// A5l: sticky last-draw descriptor within the current recording CB only (not A4n map cache).
+struct StickyDesc
+{
+    bool valid = false;
+    DescCacheKey key{};
+    VkDescriptorSet set = VK_NULL_HANDLE;
+    uint32_t dynOffs[2]{};
+    VSConstants vs{};
+    PSConstants ps{};
+};
+StickyDesc s_stickyDesc{};
+int s_drawOpt = -1; // SCR_A5L_VULKAN_DRAW_OPT
+// A5l: skip redundant bind cmds within the same CB.
+VkPipeline s_boundPipe = VK_NULL_HANDLE;
+bool s_haveBoundVp = false;
+VkViewport s_boundVp{};
+bool s_haveBoundSc = false;
+VkRect2D s_boundSc{};
 // A4m GPU timestamp queries (opt-in SCR_A4M_GPU_TS=1).
 constexpr uint32_t kTsQueries = 256; // pairs of begin/end
 VkQueryPool s_tsPool = VK_NULL_HANDLE;
@@ -581,6 +599,26 @@ static void DestroyEfbCopyEntry(EfbCopyCacheEntry& e)
     e = {};
 }
 
+static void InvalidateStickyDesc()
+{
+    s_stickyDesc = {};
+    s_boundPipe = VK_NULL_HANDLE;
+    s_haveBoundVp = false;
+    s_haveBoundSc = false;
+}
+
+static bool DrawOptEnabled()
+{
+    if (s_drawOpt < 0)
+    {
+        const char* e = std::getenv("SCR_A5L_VULKAN_DRAW_OPT");
+        s_drawOpt = (e && e[0] == '1') ? 1 : 0;
+        if (s_drawOpt)
+            LOG_INFO("A5l: VULKAN_DRAW_OPT=1 — sticky in-CB desc reuse + bind skip");
+    }
+    return s_drawOpt != 0;
+}
+
 static void RetireEfbCopyEntries()
 {
     for (auto& e : s_efbCopyRetire)
@@ -588,6 +626,7 @@ static void RetireEfbCopyEntries()
     s_efbCopyRetire.clear();
     // Any destroyed EFB view invalidates cached descriptor writes that referenced it.
     s_descCache.clear();
+    InvalidateStickyDesc();
 }
 
 static uint32_t FindMemoryType(uint32_t typeBits, VkMemoryPropertyFlags props)
@@ -1277,12 +1316,35 @@ static bool AllocDrawDescriptors(const GfxDrawBatch& batch, VkImageView views[8]
         // Default OFF: TR1 load/outdoor hangs reproduced with cache on (watchdog, no
         // Validation Error) even after clearing on EFB retire. Dynamic UBO remains on
         // so SCR_A4N_DESC_CACHE=1 can be re-tested without a layout change.
+        // A5l sticky reuse is independent (last-draw only; not this map).
         const char* e = std::getenv("SCR_A4N_DESC_CACHE");
         s_descCacheEnv = (e && e[0] == '1') ? 1 : 0;
         s_useDynUbo = true;
     }
     constexpr VkDeviceSize kUboAlign = 256;
     auto alignUbo = [](VkDeviceSize v) { return (v + kUboAlign - 1) / kUboAlign * kUboAlign; };
+
+    DescCacheKey key{};
+    key.xfOff = s_xfBindOffset;
+    for (int i = 0; i < 8; i++)
+    {
+        key.views[i] = views[i];
+        key.samps[i] = samps[i];
+    }
+
+    const bool a5l = DrawOptEnabled();
+    // A5l full sticky: same XF slot + textures/samplers + identical VS/PS → reuse set+offsets.
+    if (a5l && s_stickyDesc.valid && s_stickyDesc.key == key &&
+        std::memcmp(&s_stickyDesc.vs, &batch.vs, sizeof(VSConstants)) == 0 &&
+        std::memcmp(&s_stickyDesc.ps, &batch.ps, sizeof(PSConstants)) == 0)
+    {
+        outSet = s_stickyDesc.set;
+        s_lastDynOffs[0] = s_stickyDesc.dynOffs[0];
+        s_lastDynOffs[1] = s_stickyDesc.dynOffs[1];
+        s_stats.descStickyFull++;
+        return true;
+    }
+
     const uint64_t tAlloc0 = MonoNs();
     const VkDeviceSize vsOff = alignUbo(s_dynUboPos);
     const VkDeviceSize psOff = alignUbo(vsOff + sizeof(VSConstants));
@@ -1300,13 +1362,18 @@ static bool AllocDrawDescriptors(const GfxDrawBatch& batch, VkImageView views[8]
     s_lastDynOffs[1] = (uint32_t)psOff;
     s_stats.descAllocNs += MonoNs() - tAlloc0;
 
-    DescCacheKey key{};
-    key.xfOff = s_xfBindOffset;
-    for (int i = 0; i < 8; i++)
+    // A5l partial sticky: same XF+textures → reuse set; new dynamic UBO offsets only.
+    if (a5l && s_stickyDesc.valid && s_stickyDesc.key == key)
     {
-        key.views[i] = views[i];
-        key.samps[i] = samps[i];
+        outSet = s_stickyDesc.set;
+        s_stickyDesc.dynOffs[0] = s_lastDynOffs[0];
+        s_stickyDesc.dynOffs[1] = s_lastDynOffs[1];
+        s_stickyDesc.vs = batch.vs;
+        s_stickyDesc.ps = batch.ps;
+        s_stats.descStickyPartial++;
+        return true;
     }
+
     if (s_descCacheEnv)
     {
         auto it = s_descCache.find(key);
@@ -1314,6 +1381,16 @@ static bool AllocDrawDescriptors(const GfxDrawBatch& batch, VkImageView views[8]
         {
             s_stats.descCacheHits++;
             outSet = it->second;
+            if (a5l)
+            {
+                s_stickyDesc.valid = true;
+                s_stickyDesc.key = key;
+                s_stickyDesc.set = it->second;
+                s_stickyDesc.dynOffs[0] = s_lastDynOffs[0];
+                s_stickyDesc.dynOffs[1] = s_lastDynOffs[1];
+                s_stickyDesc.vs = batch.vs;
+                s_stickyDesc.ps = batch.ps;
+            }
             return true;
         }
     }
@@ -1374,7 +1451,18 @@ static bool AllocDrawDescriptors(const GfxDrawBatch& batch, VkImageView views[8]
     s_stats.descUpdateNs += MonoNs() - tUp0;
     s_stats.descUpdates++;
     s_stats.descCacheMisses++;
+    s_stats.descStickyMiss++;
     if (s_descCacheEnv) s_descCache.emplace(key, set);
+    if (a5l)
+    {
+        s_stickyDesc.valid = true;
+        s_stickyDesc.key = key;
+        s_stickyDesc.set = set;
+        s_stickyDesc.dynOffs[0] = s_lastDynOffs[0];
+        s_stickyDesc.dynOffs[1] = s_lastDynOffs[1];
+        s_stickyDesc.vs = batch.vs;
+        s_stickyDesc.ps = batch.ps;
+    }
     outSet = set;
     return true;
 }
@@ -1383,6 +1471,7 @@ static void ResetFrameDescriptors()
 {
     // Only safe when no CB referencing these sets is in flight (caller waited).
     s_descCache.clear();
+    InvalidateStickyDesc();
     pfn_vkResetDescriptorPool(Vk_GetDevice(), s_descPool, 0);
     std::vector<VkDescriptorSetLayout> layouts(s_frameDescSets.size(), s_dsl);
     VkDescriptorSetAllocateInfo dai{ VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
@@ -2100,9 +2189,12 @@ void VkGx_Shutdown()
 
 bool VkGx_IsActive() { return s_active; }
 
+bool VkGx_DrawOptEnabled() { return DrawOptEnabled(); }
+
 bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
 {
     std::lock_guard lk(s_mu);
+    const uint64_t tDraw0 = MonoNs();
     if (!s_active || !batch.indices || batch.indexCount == 0) return true;
     if (!batch.hasShaderKeys)
     {
@@ -2123,6 +2215,7 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
         return false;
     }
 
+    const uint64_t tSh0 = MonoNs();
     const uint64_t vsHash = HashKeyBytes(&batch.vsKey, sizeof(batch.vsKey));
     const uint64_t psHash = HashKeyBytes(&batch.psKey, sizeof(batch.psKey));
     VkShaderModule vsMod = VK_NULL_HANDLE, fsMod = VK_NULL_HANDLE;
@@ -2130,6 +2223,7 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
         return true; // skip draw on compile failure
     (void)vsMod;
     (void)fsMod;
+    s_stats.drawShaderNs += MonoNs() - tSh0;
 
     auto align = [](VkDeviceSize v, VkDeviceSize a) { return (v + a - 1) / a * a; };
     static int s_xfDedup = -1;
@@ -2195,6 +2289,7 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
         // A4d: do not mid-frame submit while sharing host-visible UBO/SSBO/descriptors.
         // Drain, then reuse the same frame arena from offset 0.
         if (!fr.recording) return;
+        s_stats.midFrameFlushes++;
         EndEfbPass(fr);
         pfn_vkEndCommandBuffer(fr.cmd);
         fr.recording = false;
@@ -2203,8 +2298,10 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
         si.pCommandBuffers = &fr.cmd;
         LoadDev<PFN_vkQueueSubmit>("vkQueueSubmit")(Vk_GetGraphicsQueue(), 1, &si, fr.fence);
         // Fence wait retires this CB; full device idle is unnecessary here.
+        const uint64_t tw0 = MonoNs();
         pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
-        ResetFrameDescriptors();
+        s_stats.drawFlushWaitNs += MonoNs() - tw0;
+        ResetFrameDescriptors(); // also InvalidateStickyDesc
         s_dynUboPos = 0;
         s_xfRingPos = 0;
         s_xfUploaded = false;
@@ -2228,6 +2325,7 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
         vbOff = 0;
     }
 
+    const uint64_t tTex0 = MonoNs();
     VkImageView texViews[8]{};
     VkSampler texSamps[8]{};
     for (int i = 0; i < 8; i++)
@@ -2243,6 +2341,7 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
             texSamps[i] = s_sampNearest;
         }
     }
+    s_stats.drawTexNs += MonoNs() - tTex0;
     // UploadTex may have ended the EFB pass / switched recording state on same frame.
     f = &s_frames[s_frameIdx];
     if (!EnsureFrameRecording(*f, error)) return false;
@@ -2255,6 +2354,7 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
         vbOff = 0;
     }
 
+    const uint64_t tXf0 = MonoNs();
     if (batch.xfDirty || !s_xfUploaded)
     {
         std::string xfErr;
@@ -2267,6 +2367,8 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
             if (!uploadXfSlot(batch, error)) return false;
         }
     }
+    s_stats.drawXfNs += MonoNs() - tXf0;
+    const uint64_t tDesc0 = MonoNs();
     VkDescriptorSet drawSet = VK_NULL_HANDLE;
     if (!AllocDrawDescriptors(batch, texViews, texSamps, drawSet, error))
     {
@@ -2285,16 +2387,20 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
         if (!AllocDrawDescriptors(batch, texViews, texSamps, drawSet, error))
             return false;
     }
+    s_stats.drawDescNs += MonoNs() - tDesc0;
 
+    const uint64_t tCopy0 = MonoNs();
     memcpy((uint8_t*)f->vb.mapped + vbOff, batch.verts, (size_t)vbytes);
     memcpy((uint8_t*)f->ib.mapped + f->ibPos, batch.indices, (size_t)ibytes);
     const VkDeviceSize ibOff = f->ibPos;
     f->vbPos = vbOff + vbytes;
     f->ibPos = ibOff + ibytes;
     s_stats.uploadBytes += vbytes + ibytes;
+    s_stats.drawCopyNs += MonoNs() - tCopy0;
 
     if (!BeginEfbPass(*f, false, nullptr, 1.0f)) return false;
 
+    const uint64_t tPipe0 = MonoNs();
     PipeKey pk{};
     pk.topo = (uint8_t)batch.topo;
     pk.cull = (uint8_t)batch.cull;
@@ -2308,8 +2414,17 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
     pk.psHash = psHash;
     VkPipeline pipe = GetOrCreatePipe(pk, error);
     if (!pipe) return false;
+    s_stats.drawPipeNs += MonoNs() - tPipe0;
 
-    pfn_vkCmdBindPipeline(f->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+    const uint64_t tRec0 = MonoNs();
+    const bool a5l = DrawOptEnabled();
+    if (!a5l || pipe != s_boundPipe)
+    {
+        pfn_vkCmdBindPipeline(f->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+        s_boundPipe = pipe;
+    }
+    else
+        s_stats.bindPipeSkip++;
     VkDeviceSize off = vbOff;
     pfn_vkCmdBindVertexBuffers(f->cmd, 0, 1, &f->vb.buf, &off);
     pfn_vkCmdBindIndexBuffer(f->cmd, f->ib.buf, ibOff, VK_INDEX_TYPE_UINT32);
@@ -2323,16 +2438,33 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
     vp.height = std::max(1.0f, batch.viewport.h);
     vp.minDepth = batch.viewport.minDepth;
     vp.maxDepth = batch.viewport.maxDepth;
-    pfn_vkCmdSetViewport(f->cmd, 0, 1, &vp);
+    if (!a5l || !s_haveBoundVp || std::memcmp(&vp, &s_boundVp, sizeof(vp)) != 0)
+    {
+        pfn_vkCmdSetViewport(f->cmd, 0, 1, &vp);
+        s_boundVp = vp;
+        s_haveBoundVp = true;
+    }
+    else
+        s_stats.bindVpSkip++;
     VkRect2D sc{};
     sc.offset = { batch.scissor.x, batch.scissor.y };
     sc.extent = { (uint32_t)std::max(1, batch.scissor.w), (uint32_t)std::max(1, batch.scissor.h) };
-    pfn_vkCmdSetScissor(f->cmd, 0, 1, &sc);
+    if (!a5l || !s_haveBoundSc || std::memcmp(&sc, &s_boundSc, sizeof(sc)) != 0)
+    {
+        pfn_vkCmdSetScissor(f->cmd, 0, 1, &sc);
+        s_boundSc = sc;
+        s_haveBoundSc = true;
+    }
+    else
+        s_stats.bindScissorSkip++;
 
     pfn_vkCmdDrawIndexed(f->cmd, batch.indexCount, 1, 0, 0, 0);
+    s_stats.drawRecordNsEx += MonoNs() - tRec0;
     s_stats.draws++;
     s_stats.vertices += batch.vertCount;
     s_stats.indices += batch.indexCount;
+    s_stats.drawEntryNs += MonoNs() - tDraw0;
+    s_stats.drawRecordNs += MonoNs() - tDraw0; // legacy alias
     return true;
 }
 
@@ -2624,6 +2756,17 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
                  s_stats.xfDedupHits, s_stats.xfBytesUploaded, s_stats.xfMemcpyNs / 1e6, s_stats.descUpdates,
                  s_stats.descCacheHits, s_stats.gpuEfbCopyNs / 1e6, s_stats.gpuEfbCopySamples,
                  s_stats.gpuPresentNs / 1e6);
+        LOG_INFO("A5l-present: draws={} drawMs={:.1f} shMs={:.1f} xfMs={:.1f} texMs={:.1f} descMs={:.1f} "
+                 "copyMs={:.1f} pipeMs={:.1f} recMs={:.1f} flushWaitMs={:.1f} midFlush={} "
+                 "stickyFull={} stickyPart={} stickyMiss={} descUp={} "
+                 "pipeSkip={} vpSkip={} scSkip={} pipeHit={} pipeMiss={} drawOpt={}",
+                 s_stats.draws, s_stats.drawEntryNs / 1e6, s_stats.drawShaderNs / 1e6,
+                 s_stats.drawXfNs / 1e6, s_stats.drawTexNs / 1e6, s_stats.drawDescNs / 1e6,
+                 s_stats.drawCopyNs / 1e6, s_stats.drawPipeNs / 1e6, s_stats.drawRecordNsEx / 1e6,
+                 s_stats.drawFlushWaitNs / 1e6, s_stats.midFrameFlushes, s_stats.descStickyFull,
+                 s_stats.descStickyPartial, s_stats.descStickyMiss, s_stats.descUpdates,
+                 s_stats.bindPipeSkip, s_stats.bindVpSkip, s_stats.bindScissorSkip,
+                 s_stats.pipelineHits, s_stats.pipelineMisses, DrawOptEnabled() ? 1 : 0);
     }
     // A5b: emit decode/direct counters without requiring A4n present profiling.
     if (GfxNative_ProfEnabled() && (s_stats.presentCount % 64ull) == 1ull)

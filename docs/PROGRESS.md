@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-26 — A5l: Vulkan draw prep/submit profile + sticky desc reuse
+
+**Goal:** Profile exclusive `VkGx_Draw` stages after A5k; cut the largest safe CPU cost without re-enabling hung A4n desc-map / async present experiments.
+
+**Shipped:** exclusive draw stage counters (`drawShader/Xf/Tex/Desc/Copy/Pipe/Record` + mid-flush waits); `SCR_A5L_VULKAN_DRAW_OPT` (default off) — sticky in-CB descriptor full/partial reuse + pipeline/viewport/scissor bind skip; invalidate on frame reset / EFB retire; `scr_a5l_vulkan_draw_optimisation_test`; `tools/a5l_tr1_bench.sh`; docs `A5L_*`. A4n `0x680` + A5g–A5k unchanged; `SCR_A4N_DESC_CACHE` remains off.
+
+**Evidence (RTX 3080, ≈280k draws, A5k on):** A5l=0 `drawMs≈8079` `descUp=280667` `descMs≈215`; A5l=1 `drawMs≈5800` (−28%) `descUp≈32k` (−89%) sticky hit ≈89%; title unique_xfb ≈57; guest VI≈60; 90s drawopt no hang. Unit A5c–A5l OK; Linux/MinGW OK; D3D11 smoke OK. Validation not claimed. AMD/RADV **deferred**. Win Vulkan **UNVERIFIED**. `SCR_A5L_VULKAN_DRAW_OPT` opt-in default off.
+
 ## 2026-11-26 — A5k: indexed XF flush barrier audit + Vulkan tex-decode skip
 
 **Goal:** Explain/optimise non-empty `Render_Flush` inside `GX_ApplyIndexedXf` (~98% of inclusive xfIdx) without skipping required geometry drains.
