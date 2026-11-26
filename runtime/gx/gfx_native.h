@@ -45,6 +45,11 @@ bool GfxNative_IndexedXfApplyOptEnabled();
 // with batched opcode notes (atomics). Does not change A5g/A5h/A5i semantics. Default off.
 bool GfxNative_IndexedXfDispatchOptEnabled();
 
+// A5k: SCR_A5K_INDEXED_XF_FLUSH_OPT=1 — optimise non-empty Render_Flush used by indexed XF
+// (Vulkan: skip redundant GXTex_Decode when the tex-cache key already hits). Does not skip
+// required geometry drains. Default off; A5j Flush path remains the fallback.
+bool GfxNative_IndexedXfFlushOptEnabled();
+
 // Profiling: SCR_A5A_PROF=1 (or SCR_A5A_DIRECT / SCR_A5C_DIRECT_BP / A5d) accumulates host counters.
 // SCR_A5B_PROF=1 enables fine-grained RunCommands category self-times.
 // SCR_A5C_BP_PROFILE=1 enables per-BP-register write/nop/special counters.
@@ -115,6 +120,24 @@ struct GfxNativeStats
     uint64_t idxXfDispatchRuns = 0;   // A5j: consecutive idx decode runs
     uint64_t idxXfDispatchCmds = 0;   // A5j: cmds consumed by specialised dispatch
     uint64_t idxXfNoteNs = 0;         // A5j: time spent in idx Note* helpers (overhead)
+    // A5k: Render_Flush exclusive breakdown (CPU; no GPU wait attribution).
+    uint64_t flushIdxOrigin = 0;      // Flush entered from ApplyIndexedXf
+    uint64_t flushOtherOrigin = 0;    // Flush from other GX / draw / frame paths
+    uint64_t flushEmpty = 0;          // early-out (no pending indices / not ready)
+    uint64_t flushNonEmpty = 0;       // drained geometry
+    uint64_t flushBatches = 0;        // non-empty flush count (= drained host batches)
+    uint64_t flushVerts = 0;          // pending verts at non-empty flush
+    uint64_t flushIndices = 0;        // pending indices at non-empty flush
+    uint64_t flushMaxVerts = 0;       // max pending verts observed
+    uint64_t flushMaxIndices = 0;     // max pending indices observed
+    uint64_t flushTexDecodeNs = 0;    // CPU GXTex_Decode inside FlushVulkan
+    uint64_t flushTexDecodeSkip = 0;  // A5k: RAM tex maps that skipped decode (cache hit)
+    uint64_t flushTexDecodeMaps = 0;  // RAM tex maps that decoded
+    uint64_t flushPrepNs = 0;         // D3D FillVS/PS + GetTexture / VK batch prep excl decode
+    uint64_t flushSubmitNs = 0;       // D3D DrawIndexed / VkGx_Draw wall
+    uint64_t flushBodyNs = 0;         // exclusive non-empty Flush body (both backends)
+    uint64_t flushVk = 0;             // non-empty Vulkan flushes
+    uint64_t flushD3d = 0;            // non-empty D3D11 flushes
     uint64_t directFallback = 0;
     uint64_t directDlRecord = 0;      // fell back because RecordingToRAM
     uint64_t fifoBytesAvoided = 0;
@@ -156,3 +179,7 @@ void GfxNative_NoteIndexedXfApply(uint32_t guestBytes, bool identical, bool call
 void GfxNative_NoteIndexedXfFifoBatch(uint64_t op20, uint64_t op28, uint64_t op30, uint64_t op38,
                                       bool inDisplayList, uint64_t cmdCount);
 void GfxNative_NoteIndexedXfDispatch(uint64_t dispatchExclusiveNs, uint64_t cmds, uint64_t noteNs);
+// A5k: Flush origin + exclusive breakdown (called from renderer; atomics).
+void GfxNative_NoteFlushBegin(bool fromIndexedXf, bool empty, uint32_t vertCount, uint32_t indexCount);
+void GfxNative_NoteFlushDetail(uint64_t bodyNs, uint64_t texDecodeNs, uint64_t prepNs, uint64_t submitNs,
+                               uint64_t texDecodeSkip, uint64_t texDecodeMaps, bool vulkan);

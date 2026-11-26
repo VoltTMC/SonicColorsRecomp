@@ -108,6 +108,8 @@ void Render_SetReplayIsolation(bool on);
 bool Render_ReplayIsolationActive();
 void Render_ForceXfDirty();
 void Render_Flush();  // submit pending host draw batch
+// A5k: mark the next Render_Flush as originating from GX_ApplyIndexedXf (profiling + opt path).
+void Render_SetFlushOriginIndexedXf(bool fromIndexedXf);
 // True if Flush would submit geometry (non-empty index buffer).
 bool Render_HasPendingDraw();
 void Render_ResetHostDrawState();  // flush batches; force XF upload next draw

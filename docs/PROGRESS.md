@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-26 — A5k: indexed XF flush barrier audit + Vulkan tex-decode skip
+
+**Goal:** Explain/optimise non-empty `Render_Flush` inside `GX_ApplyIndexedXf` (~98% of inclusive xfIdx) without skipping required geometry drains.
+
+**Shipped:** audit (`batch.xfmem` live pointer ⇒ mandatory drain before XF mutate); A5k Flush exclusive counters; `SCR_A5K_INDEXED_XF_FLUSH_OPT` (default off) — Vulkan skip `GXTex_Decode` when `VkGx_TexCacheHas` (UploadTex already discarded re-decoded pixels); UploadTex cache-before-rgba; legacy opt=0 path retained; `scr_a5k_indexed_xf_flush_order_test`; `tools/a5k_tr1_bench.sh`; docs `A5K_*`. No XF snapshot / deferred drain. A5g–A5j + A4n unchanged.
+
+**Evidence (RTX 3080, ~80M fifo matched):** opt=0 `flushMs≈1999` `xfIdx≈2039` `texDecMs≈3361` `texSkip=0`; opt=1 `flushMs≈1276` (−36%) `xfIdx≈1348` (−34%) `texDecMs≈3` `texSkip≈219k` — **0 flushes eliminated** (barrier retained). Title unique_xfb ≈58.5; guest VI≈60. Unit A5c–A5k OK; Linux clang + MinGW OK; D3D11 smoke init OK. Validation not claimed. AMD/RADV **deferred**. Win Vulkan **UNVERIFIED**. `SCR_A5K_INDEXED_XF_FLUSH_OPT` opt-in default off.
+
 ## 2026-11-26 — A5j: indexed XF dispatch + note overhead
 
 **Goal:** Explain inclusive `xfIdx` ≫ Apply self-time; cut dispatch/profiling overhead without changing A5g–A5i semantics or A4n uploads.

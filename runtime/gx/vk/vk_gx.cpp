@@ -1166,18 +1166,22 @@ static bool UploadTex(const GfxTexBind& t, VkImageView& outView, std::string& er
         outView = s_whiteTex.view;
         return true;
     }
+    // A5k: cache lookup before rgba requirement so Flush can skip GXTex_Decode on hits
+    // (legacy UploadTex already returned the cached view and discarded re-decoded pixels).
+    {
+        auto it = s_texCache.find(t.key);
+        if (it != s_texCache.end() && it->second.img.view)
+        {
+            outView = it->second.img.view;
+            return true;
+        }
+    }
     if (!t.rgba || t.w == 0 || t.h == 0)
     {
         outView = s_whiteTex.view;
         return true;
     }
     const uint32_t levels = std::max(1u, std::min(t.levels, 16u));
-    auto it = s_texCache.find(t.key);
-    if (it != s_texCache.end() && it->second.img.view)
-    {
-        outView = it->second.img.view;
-        return true;
-    }
     FrameSlot& fr = s_frames[s_frameIdx];
     if (!EnsureFrameRecording(fr, error)) return false;
     EndEfbPass(fr);
@@ -3071,4 +3075,10 @@ void VkGx_InvalidateEfbCopy(uint32_t destAddr)
         pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
     DestroyEfbCopyEntry(it->second);
     s_efbCopyCache.erase(it);
+}
+
+bool VkGx_TexCacheHas(uint64_t key)
+{
+    auto it = s_texCache.find(key);
+    return it != s_texCache.end() && it->second.img.view != VK_NULL_HANDLE;
 }

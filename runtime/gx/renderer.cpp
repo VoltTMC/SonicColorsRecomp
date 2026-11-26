@@ -10,6 +10,7 @@
 #include "vertex_loader.h"
 #include "vk/vk_device.h"
 #include "vk/vk_gx.h"
+#include "gfx_native.h"
 #include "hires.h"
 #include "../platform/window.h"
 #include "../tas/tas.h"
@@ -301,6 +302,8 @@ static uint32_t s_batchComponents = 0;
 static bool s_xfDirty = true;
 static uint32_t s_xfDirtyBegin = 0;  // inclusive float index into xfmem
 static uint32_t s_xfDirtyEnd = 0;    // exclusive; 0/0 ⇒ full 0x680 upload
+// A5k: set by GX_ApplyIndexedXf around Render_Flush for origin counters / opt.
+static bool s_flushFromIndexedXf = false;
 // A3s mid-stage CPU timers (ns); reset via Render_MidProfReset.
 static uint64_t s_midFlushNs = 0, s_midXfUploadNs = 0, s_midDrawDecodeNs = 0, s_midFlushPrepNs = 0;
 static uint64_t s_midFlushCount = 0, s_midDrawCount = 0, s_midDrawIndexed = 0;
@@ -2759,10 +2762,19 @@ static bool FlushVulkan()
     uint32_t cull = (BP(0x00) >> 14) & 3;
     if (cull == 3 && s_topo == Topo::Tri)
     {
+        GfxNative_NoteFlushDetail(0, 0, 0, 0, 0, 0, true);
         s_verts.clear();
         s_indices.clear();
         return true;
     }
+
+    const uint64_t tBody0 = GfxNative_ProfEnabled() ? Platform_PerfCounter() : 0;
+    const uint64_t freq = tBody0 ? Platform_PerfFrequency() : 0;
+    auto nsSince = [&](uint64_t t) -> uint64_t {
+        if (!freq || !t) return 0;
+        return (Platform_PerfCounter() - t) * 1000000000ull / freq;
+    };
+    uint64_t texDecodeNs = 0, texDecodeSkip = 0, texDecodeMaps = 0;
 
     float wd = XFFloat(0x1000 + XF_VIEWPORT + 0);
     float ht = XFFloat(0x1000 + XF_VIEWPORT + 1);
@@ -2942,6 +2954,33 @@ static bool FlushVulkan()
         // Guest may have overwritten an EFB-copy destination with a CPU texture.
         VkGx_InvalidateEfbCopy(addr);
 
+        const uint64_t key = (uint64_t)addr | ((uint64_t)fmt << 32) | ((uint64_t)w << 36) |
+                             ((uint64_t)h << 47) | ((uint64_t)(levels > 1) << 58) | ((uint64_t)m << 59);
+        batch.tex[m].w = w;
+        batch.tex[m].h = h;
+        batch.tex[m].levels = levels;
+        batch.tex[m].mipFilter = (minF == 4 || minF == 5) ? 1 : 0;
+        batch.tex[m].minLod = 0.0f;
+        batch.tex[m].maxLod = levels > 1 ? (float)(levels - 1) : 0.0f;
+        batch.tex[m].key = key;
+        batch.tex[m].use = true;
+        batch.tex[m].wrapU = (uint8_t)(mode0 & 3);
+        batch.tex[m].wrapV = (uint8_t)((mode0 >> 2) & 3);
+        batch.tex[m].magLinear = (uint8_t)((mode0 >> 4) & 1);
+        batch.tex[m].minLinear = (minF == 1 || minF == 3 || minF == 5) ? 1 : 0;
+        texW[m] = w;
+        texH[m] = h;
+
+        // A5k: UploadTex already returns the cached view when the key hits — re-decode
+        // was discarded. Skip GXTex_Decode when the opt is on and the cache has the key.
+        // Legacy path (opt off) always decodes (reference / fallback).
+        if (GfxNative_IndexedXfFlushOptEnabled() && VkGx_TexCacheHas(key))
+        {
+            texDecodeSkip++;
+            continue;
+        }
+
+        const uint64_t tDec = freq ? Platform_PerfCounter() : 0;
         const uint8_t* src = PhysPtr(addr);
         uint32_t lw = w, lh = h, off = 0;
         for (uint32_t lv = 0; lv < levels; lv++)
@@ -2956,28 +2995,17 @@ static bool FlushVulkan()
             lh = std::max(1u, lh / 2);
         }
         batch.tex[m].rgba = s_vkTexMip[m][0].data();
-        batch.tex[m].w = w;
-        batch.tex[m].h = h;
-        batch.tex[m].levels = levels;
-        batch.tex[m].mipFilter = (minF == 4 || minF == 5) ? 1 : 0;
-        batch.tex[m].minLod = 0.0f;
-        batch.tex[m].maxLod = levels > 1 ? (float)(levels - 1) : 0.0f;
-        batch.tex[m].key = (uint64_t)addr | ((uint64_t)fmt << 32) | ((uint64_t)w << 36) |
-                            ((uint64_t)h << 47) | ((uint64_t)(levels > 1) << 58) | ((uint64_t)m << 59);
-        batch.tex[m].use = true;
-        batch.tex[m].wrapU = (uint8_t)(mode0 & 3);
-        batch.tex[m].wrapV = (uint8_t)((mode0 >> 2) & 3);
-        batch.tex[m].magLinear = (uint8_t)((mode0 >> 4) & 1);
-        batch.tex[m].minLinear = (minF == 1 || minF == 3 || minF == 5) ? 1 : 0;
-        texW[m] = w;
-        texH[m] = h;
+        texDecodeNs += nsSince(tDec);
+        texDecodeMaps++;
     }
+    const uint64_t tPrepEnd = freq ? Platform_PerfCounter() : 0;
     FillPSConstants(batch.ps, texW, texH);
 
     // Preserve A3x topology invalidation principle on the Vulkan path too.
     s_boundTopo = Topo::Invalid;
 
     std::string err;
+    const uint64_t tSubmit0 = freq ? Platform_PerfCounter() : 0;
     if (!VkGx_Draw(batch, err))
     {
         // A4d: device-lost latches; avoid flooding the log every draw.
@@ -3027,6 +3055,13 @@ static bool FlushVulkan()
     s_drawCalls++;
     s_midDrawIndexed++;
     if (FrameProfOn()) s_frameDrawIndexed++;
+    const uint64_t submitNs = nsSince(tSubmit0);
+    // prep ≈ body−decode−submit (batch construction + FillPS); clamp underflow.
+    const uint64_t bodyNs = nsSince(tBody0);
+    uint64_t prepNs = 0;
+    if (bodyNs > texDecodeNs + submitNs) prepNs = bodyNs - texDecodeNs - submitNs;
+    (void)tPrepEnd;
+    GfxNative_NoteFlushDetail(bodyNs, texDecodeNs, prepNs, submitNs, texDecodeSkip, texDecodeMaps, true);
     s_verts.clear();
     s_indices.clear();
     return true;
@@ -3036,16 +3071,22 @@ static void Flush()
 {
     if (s_indices.empty() || !s_ready)
     {
+        GfxNative_NoteFlushBegin(s_flushFromIndexedXf, true, (uint32_t)s_verts.size(),
+                                 (uint32_t)s_indices.size());
         s_verts.clear();
         s_indices.clear();
         return;
     }
+    GfxNative_NoteFlushBegin(s_flushFromIndexedXf, false, (uint32_t)s_verts.size(),
+                             (uint32_t)s_indices.size());
     if (FlushVulkan())
         return;
-    const uint64_t tFlush0 = FlushCpuProfOn() ? Platform_PerfCounter() : 0;
+    const bool a5kProf = GfxNative_ProfEnabled();
+    const uint64_t tFlush0 = (FlushCpuProfOn() || a5kProf) ? Platform_PerfCounter() : 0;
     uint32_t cull = (BP(0x00) >> 14) & 3;
     if (cull == 3 && s_topo == Topo::Tri)
     {
+        if (a5kProf) GfxNative_NoteFlushDetail(0, 0, 0, 0, 0, 0, false);
         s_verts.clear();
         s_indices.clear();
         return;
@@ -3059,10 +3100,12 @@ static void Flush()
     ID3D11PixelShader* ps = GetPS(pk);
     if (!vs || !ps)
     {
+        if (a5kProf) GfxNative_NoteFlushDetail(0, 0, 0, 0, 0, 0, false);
         s_verts.clear();
         s_indices.clear();
         return;
     }
+    uint64_t d3dSubmitNs = 0;
 
     // A3x diagnostic: SCR_A3T_BIND_CACHE=0 forces full rebind/refill every Flush
     // (isolates stale A3s/A3t host-state cache from other regressions).
@@ -3467,18 +3510,26 @@ static void Flush()
             g_gx.xfregs[XF_PROJECTION + 6], vk.chan[0], vk.chan[2], t));
     }
     {
-        const uint64_t tDix = SubmitProfOn() ? Platform_PerfCounter() : 0;
+        const uint64_t tDix = (SubmitProfOn() || a5kProf) ? Platform_PerfCounter() : 0;
         g_ctx->DrawIndexed((UINT)s_indices.size(), 0, 0);
-        if (SubmitProfOn())
+        if (tDix)
         {
-            s_submit.drawIndexedN++;
-            if (tDix)
+            const uint64_t freq = Platform_PerfFrequency();
+            if (freq)
             {
-                const uint64_t freq = Platform_PerfFrequency();
-                if (freq)
-                    s_submit.drawIndexedNs += (Platform_PerfCounter() - tDix) * 1000000000ull / freq;
+                const uint64_t dt = (Platform_PerfCounter() - tDix) * 1000000000ull / freq;
+                d3dSubmitNs = dt;
+                if (SubmitProfOn())
+                {
+                    s_submit.drawIndexedN++;
+                    s_submit.drawIndexedNs += dt;
+                }
             }
+            else if (SubmitProfOn())
+                s_submit.drawIndexedN++;
         }
+        else if (SubmitProfOn())
+            s_submit.drawIndexedN++;
     }
     s_drawCalls++;
     s_midDrawIndexed++;
@@ -3496,26 +3547,39 @@ static void Flush()
 
     s_verts.clear();
     s_indices.clear();
-    if (FlushCpuProfOn() && tFlush0)
+    if (tFlush0)
     {
         const uint64_t freq = Platform_PerfFrequency();
         if (freq)
         {
             const uint64_t dt = (Platform_PerfCounter() - tFlush0) * 1000000000ull / freq;
-            if (MidProfOn())
+            if (a5kProf)
             {
-                s_midFlushNs += dt;
-                s_midFlushCount++;
+                const uint64_t prepNs = dt > d3dSubmitNs ? dt - d3dSubmitNs : 0;
+                // D3D GetTexture already fingerprints; texDecodeNs stays 0 (inside prep).
+                GfxNative_NoteFlushDetail(dt, 0, prepNs, d3dSubmitNs, 0, 0, false);
             }
-            if (FrameProfOn())
+            if (FlushCpuProfOn())
             {
-                s_frameFlushNs += dt;
-                s_frameFlushCount++;
+                if (MidProfOn())
+                {
+                    s_midFlushNs += dt;
+                    s_midFlushCount++;
+                }
+                if (FrameProfOn())
+                {
+                    s_frameFlushNs += dt;
+                    s_frameFlushCount++;
+                }
+                if (!MidProfOn() && !FrameProfOn())
+                {
+                    /* timed only for A5k */
+                }
             }
         }
-        else if (MidProfOn())
+        else if (FlushCpuProfOn() && MidProfOn())
             s_midFlushCount++;
-        else if (FrameProfOn())
+        else if (FlushCpuProfOn() && FrameProfOn())
             s_frameFlushCount++;
     }
 }
@@ -3610,6 +3674,8 @@ void Render_Draw(int prim, int vat, uint32_t count, const uint8_t* data, const V
 }
 
 void Render_Flush() { Flush(); }
+
+void Render_SetFlushOriginIndexedXf(bool fromIndexedXf) { s_flushFromIndexedXf = fromIndexedXf; }
 
 bool Render_HasPendingDraw() { return !s_indices.empty(); }
 

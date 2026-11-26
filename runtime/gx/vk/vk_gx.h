@@ -48,6 +48,9 @@ bool VkGx_LookupEfbCopy(uint32_t destAddr, VkImageView& outView, uint32_t& outW,
                         uint32_t gxFrame = ~0u);
 void VkGx_InvalidateEfbCopy(uint32_t destAddr);
 
+// A5k: true if RAM texture key already has a live VkImageView (UploadTex cache hit without decode).
+bool VkGx_TexCacheHas(uint64_t key);
+
 struct VkGxStats
 {
     uint64_t draws = 0;

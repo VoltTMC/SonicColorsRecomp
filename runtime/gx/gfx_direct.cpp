@@ -52,6 +52,7 @@ int s_directIdxXfExt = -1;
 int s_idxXfPlayback = -1;
 int s_idxXfApply = -1;
 int s_idxXfDispatch = -1;
+int s_idxXfFlushOpt = -1;
 int s_prof = -1;
 int s_decodeProf = -1;
 
@@ -135,6 +136,13 @@ void EnsureFlags()
         if (s_idxXfDispatch)
             LOG_INFO("A5j: INDEXED_XF_DISPATCH=1 — consecutive idx decode + batched/atomic notes");
     }
+    if (s_idxXfFlushOpt < 0)
+    {
+        const char* e = std::getenv("SCR_A5K_INDEXED_XF_FLUSH_OPT");
+        s_idxXfFlushOpt = (e && e[0] == '1') ? 1 : 0;
+        if (s_idxXfFlushOpt)
+            LOG_INFO("A5k: INDEXED_XF_FLUSH_OPT=1 — Flush tex-decode skip on Vulkan cache hit");
+    }
     if (s_prof < 0)
     {
         const char* e = std::getenv("SCR_A5A_PROF");
@@ -143,7 +151,7 @@ void EnsureFlags()
         s_prof = (e && e[0] && e[0] != '0') || (e2 && e2[0] && e2[0] != '0') ||
                          (e3 && e3[0] == '1') || s_direct || s_directBp || s_directHot || s_directKsel ||
                          s_directTexObj || s_directIdxXf || s_directIdxXfExt || s_idxXfPlayback ||
-                         s_idxXfApply || s_idxXfDispatch
+                         s_idxXfApply || s_idxXfDispatch || s_idxXfFlushOpt
                      ? 1
                      : 0;
         s_decodeProf = (e2 && e2[0] == '1') || s_prof ? 1 : 0;
@@ -434,6 +442,12 @@ bool GfxNative_IndexedXfDispatchOptEnabled()
     return s_idxXfDispatch != 0;
 }
 
+bool GfxNative_IndexedXfFlushOptEnabled()
+{
+    EnsureFlags();
+    return s_idxXfFlushOpt != 0;
+}
+
 bool GfxNative_ProfEnabled()
 {
     EnsureFlags();
@@ -486,6 +500,13 @@ void GfxNative_LogStats(const char* tag)
              "xfIdxInclusiveMs={:.1f}",
              tag ? tag : "stats", s.idxXfDispatchRuns, s.idxXfDispatchCmds, s.idxXfDispatchNs / 1e6,
              s.idxXfNoteNs / 1e6, s.catNs[(size_t)GfxDecodeCat::XfIdx] / 1e6);
+    LOG_INFO("A5k-{}: flushIdx={} flushOther={} empty={} nonEmpty={} batches={} verts={} idx={} "
+             "maxV={} maxI={} texDecMs={:.1f} texSkip={} texMaps={} prepMs={:.1f} submitMs={:.1f} "
+             "bodyMs={:.1f} vk={} d3d={}",
+             tag ? tag : "stats", s.flushIdxOrigin, s.flushOtherOrigin, s.flushEmpty, s.flushNonEmpty,
+             s.flushBatches, s.flushVerts, s.flushIndices, s.flushMaxVerts, s.flushMaxIndices,
+             s.flushTexDecodeNs / 1e6, s.flushTexDecodeSkip, s.flushTexDecodeMaps, s.flushPrepNs / 1e6,
+             s.flushSubmitNs / 1e6, s.flushBodyNs / 1e6, s.flushVk, s.flushD3d);
     GxShadow_LogProfile(tag);
     GxDefer_LogStats(tag);
 }
@@ -642,6 +663,49 @@ void GfxNative_NoteIndexedXfDispatch(uint64_t dispatchExclusiveNs, uint64_t cmds
     AtomicAddU64(s_stats.idxXfDispatchRuns, 1);
     AtomicAddU64(s_stats.idxXfDispatchCmds, cmds);
     AtomicAddU64(s_stats.idxXfNoteNs, noteNs);
+}
+
+void GfxNative_NoteFlushBegin(bool fromIndexedXf, bool empty, uint32_t vertCount, uint32_t indexCount)
+{
+    if (!GfxNative_ProfEnabled()) return;
+    if (fromIndexedXf) AtomicAddU64(s_stats.flushIdxOrigin, 1);
+    else AtomicAddU64(s_stats.flushOtherOrigin, 1);
+    if (empty)
+    {
+        AtomicAddU64(s_stats.flushEmpty, 1);
+        return;
+    }
+    AtomicAddU64(s_stats.flushNonEmpty, 1);
+    AtomicAddU64(s_stats.flushBatches, 1);
+    AtomicAddU64(s_stats.flushVerts, vertCount);
+    AtomicAddU64(s_stats.flushIndices, indexCount);
+    // Relaxed max: may tear under concurrent LogStats; exclusive timing remains valid.
+    uint64_t curV = s_stats.flushMaxVerts;
+    while (vertCount > curV &&
+           !__atomic_compare_exchange_n(&s_stats.flushMaxVerts, &curV, (uint64_t)vertCount, false,
+                                        __ATOMIC_RELAXED, __ATOMIC_RELAXED))
+    {
+    }
+    uint64_t curI = s_stats.flushMaxIndices;
+    while (indexCount > curI &&
+           !__atomic_compare_exchange_n(&s_stats.flushMaxIndices, &curI, (uint64_t)indexCount, false,
+                                        __ATOMIC_RELAXED, __ATOMIC_RELAXED))
+    {
+    }
+}
+
+void GfxNative_NoteFlushDetail(uint64_t bodyNs, uint64_t texDecodeNs, uint64_t prepNs, uint64_t submitNs,
+                               uint64_t texDecodeSkip, uint64_t texDecodeMaps, bool vulkan)
+{
+    if (!GfxNative_ProfEnabled()) return;
+    AtomicAddU64(s_stats.flushBodyNs, bodyNs);
+    AtomicAddU64(s_stats.flushTexDecodeNs, texDecodeNs);
+    AtomicAddU64(s_stats.flushPrepNs, prepNs);
+    AtomicAddU64(s_stats.flushSubmitNs, submitNs);
+    AtomicAddU64(s_stats.flushTexDecodeSkip, texDecodeSkip);
+    AtomicAddU64(s_stats.flushTexDecodeMaps, texDecodeMaps);
+    if (vulkan) AtomicAddU64(s_stats.flushVk, 1);
+    else AtomicAddU64(s_stats.flushD3d, 1);
 }
 
 // ---- PPC overrides (XF A5a/A5b) ----

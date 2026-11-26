@@ -261,7 +261,9 @@ void GX_ApplyIndexedXf(int array, uint32_t index, uint32_t size, uint32_t addr)
     else
     {
         const uint64_t tFlush = prof ? Platform_PerfCounter() : 0;
+        Render_SetFlushOriginIndexedXf(true);
         Render_Flush();
+        Render_SetFlushOriginIndexedXf(false);
         flushNs = nsSince(tFlush);
         GfxNative_NoteIndexedXfFlush(false);
     }
