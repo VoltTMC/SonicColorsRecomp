@@ -41,6 +41,10 @@ bool GfxNative_IndexedXfPlaybackOptEnabled();
 // Does not change A5g/A5h switch behaviour. A3u/A3h hooks still run.
 bool GfxNative_IndexedXfApplyOptEnabled();
 
+// A5j: SCR_A5J_INDEXED_XF_DISPATCH=1 — specialised consecutive indexed-XF FIFO/DL decode
+// with batched opcode notes (atomics). Does not change A5g/A5h/A5i semantics. Default off.
+bool GfxNative_IndexedXfDispatchOptEnabled();
+
 // Profiling: SCR_A5A_PROF=1 (or SCR_A5A_DIRECT / SCR_A5C_DIRECT_BP / A5d) accumulates host counters.
 // SCR_A5B_PROF=1 enables fine-grained RunCommands category self-times.
 // SCR_A5C_BP_PROFILE=1 enables per-BP-register write/nop/special counters.
@@ -106,6 +110,11 @@ struct GfxNativeStats
     uint64_t idxXfApplyNs = 0;        // A5i: self-time inside ApplyIndexedXf (excl. Flush)
     uint64_t idxXfGuestNs = 0;        // A5i: guest read + endian convert + xfmem write
     uint64_t idxXfOnXfNs = 0;         // A5i: Render_OnXF wall from Apply
+    uint64_t idxXfFlushNs = 0;        // A5j: Render_Flush wall inside Apply (excl. empty skip)
+    uint64_t idxXfDispatchNs = 0;     // A5j: exclusive idx case wall minus Apply+Flush (FIFO/DL)
+    uint64_t idxXfDispatchRuns = 0;   // A5j: consecutive idx decode runs
+    uint64_t idxXfDispatchCmds = 0;   // A5j: cmds consumed by specialised dispatch
+    uint64_t idxXfNoteNs = 0;         // A5j: time spent in idx Note* helpers (overhead)
     uint64_t directFallback = 0;
     uint64_t directDlRecord = 0;      // fell back because RecordingToRAM
     uint64_t fifoBytesAvoided = 0;
@@ -142,4 +151,8 @@ void GfxNative_NoteIndexedXfFifo(uint8_t op, bool inDisplayList);
 void GfxNative_NoteIndexedXfFlush(bool skipped);
 // A5i: guest-read / apply accounting (bytes = size*4; identical ⇒ dirty skip when APPLY=1).
 void GfxNative_NoteIndexedXfApply(uint32_t guestBytes, bool identical, bool calledOnXf, uint64_t guestNs,
-                                  uint64_t onXfNs, uint64_t applyNs);
+                                  uint64_t onXfNs, uint64_t applyNs, uint64_t flushNs = 0);
+// A5j: batch FIFO/opcode notes for a consecutive idx run (one atomic update set).
+void GfxNative_NoteIndexedXfFifoBatch(uint64_t op20, uint64_t op28, uint64_t op30, uint64_t op38,
+                                      bool inDisplayList, uint64_t cmdCount);
+void GfxNative_NoteIndexedXfDispatch(uint64_t dispatchExclusiveNs, uint64_t cmds, uint64_t noteNs);

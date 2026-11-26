@@ -244,26 +244,31 @@ void GX_ApplyIndexedXf(int array, uint32_t index, uint32_t size, uint32_t addr)
     uint32_t stride = g_gx.cp[CP_ARRAY_STRIDE + array];
     const uint32_t guestEa = base + index * stride;
     const uint8_t* src = PhysPtr(guestEa);
-    // A5h: empty Flush skip when INDEXED_XF_PLAYBACK=1 (same rule as A5f BP defer —
-    // no pending geometry → Flush is a no-op). Default off preserves A5g path.
-    if (GfxNative_IndexedXfPlaybackOptEnabled() && !Render_HasPendingDraw())
-        GfxNative_NoteIndexedXfFlush(true);
-    else
-    {
-        Render_Flush();
-        GfxNative_NoteIndexedXfFlush(false);
-    }
-    if (A2b_FifoCaptureEnabled() && !Render_ReplayIsolationActive())
-        A2b_OnIndexedXf(guestEa, size * 4);
-
     const bool prof = GfxNative_ProfEnabled();
     const bool applyOpt = GfxNative_IndexedXfApplyOptEnabled();
-    const uint64_t tApply0 = prof ? Platform_PerfCounter() : 0;
     const uint64_t freq = prof ? Platform_PerfFrequency() : 0;
     auto nsSince = [&](uint64_t t) -> uint64_t {
         if (!freq || !t) return 0;
         return (Platform_PerfCounter() - t) * 1000000000ull / freq;
     };
+
+    // A5h: empty Flush skip when INDEXED_XF_PLAYBACK=1 (same rule as A5f BP defer —
+    // no pending geometry → Flush is a no-op). Default off preserves A5g path.
+    // A5j: time non-empty Flush separately — it was the bulk of inclusive xfIdx vs applyMs.
+    uint64_t flushNs = 0;
+    if (GfxNative_IndexedXfPlaybackOptEnabled() && !Render_HasPendingDraw())
+        GfxNative_NoteIndexedXfFlush(true);
+    else
+    {
+        const uint64_t tFlush = prof ? Platform_PerfCounter() : 0;
+        Render_Flush();
+        flushNs = nsSince(tFlush);
+        GfxNative_NoteIndexedXfFlush(false);
+    }
+    if (A2b_FifoCaptureEnabled() && !Render_ReplayIsolationActive())
+        A2b_OnIndexedXf(guestEa, size * 4);
+
+    const uint64_t tApply0 = prof ? Platform_PerfCounter() : 0;
 
     // A3n: substitute interpolated ViewPos for the live player palette only.
     float interp[12];
@@ -361,7 +366,7 @@ void GX_ApplyIndexedXf(int array, uint32_t index, uint32_t size, uint32_t addr)
     A3h_OnIndexedXf(guestEa, base, index, stride, addr, size);
 
     GfxNative_NoteIndexedXfApply(size * 4u, !payloadChanged && !useInterp, calledOnXf, guestNs, onXfNs,
-                                 nsSince(tApply0));
+                                 nsSince(tApply0), flushNs);
 }
 
 static void LoadIndexedXF(int array, uint32_t word)
@@ -485,19 +490,40 @@ static size_t RunCommands(const uint8_t* p, size_t n, bool inDisplayList)
         }
         case 0x20: case 0x28: case 0x30: case 0x38:
         {
-            // A5h: specialised consecutive indexed-XF decode — still one Apply per
-            // command (ordering preserved); coalesces dispatch when PLAYBACK=1.
-            const bool bulk = GfxNative_IndexedXfPlaybackOptEnabled();
+            // A5h: consecutive consume when PLAYBACK=1.
+            // A5j: DISPATCH=1 also consecutive + batched FIFO/opcode notes (atomics).
+            const bool bulk =
+                GfxNative_IndexedXfPlaybackOptEnabled() || GfxNative_IndexedXfDispatchOptEnabled();
+            const bool dispatchOpt = GfxNative_IndexedXfDispatchOptEnabled();
             const uint64_t tc = catProf ? Platform_PerfCounter() : 0;
+            const uint64_t tDisp0 = (prof && dispatchOpt) ? Platform_PerfCounter() : 0;
+            uint64_t applyNsBefore = 0, flushNsBefore = 0;
+            if (prof && dispatchOpt)
+            {
+                const GfxNativeStats& st = GfxNative_Stats();
+                applyNsBefore = st.idxXfApplyNs;
+                flushNsBefore = st.idxXfFlushNs;
+            }
             size_t run = 0;
+            uint64_t b20 = 0, b28 = 0, b30 = 0, b38 = 0;
             do
             {
                 if (left - run < 5) break;
                 const uint8_t rop = c[run];
                 if (rop != 0x20 && rop != 0x28 && rop != 0x30 && rop != 0x38) break;
                 LoadIndexedXF(12 + ((rop >> 3) & 3), BE32(c + run + 1));
-                GfxNative_NoteIndexedXfFifo(rop, inDisplayList);
-                GfxNative_NoteOpcode(rop);
+                if (dispatchOpt)
+                {
+                    if (rop == 0x20) b20++;
+                    else if (rop == 0x28) b28++;
+                    else if (rop == 0x30) b30++;
+                    else b38++;
+                }
+                else
+                {
+                    GfxNative_NoteIndexedXfFifo(rop, inDisplayList);
+                    GfxNative_NoteOpcode(rop);
+                }
                 cmds++;
                 run += 5;
             } while (bulk && run < left);
@@ -505,6 +531,19 @@ static size_t RunCommands(const uint8_t* p, size_t n, bool inDisplayList)
             {
                 // Incomplete first command — wait for more bytes.
                 return finish(pos);
+            }
+            if (dispatchOpt)
+            {
+                const uint64_t noteT0 = Platform_PerfCounter();
+                GfxNative_NoteIndexedXfFifoBatch(b20, b28, b30, b38, inDisplayList, run / 5);
+                const uint64_t noteNs = nsSince(noteT0);
+                // Exclusive dispatch ≈ case wall − Apply − Flush − batch notes.
+                const GfxNativeStats& st = GfxNative_Stats();
+                const uint64_t workDelta = (st.idxXfApplyNs - applyNsBefore) + (st.idxXfFlushNs - flushNsBefore);
+                const uint64_t caseNs = nsSince(tDisp0 ? tDisp0 : tc);
+                const uint64_t excl =
+                    caseNs > workDelta + noteNs ? caseNs - workDelta - noteNs : 0;
+                GfxNative_NoteIndexedXfDispatch(excl, run / 5, noteNs);
             }
             if (catProf) GfxNative_NoteDecodeCat(GfxDecodeCat::XfIdx, nsSince(tc));
             pos += run;

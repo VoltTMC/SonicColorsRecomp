@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-26 — A5j: indexed XF dispatch + note overhead
+
+**Goal:** Explain inclusive `xfIdx` ≫ Apply self-time; cut dispatch/profiling overhead without changing A5g–A5i semantics or A4n uploads.
+
+**Shipped:** atomic hot idx Notes; `SCR_A5J_INDEXED_XF_DISPATCH` (default off) — consecutive FIFO/DL idx consume + batched opcode tallies + exclusive dispatch/note counters; `scr_a5j_indexed_xf_dispatch_test`; `tools/a5j_tr1_bench.sh`; docs `A5J_*`. Konst/`0x45–66` untouched.
+
+**Evidence (RTX 3080):** exclusive breakdown shows **`flushMs` ≈ 98% of inclusive `xfIdx`** when pending draws force Flush (`flushMs≈2033` / `xfIdx≈2077` at `fifoIn≈80M`); Apply excl. Flush ≈64ms; noteMs≈2ms. Matched ~120M DISPATCH vs A5i: `xfIdx` 3361→3315 (−1.4%). Title unique_xfb ≈58–59; guest VI≈60. Unit A5c–A5j OK; Linux/MinGW OK; D3D11 smoke OK. Validation not claimed. AMD/RADV **deferred**. Win Vulkan **UNVERIFIED**. D3D11 default; `SCR_A5J_INDEXED_XF_DISPATCH` opt-in default off.
+
 ## 2026-11-26 — A5i: indexed XF guest apply + upload profile
 
 **Goal:** Separate guest indexed-read vs renderer XF-upload cost; optimise only the measured bottleneck without weakening A4n or changing A5g/A5h defaults.

@@ -51,6 +51,7 @@ int s_directIdxXf = -1;
 int s_directIdxXfExt = -1;
 int s_idxXfPlayback = -1;
 int s_idxXfApply = -1;
+int s_idxXfDispatch = -1;
 int s_prof = -1;
 int s_decodeProf = -1;
 
@@ -127,6 +128,13 @@ void EnsureFlags()
         if (s_idxXfApply)
             LOG_INFO("A5i: INDEXED_XF_APPLY=1 — bulk BE convert + identical dirty skip");
     }
+    if (s_idxXfDispatch < 0)
+    {
+        const char* e = std::getenv("SCR_A5J_INDEXED_XF_DISPATCH");
+        s_idxXfDispatch = (e && e[0] == '1') ? 1 : 0;
+        if (s_idxXfDispatch)
+            LOG_INFO("A5j: INDEXED_XF_DISPATCH=1 — consecutive idx decode + batched/atomic notes");
+    }
     if (s_prof < 0)
     {
         const char* e = std::getenv("SCR_A5A_PROF");
@@ -135,7 +143,7 @@ void EnsureFlags()
         s_prof = (e && e[0] && e[0] != '0') || (e2 && e2[0] && e2[0] != '0') ||
                          (e3 && e3[0] == '1') || s_direct || s_directBp || s_directHot || s_directKsel ||
                          s_directTexObj || s_directIdxXf || s_directIdxXfExt || s_idxXfPlayback ||
-                         s_idxXfApply
+                         s_idxXfApply || s_idxXfDispatch
                      ? 1
                      : 0;
         s_decodeProf = (e2 && e2[0] == '1') || s_prof ? 1 : 0;
@@ -420,6 +428,12 @@ bool GfxNative_IndexedXfApplyOptEnabled()
     return s_idxXfApply != 0;
 }
 
+bool GfxNative_IndexedXfDispatchOptEnabled()
+{
+    EnsureFlags();
+    return s_idxXfDispatch != 0;
+}
+
 bool GfxNative_ProfEnabled()
 {
     EnsureFlags();
@@ -465,9 +479,13 @@ void GfxNative_LogStats(const char* tag)
              tag ? tag : "stats", s.fifoIdxOp20, s.fifoIdxOp28, s.fifoIdxOp30, s.fifoIdxOp38, s.fifoIdxTop,
              s.fifoIdxDl, s.idxXfFlushCall, s.idxXfFlushSkip);
     LOG_INFO("A5i-{}: idxApply={} guestBytes={} identical={} changed={} applyMs={:.1f} guestMs={:.1f} "
-             "onXfMs={:.1f}",
+             "onXfMs={:.1f} flushMs={:.1f}",
              tag ? tag : "stats", s.idxXfApply, s.idxXfGuestBytes, s.idxXfIdentical, s.idxXfChanged,
-             s.idxXfApplyNs / 1e6, s.idxXfGuestNs / 1e6, s.idxXfOnXfNs / 1e6);
+             s.idxXfApplyNs / 1e6, s.idxXfGuestNs / 1e6, s.idxXfOnXfNs / 1e6, s.idxXfFlushNs / 1e6);
+    LOG_INFO("A5j-{}: dispatchRuns={} dispatchCmds={} dispatchMs={:.1f} noteMs={:.1f} "
+             "xfIdxInclusiveMs={:.1f}",
+             tag ? tag : "stats", s.idxXfDispatchRuns, s.idxXfDispatchCmds, s.idxXfDispatchNs / 1e6,
+             s.idxXfNoteNs / 1e6, s.catNs[(size_t)GfxDecodeCat::XfIdx] / 1e6);
     GxShadow_LogProfile(tag);
     GxDefer_LogStats(tag);
 }
@@ -501,6 +519,12 @@ void GfxNative_DrainReady(size_t fifoBytesConsumedTotal)
     }
 }
 
+// Hot counter updates: relaxed atomics (GX-thread writers; LogStats may tear slightly).
+static inline void AtomicAddU64(uint64_t& v, uint64_t n)
+{
+    __atomic_fetch_add(&v, n, __ATOMIC_RELAXED);
+}
+
 void GfxNative_NoteGather(uint64_t bytes, uint64_t ns)
 {
     if (!GfxNative_ProfEnabled()) return;
@@ -529,13 +553,13 @@ void GfxNative_NoteDecode(uint64_t bytes, uint64_t cmds, uint64_t ns, bool topLe
 void GfxNative_NoteOpcode(uint8_t op)
 {
     if (!GfxNative_ProfEnabled()) return;
-    std::lock_guard lk(s_statsMu);
-    if (op == 0x08) s_stats.cpLoads++;
-    else if (op == 0x10) s_stats.xfLoads++;
-    else if (op == 0x61) s_stats.bpLoads++;
-    else if (op == 0x40) s_stats.dlCalls++;
-    else if (op & 0x80) s_stats.drawOps++;
-    else if (op == 0x20 || op == 0x28 || op == 0x30 || op == 0x38) s_stats.xfLoads++;
+    // Hot path: atomics (same as idx Notes) — avoids per-op mutex in FIFO decode.
+    if (op == 0x08) AtomicAddU64(s_stats.cpLoads, 1);
+    else if (op == 0x10) AtomicAddU64(s_stats.xfLoads, 1);
+    else if (op == 0x61) AtomicAddU64(s_stats.bpLoads, 1);
+    else if (op == 0x40) AtomicAddU64(s_stats.dlCalls, 1);
+    else if (op & 0x80) AtomicAddU64(s_stats.drawOps, 1);
+    else if (op == 0x20 || op == 0x28 || op == 0x30 || op == 0x38) AtomicAddU64(s_stats.xfLoads, 1);
 }
 
 void GfxNative_NoteDecodeCat(GfxDecodeCat cat, uint64_t ns)
@@ -558,36 +582,66 @@ void GfxNative_NoteBpNop()
 void GfxNative_NoteIndexedXfFifo(uint8_t op, bool inDisplayList)
 {
     if (!GfxNative_ProfEnabled()) return;
-    std::lock_guard lk(s_statsMu);
-    if (op == 0x20) s_stats.fifoIdxOp20++;
-    else if (op == 0x28) s_stats.fifoIdxOp28++;
-    else if (op == 0x30) s_stats.fifoIdxOp30++;
-    else if (op == 0x38) s_stats.fifoIdxOp38++;
-    if (inDisplayList) s_stats.fifoIdxDl++;
-    else s_stats.fifoIdxTop++;
+    const uint64_t t0 = GfxNative_IndexedXfDispatchOptEnabled() ? Platform_PerfCounter() : 0;
+    if (op == 0x20) AtomicAddU64(s_stats.fifoIdxOp20, 1);
+    else if (op == 0x28) AtomicAddU64(s_stats.fifoIdxOp28, 1);
+    else if (op == 0x30) AtomicAddU64(s_stats.fifoIdxOp30, 1);
+    else if (op == 0x38) AtomicAddU64(s_stats.fifoIdxOp38, 1);
+    if (inDisplayList) AtomicAddU64(s_stats.fifoIdxDl, 1);
+    else AtomicAddU64(s_stats.fifoIdxTop, 1);
+    if (t0)
+    {
+        const uint64_t freq = Platform_PerfFrequency();
+        if (freq) AtomicAddU64(s_stats.idxXfNoteNs, (Platform_PerfCounter() - t0) * 1000000000ull / freq);
+    }
 }
 
 void GfxNative_NoteIndexedXfFlush(bool skipped)
 {
     if (!GfxNative_ProfEnabled()) return;
-    std::lock_guard lk(s_statsMu);
-    if (skipped) s_stats.idxXfFlushSkip++;
-    else s_stats.idxXfFlushCall++;
+    if (skipped) AtomicAddU64(s_stats.idxXfFlushSkip, 1);
+    else AtomicAddU64(s_stats.idxXfFlushCall, 1);
 }
 
 void GfxNative_NoteIndexedXfApply(uint32_t guestBytes, bool identical, bool calledOnXf, uint64_t guestNs,
-                                  uint64_t onXfNs, uint64_t applyNs)
+                                  uint64_t onXfNs, uint64_t applyNs, uint64_t flushNs)
 {
     if (!GfxNative_ProfEnabled()) return;
-    std::lock_guard lk(s_statsMu);
-    s_stats.idxXfApply++;
-    s_stats.idxXfGuestBytes += guestBytes;
-    if (identical) s_stats.idxXfIdentical++;
-    else s_stats.idxXfChanged++;
+    AtomicAddU64(s_stats.idxXfApply, 1);
+    AtomicAddU64(s_stats.idxXfGuestBytes, guestBytes);
+    if (identical) AtomicAddU64(s_stats.idxXfIdentical, 1);
+    else AtomicAddU64(s_stats.idxXfChanged, 1);
     (void)calledOnXf;
-    s_stats.idxXfGuestNs += guestNs;
-    s_stats.idxXfOnXfNs += onXfNs;
-    s_stats.idxXfApplyNs += applyNs;
+    AtomicAddU64(s_stats.idxXfGuestNs, guestNs);
+    AtomicAddU64(s_stats.idxXfOnXfNs, onXfNs);
+    AtomicAddU64(s_stats.idxXfApplyNs, applyNs);
+    AtomicAddU64(s_stats.idxXfFlushNs, flushNs);
+}
+
+void GfxNative_NoteIndexedXfFifoBatch(uint64_t op20, uint64_t op28, uint64_t op30, uint64_t op38,
+                                      bool inDisplayList, uint64_t cmdCount)
+{
+    if (!GfxNative_ProfEnabled() || cmdCount == 0) return;
+    const uint64_t t0 = Platform_PerfCounter();
+    AtomicAddU64(s_stats.fifoIdxOp20, op20);
+    AtomicAddU64(s_stats.fifoIdxOp28, op28);
+    AtomicAddU64(s_stats.fifoIdxOp30, op30);
+    AtomicAddU64(s_stats.fifoIdxOp38, op38);
+    if (inDisplayList) AtomicAddU64(s_stats.fifoIdxDl, cmdCount);
+    else AtomicAddU64(s_stats.fifoIdxTop, cmdCount);
+    AtomicAddU64(s_stats.xfLoads, cmdCount);
+    const uint64_t freq = Platform_PerfFrequency();
+    if (freq)
+        AtomicAddU64(s_stats.idxXfNoteNs, (Platform_PerfCounter() - t0) * 1000000000ull / freq);
+}
+
+void GfxNative_NoteIndexedXfDispatch(uint64_t dispatchExclusiveNs, uint64_t cmds, uint64_t noteNs)
+{
+    if (!GfxNative_ProfEnabled()) return;
+    AtomicAddU64(s_stats.idxXfDispatchNs, dispatchExclusiveNs);
+    AtomicAddU64(s_stats.idxXfDispatchRuns, 1);
+    AtomicAddU64(s_stats.idxXfDispatchCmds, cmds);
+    AtomicAddU64(s_stats.idxXfNoteNs, noteNs);
 }
 
 // ---- PPC overrides (XF A5a/A5b) ----
