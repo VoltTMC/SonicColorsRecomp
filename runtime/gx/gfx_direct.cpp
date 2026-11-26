@@ -24,15 +24,15 @@ namespace
 constexpr size_t kTypedCap = 1u << 14;
 constexpr uint32_t kXfWordsMax = 64;
 
-enum class TypedKind : uint8_t { Xf = 0, Bp };
+enum class TypedKind : uint8_t { Xf = 0, Bp, XfIdx };
 
 struct TypedCmd
 {
     TypedKind kind = TypedKind::Xf;
     size_t afterFifoW = 0;
-    uint32_t addr = 0;   // XF addr, or BP word for Bp
-    uint32_t count = 0;  // XF count; unused for Bp
-    uint32_t words[kXfWordsMax]{};
+    uint32_t addr = 0;   // XF dest (Imm/Idx) or BP word
+    uint32_t count = 0;  // Imm word count / Idx size
+    uint32_t words[kXfWordsMax]{}; // Imm payload; Idx: [0]=array [1]=index
 };
 
 std::atomic<uint32_t> s_typedW{ 0 };
@@ -47,6 +47,7 @@ int s_directBp = -1;
 int s_directHot = -1;
 int s_directKsel = -1;
 int s_directTexObj = -1;
+int s_directIdxXf = -1;
 int s_prof = -1;
 int s_decodeProf = -1;
 
@@ -95,6 +96,13 @@ void EnsureFlags()
         if (s_directTexObj)
             LOG_INFO("A5e: DIRECT_TEXOBJ=1 — GXLoadTexObj/PreLoaded/LoadTlut (SNCP8P C5C0/C730/C7C0)");
     }
+    if (s_directIdxXf < 0)
+    {
+        const char* e = std::getenv("SCR_A5G_DIRECT_INDEXED_XF");
+        s_directIdxXf = (e && e[0] == '1') ? 1 : 0;
+        if (s_directIdxXf)
+            LOG_INFO("A5g: DIRECT_INDEXED_XF=1 — Pos/NrmMtxIndx → typed XF idx (SNCP8P EE60/EEF0)");
+    }
     if (s_prof < 0)
     {
         const char* e = std::getenv("SCR_A5A_PROF");
@@ -102,7 +110,7 @@ void EnsureFlags()
         const char* e3 = std::getenv("SCR_A5C_BP_PROFILE");
         s_prof = (e && e[0] && e[0] != '0') || (e2 && e2[0] && e2[0] != '0') ||
                          (e3 && e3[0] == '1') || s_direct || s_directBp || s_directHot || s_directKsel ||
-                         s_directTexObj
+                         s_directTexObj || s_directIdxXf
                      ? 1
                      : 0;
         s_decodeProf = (e2 && e2[0] == '1') || s_prof ? 1 : 0;
@@ -204,6 +212,47 @@ void ApplyBp(const TypedCmd& c)
         std::lock_guard lk(s_statsMu);
         s_stats.typedApplyNs += MonoNs() - t0;
     }
+}
+
+void ApplyXfIdx(const TypedCmd& c)
+{
+    const uint64_t t0 = GfxNative_ProfEnabled() ? MonoNs() : 0;
+    const int array = (int)c.words[0];
+    const uint32_t index = c.words[1];
+    GX_ApplyIndexedXf(array, index, c.count, c.addr);
+    if (GfxNative_ProfEnabled())
+    {
+        std::lock_guard lk(s_statsMu);
+        s_stats.typedApplyNs += MonoNs() - t0;
+    }
+}
+
+bool EnqueueXfIdx(int array, uint32_t index, uint32_t size, uint32_t xfAddr)
+{
+    if (array < 0 || array >= 16 || size == 0 || size > 16) return false;
+    EnsureFlags();
+    uint32_t w = 0;
+    if (!ReserveSlot(w)) return false;
+    const size_t after = GX_FifoBytesWritten();
+    TypedCmd& slot = s_typed[w % kTypedCap];
+    slot.kind = TypedKind::XfIdx;
+    slot.afterFifoW = after;
+    slot.addr = xfAddr & 0xFFF;
+    slot.count = size;
+    slot.words[0] = (uint32_t)array;
+    slot.words[1] = index;
+    s_typedW.store(w + 1, std::memory_order_release);
+    GX_FifoWakeGpu();
+    constexpr uint32_t kAvoided = 5u; // opcode + BE32 word
+    GX_FifoSkipPipeBytes(kAvoided);
+    if (GfxNative_ProfEnabled())
+    {
+        std::lock_guard lk(s_statsMu);
+        s_stats.directIdxXf++;
+        s_stats.directXf++;
+        s_stats.fifoBytesAvoided += kAvoided;
+    }
+    return true;
 }
 
 inline uint32_t GuestU32(uint32_t ea)
@@ -322,6 +371,12 @@ bool GfxNative_DirectTexObjEnabled()
     return s_directTexObj != 0;
 }
 
+bool GfxNative_DirectIndexedXfEnabled()
+{
+    EnsureFlags();
+    return s_directIdxXf != 0;
+}
+
 bool GfxNative_ProfEnabled()
 {
     EnsureFlags();
@@ -349,6 +404,7 @@ void GfxNative_LogStats(const char* tag)
     LOG_INFO("A5e-{}: fifoIn={} topDecoded={} dlDecoded={} cmds={} draws={} dl={} xf={} bp={} bpNop={} cp={} "
              "directXf={} pos={} nrm={} tex={} directBp={} blend={} z={} tev={} peBit={} "
              "flush={} flushSkip={} scale={} inval={} ksel={} texObj={} texObjBp={} tlut={} "
+             "idxXf={} idxPos={} idxNrm={} "
              "fallback={} dlRec={} avoided={} "
              "gatherMs={:.1f} topDecodeMs={:.1f} nestDecodeMs={:.1f} typedMs={:.1f} "
              "catMs cp={:.1f} xfImm={:.1f} xfIdx={:.1f} bp={:.1f} dl={:.1f} draw={:.1f}",
@@ -356,11 +412,12 @@ void GfxNative_LogStats(const char* tag)
              s.dlCalls, s.xfLoads, s.bpLoads, s.bpNop, s.cpLoads, s.directXf, s.directPos, s.directNrm, s.directTex,
              s.directBp, s.directBpBlend, s.directBpZ, s.directBpTev, s.directBpPeBit, s.directBpFlush,
              s.directBpFlushSkip, s.directBpScale, s.directBpInval, s.directBpKsel, s.directTexObj,
-             s.directTexObjBp, s.directTlut, s.directFallback, s.directDlRecord, s.fifoBytesAvoided,
-             s.gatherNs / 1e6, s.decodeNs / 1e6, s.decodeNestedNs / 1e6, s.typedApplyNs / 1e6,
-             s.catNs[(size_t)GfxDecodeCat::Cp] / 1e6, s.catNs[(size_t)GfxDecodeCat::XfImm] / 1e6,
-             s.catNs[(size_t)GfxDecodeCat::XfIdx] / 1e6, s.catNs[(size_t)GfxDecodeCat::Bp] / 1e6,
-             s.catNs[(size_t)GfxDecodeCat::DlCall] / 1e6, s.catNs[(size_t)GfxDecodeCat::Draw] / 1e6);
+             s.directTexObjBp, s.directTlut, s.directIdxXf, s.directIdxPos, s.directIdxNrm, s.directFallback,
+             s.directDlRecord, s.fifoBytesAvoided, s.gatherNs / 1e6, s.decodeNs / 1e6, s.decodeNestedNs / 1e6,
+             s.typedApplyNs / 1e6, s.catNs[(size_t)GfxDecodeCat::Cp] / 1e6,
+             s.catNs[(size_t)GfxDecodeCat::XfImm] / 1e6, s.catNs[(size_t)GfxDecodeCat::XfIdx] / 1e6,
+             s.catNs[(size_t)GfxDecodeCat::Bp] / 1e6, s.catNs[(size_t)GfxDecodeCat::DlCall] / 1e6,
+             s.catNs[(size_t)GfxDecodeCat::Draw] / 1e6);
     GxShadow_LogProfile(tag);
     GxDefer_LogStats(tag);
 }
@@ -388,6 +445,7 @@ void GfxNative_DrainReady(size_t fifoBytesConsumedTotal)
         const TypedCmd& c = s_typed[r % kTypedCap];
         if (c.afterFifoW > fifoBytesConsumedTotal) return;
         if (c.kind == TypedKind::Bp) ApplyBp(c);
+        else if (c.kind == TypedKind::XfIdx) ApplyXfIdx(c);
         else ApplyXf(c);
         s_typedR.store(r + 1, std::memory_order_release);
     }
@@ -508,6 +566,58 @@ PPC_OVERRIDE(GXLoadTexMtxImm)
     const uint32_t addr = (id >= 0x40u) ? ((id - 0x40u) * 4u + 0x500u) : (id * 4u);
     const uint32_t count = (type == 1u) ? 8u : 12u;
     DirectOrOriginalXf(ctx, base, addr, count, GA::GXLoadTexMtxImm, XfKind::Tex);
+}
+
+// ---- A5g indexed XF (SNCP8P PosMtxIndx@8036EE60 / NrmMtxIndx3x3@8036EEF0) ----
+
+static void DirectOrOriginalXfIdx(PPCContext& ctx, uint8_t* base, int array, uint32_t index, uint32_t size,
+                                  uint32_t xfAddr, GA orig, bool isPos)
+{
+    EnsureFlags();
+    if (!s_directIdxXf || GX_FifoRecordingToRAM())
+    {
+        if (s_directIdxXf && GfxNative_ProfEnabled())
+        {
+            std::lock_guard lk(s_statsMu);
+            s_stats.directFallback++;
+            if (GX_FifoRecordingToRAM()) s_stats.directDlRecord++;
+        }
+        g_ppcOriginals[(uint32_t)orig](ctx, base);
+        return;
+    }
+    if (!EnqueueXfIdx(array, index, size, xfAddr))
+    {
+        if (GfxNative_ProfEnabled())
+        {
+            std::lock_guard lk(s_statsMu);
+            s_stats.directFallback++;
+        }
+        g_ppcOriginals[(uint32_t)orig](ctx, base);
+        return;
+    }
+    if (GfxNative_ProfEnabled())
+    {
+        std::lock_guard lk(s_statsMu);
+        if (isPos) s_stats.directIdxPos++;
+        else s_stats.directIdxNrm++;
+    }
+}
+
+PPC_OVERRIDE(GXLoadPosMtxIndx)
+{
+    // void GXLoadPosMtxIndx(u16 index, u32 id); SNCP8P @ 8036EE60 → FIFO 0x20, size 12, CP array 12.
+    const uint32_t index = ctx.r[3] & 0xFFFFu;
+    const uint32_t id = ctx.r[4] & 63u;
+    DirectOrOriginalXfIdx(ctx, base, 12, index, 12u, id * 4u, GA::GXLoadPosMtxIndx, true);
+}
+
+PPC_OVERRIDE(GXLoadNrmMtxIndx3x3)
+{
+    // void GXLoadNrmMtxIndx3x3(u16 index, u32 id); SNCP8P @ 8036EEF0 → FIFO 0x28, size 9, CP array 13.
+    const uint32_t index = ctx.r[3] & 0xFFFFu;
+    const uint32_t id = ctx.r[4] & 63u;
+    const uint32_t xfAddr = 0x400u + id * 3u;
+    DirectOrOriginalXfIdx(ctx, base, 13, index, 9u, xfAddr, GA::GXLoadNrmMtxIndx3x3, false);
 }
 
 // ---- PPC overrides (BP A5c) — SNCP8P addresses verified against DOL / recomp ----

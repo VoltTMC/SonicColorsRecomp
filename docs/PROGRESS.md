@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-26 — A5g: native indexed XF (Pos/Nrm Indx)
+
+**Goal:** Migrate hot indexed-XF SDK entry points off FIFO encode/decode while sharing `GX_ApplyIndexedXf` with the FIFO path.
+
+**Shipped:** verified SNCP8P `GXLoadPosMtxIndx@8036EE60` / `GXLoadNrmMtxIndx3x3@8036EEF0`; `SCR_A5G_DIRECT_INDEXED_XF` (default off); typed `XfIdx` ring; DL record → `PPC_ORIGINAL`; `scr_a5g_indexed_xf_test`; `tools/a5g_tr1_bench.sh`; docs `A5G_*`. Konst `0xE0–E7` unchanged. Tex/Light idx opcodes remain FIFO.
+
+**Evidence (RTX 3080, 90s TR1, A5e on, A5f off):** baseline `xfIdx≈31.1s` @ `fifoIn≈203M`; indexed `idxXf≈1.24M` (`idxPos≈1.15M` `idxNrm≈84k`) `fallback=0`, `xfIdx≈8.2s` @ `fifoIn≈371M` (~5.3s @ matched ~200M fifo — large decode cut); mid unique_xfb samples higher as more stage progress fits the window. Unit + Linux/MinGW OK. Validation not claimed. AMD/RADV **deferred**. Win Vulkan **UNVERIFIED**. D3D11 default; switch opt-in.
+
 ## 2026-11-26 — A5f: deferred BP derived-state propagation
 
 **Goal:** Cut remaining DL BP CPU cost by skipping empty `Render_Flush`/`Render_OnBP` and coalescing `PSKey`/`VSKey` rebuilds, without reordering canonical BP writes or caching display lists.

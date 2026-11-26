@@ -86,6 +86,9 @@ enum
 void Render_Draw(int primitive, int vat, uint32_t count, const uint8_t* data, const VertexLayout& layout);
 void Render_OnBP(uint32_t reg, uint32_t oldValue, uint32_t newValue);
 void Render_OnXF(uint32_t addr, uint32_t count, bool indexed = false);
+// Shared indexed XF apply (FIFO opcode 0x20/28/30/38 and A5g typed path).
+// array: CP array slot 12–15; size: word count; addr: XF mem destination.
+void GX_ApplyIndexedXf(int array, uint32_t index, uint32_t size, uint32_t addr);
 void Render_OnCP(uint32_t reg);
 // True while RunCommands is nested inside CallDisplayList (GPU thread).
 bool GX_InDisplayList();

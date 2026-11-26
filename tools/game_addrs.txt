@@ -108,6 +108,9 @@ SIGetType                    func 8038AAA0
 GXLoadPosMtxImm              func 8036EE10
 GXLoadNrmMtxImm              func 8036EE90
 GXLoadTexMtxImm              func 8036EF50
+# A5g indexed XF (SNCP8P; verified vs recomp fn_8036EE60/EEF0 — FIFO 0x20/0x28)
+GXLoadPosMtxIndx             func 8036EE60
+GXLoadNrmMtxIndx3x3          func 8036EEF0
 # A5c BP-backed SDK (SNCP8P DOL; verified vs recomp fn_8036*)
 GXSetTevColorIn              func 8036D500
 GXSetTevAlphaIn              func 8036D540

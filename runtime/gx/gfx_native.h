@@ -23,6 +23,10 @@ bool GfxNative_DirectKselEnabled();
 // Does not decode/upload textures; only replaces FIFO TX unit BP writes. Default off.
 bool GfxNative_DirectTexObjEnabled();
 
+// A5g opt-in: SCR_A5G_DIRECT_INDEXED_XF=1 — GXLoadPosMtxIndx / GXLoadNrmMtxIndx3x3 → typed
+// indexed XF (same GX_ApplyIndexedXf as FIFO 0x20/0x28). Default off. DL recording → FIFO.
+bool GfxNative_DirectIndexedXfEnabled();
+
 // Profiling: SCR_A5A_PROF=1 (or SCR_A5A_DIRECT / SCR_A5C_DIRECT_BP / A5d) accumulates host counters.
 // SCR_A5B_PROF=1 enables fine-grained RunCommands category self-times.
 // SCR_A5C_BP_PROFILE=1 enables per-BP-register write/nop/special counters.
@@ -70,6 +74,9 @@ struct GfxNativeStats
     uint64_t directTexObj = 0;        // A5e: LoadTexObj / PreLoaded calls
     uint64_t directTexObjBp = 0;      // A5e: BP words from texobj path
     uint64_t directTlut = 0;          // A5e: GXLoadTlut calls
+    uint64_t directIdxXf = 0;         // A5g: typed indexed XF ops
+    uint64_t directIdxPos = 0;        // A5g: PosMtxIndx
+    uint64_t directIdxNrm = 0;        // A5g: NrmMtxIndx3x3
     uint64_t directFallback = 0;
     uint64_t directDlRecord = 0;      // fell back because RecordingToRAM
     uint64_t fifoBytesAvoided = 0;

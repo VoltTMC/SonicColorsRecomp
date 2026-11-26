@@ -236,11 +236,10 @@ static void LoadXF(uint32_t addr, uint32_t count, const uint8_t* data)
     Render_OnXF(addr, count, false);
 }
 
-static void LoadIndexedXF(int array, uint32_t word)
+void GX_ApplyIndexedXf(int array, uint32_t index, uint32_t size, uint32_t addr)
 {
-    uint32_t index = word >> 16;
-    uint32_t size = ((word >> 12) & 0xF) + 1;
-    uint32_t addr = word & 0xFFF;
+    if (array < 0 || array >= 16 || size == 0 || size > 16)
+        return;
     uint32_t base = g_gx.cp[CP_ARRAY_BASE + array];
     uint32_t stride = g_gx.cp[CP_ARRAY_STRIDE + array];
     const uint32_t guestEa = base + index * stride;
@@ -277,6 +276,14 @@ static void LoadIndexedXF(int array, uint32_t word)
     }
     Render_OnXF(addr, size, true);
     A3h_OnIndexedXf(guestEa, base, index, stride, addr, size);
+}
+
+static void LoadIndexedXF(int array, uint32_t word)
+{
+    const uint32_t index = word >> 16;
+    const uint32_t size = ((word >> 12) & 0xF) + 1;
+    const uint32_t addr = word & 0xFFF;
+    GX_ApplyIndexedXf(array, index, size, addr);
 }
 
 static bool s_peSuppress = false;
