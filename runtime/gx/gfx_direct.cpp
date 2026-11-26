@@ -42,6 +42,8 @@ std::mutex s_statsMu;
 
 int s_direct = -1;
 int s_directBp = -1;
+int s_directHot = -1;
+int s_directKsel = -1;
 int s_prof = -1;
 int s_decodeProf = -1;
 
@@ -69,13 +71,27 @@ void EnsureFlags()
         if (s_directBp)
             LOG_INFO("A5c: DIRECT_BP=1 — Blend/Z/TEV/PE → typed BP (SNCP8P D500–E080)");
     }
+    if (s_directHot < 0)
+    {
+        const char* e = std::getenv("SCR_A5D_DIRECT_HOT");
+        s_directHot = (e && e[0] == '1') ? 1 : 0;
+        if (s_directHot)
+            LOG_INFO("A5d: DIRECT_HOT=1 — IND_IMASK/SU_SCALE/TX_INVAL (SNCP8P D400/D430/C930/C9C0/CA40/A8B0)");
+    }
+    if (s_directKsel < 0)
+    {
+        const char* e = std::getenv("SCR_A5D_DIRECT_KSEL");
+        s_directKsel = (e && e[0] == '1') ? 1 : 0;
+        if (s_directKsel)
+            LOG_INFO("A5d: DIRECT_KSEL=1 — GXSetTevSwapMode → KSEL 0xF6 (SNCP8P D2B0)");
+    }
     if (s_prof < 0)
     {
         const char* e = std::getenv("SCR_A5A_PROF");
         const char* e2 = std::getenv("SCR_A5B_PROF");
         const char* e3 = std::getenv("SCR_A5C_BP_PROFILE");
         s_prof = (e && e[0] && e[0] != '0') || (e2 && e2[0] && e2[0] != '0') ||
-                         (e3 && e3[0] == '1') || s_direct || s_directBp
+                         (e3 && e3[0] == '1') || s_direct || s_directBp || s_directHot || s_directKsel
                      ? 1
                      : 0;
         s_decodeProf = (e2 && e2[0] == '1') || s_prof ? 1 : 0;
@@ -277,6 +293,18 @@ bool GfxNative_DirectBpEnabled()
     return s_directBp != 0;
 }
 
+bool GfxNative_DirectHotEnabled()
+{
+    EnsureFlags();
+    return s_directHot != 0;
+}
+
+bool GfxNative_DirectKselEnabled()
+{
+    EnsureFlags();
+    return s_directKsel != 0;
+}
+
 bool GfxNative_ProfEnabled()
 {
     EnsureFlags();
@@ -301,14 +329,16 @@ void GfxNative_StatsReset()
 void GfxNative_LogStats(const char* tag)
 {
     const GfxNativeStats& s = s_stats;
-    LOG_INFO("A5c-{}: fifoIn={} topDecoded={} dlDecoded={} cmds={} draws={} dl={} xf={} bp={} bpNop={} cp={} "
+    LOG_INFO("A5d-{}: fifoIn={} topDecoded={} dlDecoded={} cmds={} draws={} dl={} xf={} bp={} bpNop={} cp={} "
              "directXf={} pos={} nrm={} tex={} directBp={} blend={} z={} tev={} peBit={} "
+             "flush={} flushSkip={} scale={} inval={} ksel={} "
              "fallback={} dlRec={} avoided={} "
              "gatherMs={:.1f} topDecodeMs={:.1f} nestDecodeMs={:.1f} typedMs={:.1f} "
              "catMs cp={:.1f} xfImm={:.1f} xfIdx={:.1f} bp={:.1f} dl={:.1f} draw={:.1f}",
              tag ? tag : "stats", s.fifoBytesIn, s.fifoBytesDecoded, s.dlBytesDecoded, s.cmdsDecoded, s.drawOps,
              s.dlCalls, s.xfLoads, s.bpLoads, s.bpNop, s.cpLoads, s.directXf, s.directPos, s.directNrm, s.directTex,
-             s.directBp, s.directBpBlend, s.directBpZ, s.directBpTev, s.directBpPeBit, s.directFallback,
+             s.directBp, s.directBpBlend, s.directBpZ, s.directBpTev, s.directBpPeBit, s.directBpFlush,
+             s.directBpFlushSkip, s.directBpScale, s.directBpInval, s.directBpKsel, s.directFallback,
              s.directDlRecord, s.fifoBytesAvoided, s.gatherNs / 1e6, s.decodeNs / 1e6, s.decodeNestedNs / 1e6,
              s.typedApplyNs / 1e6, s.catNs[(size_t)GfxDecodeCat::Cp] / 1e6,
              s.catNs[(size_t)GfxDecodeCat::XfImm] / 1e6, s.catNs[(size_t)GfxDecodeCat::XfIdx] / 1e6,
@@ -700,4 +730,295 @@ PPC_OVERRIDE(GXSetZMode)
     if (!DirectOrOriginalBp(ctx, base, word, GA::GXSetZMode, BpKind::Z)) return;
     StoreGuestU32(ea, word);
     ClearDirty(gx);
+}
+
+// ---- A5d hot BP / KSEL ----
+
+static bool HotOrOriginal(PPCContext& ctx, uint8_t* base, bool enabled, GA orig)
+{
+    EnsureFlags();
+    if (!enabled || GX_FifoRecordingToRAM())
+    {
+        if (enabled && GfxNative_ProfEnabled())
+        {
+            std::lock_guard lk(s_statsMu);
+            s_stats.directFallback++;
+            if (GX_FifoRecordingToRAM()) s_stats.directDlRecord++;
+        }
+        g_ppcOriginals[(uint32_t)orig](ctx, base);
+        return false;
+    }
+    return true;
+}
+
+static bool EnqueueBpOrFallback(PPCContext& ctx, uint8_t* base, uint32_t word, GA orig)
+{
+    if (EnqueueBpWord(word)) return true;
+    if (GfxNative_ProfEnabled())
+    {
+        std::lock_guard lk(s_statsMu);
+        s_stats.directFallback++;
+    }
+    g_ppcOriginals[(uint32_t)orig](ctx, base);
+    return false;
+}
+
+PPC_OVERRIDE(GXFlushTextureState)
+{
+    // __GXFlushTextureState @ 8036D430 — re-emits IND_IMASK (BP 0x0F) from gx+0x174.
+    if (!HotOrOriginal(ctx, base, s_directHot != 0, GA::GXFlushTextureState)) return;
+    const uint32_t gx = GxDataEa();
+    const uint32_t word = GuestU32(gx + kGxIndImaskOff);
+    if (GxShadow_IsValid(0x0F))
+    {
+        ClearDirty(gx);
+        if (GfxNative_ProfEnabled())
+        {
+            std::lock_guard lk(s_statsMu);
+            s_stats.directBpFlushSkip++;
+            s_stats.fifoBytesAvoided += 5;
+        }
+        GX_FifoSkipPipeBytes(5);
+        return;
+    }
+    if (!EnqueueBpOrFallback(ctx, base, word, GA::GXFlushTextureState)) return;
+    ClearDirty(gx);
+    if (GfxNative_ProfEnabled())
+    {
+        std::lock_guard lk(s_statsMu);
+        s_stats.directBpFlush++;
+    }
+}
+
+PPC_OVERRIDE(GXSetIndirectMask)
+{
+    // __GXSetIndirectMask @ 8036D400
+    if (!HotOrOriginal(ctx, base, s_directHot != 0, GA::GXSetIndirectMask)) return;
+    const uint32_t gx = GxDataEa();
+    const uint32_t ea = gx + kGxIndImaskOff;
+    uint32_t word = GuestU32(ea);
+    word = (ctx.r[3] & 0xFF) | (word & 0xFFFFFF00);
+    if (!EnqueueBpOrFallback(ctx, base, word, GA::GXSetIndirectMask)) return;
+    StoreGuestU32(ea, word);
+    ClearDirty(gx);
+    if (GfxNative_ProfEnabled())
+    {
+        std::lock_guard lk(s_statsMu);
+        s_stats.directBpFlush++;
+    }
+}
+
+PPC_OVERRIDE(GXInvalidateTexAll)
+{
+    // @ 8036C930 — Flush; BP 0x661000; BP 0x661100; Flush. Preserve that order.
+    if (!HotOrOriginal(ctx, base, s_directHot != 0, GA::GXInvalidateTexAll)) return;
+    const uint32_t gx = GxDataEa();
+    const uint32_t imask = GuestU32(gx + kGxIndImaskOff);
+    const bool canSkipFlush = GxShadow_IsValid(0x0F);
+    auto emitFlush = [&]() -> bool {
+        if (canSkipFlush)
+        {
+            GX_FifoSkipPipeBytes(5);
+            if (GfxNative_ProfEnabled())
+            {
+                std::lock_guard lk(s_statsMu);
+                s_stats.directBpFlushSkip++;
+                s_stats.fifoBytesAvoided += 5;
+            }
+            return true;
+        }
+        if (!EnqueueBpWord(imask)) return false;
+        if (GfxNative_ProfEnabled())
+        {
+            std::lock_guard lk(s_statsMu);
+            s_stats.directBpFlush++;
+        }
+        return true;
+    };
+    if (!emitFlush())
+    {
+        if (GfxNative_ProfEnabled())
+        {
+            std::lock_guard lk(s_statsMu);
+            s_stats.directFallback++;
+        }
+        PPC_ORIGINAL(GXInvalidateTexAll);
+        return;
+    }
+    if (!EnqueueBpWord(0x661000u) || !EnqueueBpWord(0x661100u))
+    {
+        // Flush may already be queued; still emit remaining inval if possible, never ORIGINAL.
+        if (GfxNative_ProfEnabled())
+        {
+            std::lock_guard lk(s_statsMu);
+            s_stats.directFallback++;
+        }
+        ClearDirty(gx);
+        return;
+    }
+    (void)emitFlush();
+    ClearDirty(gx);
+    if (GfxNative_ProfEnabled())
+    {
+        std::lock_guard lk(s_statsMu);
+        s_stats.directBpInval++;
+    }
+}
+
+PPC_OVERRIDE(GXSetTexCoordBias)
+{
+    // @ 8036A8B0 — bias bits on SU_SSIZE (gx+0x108+4*coord)
+    if (!HotOrOriginal(ctx, base, s_directHot != 0, GA::GXSetTexCoordBias)) return;
+    const uint32_t gx = GxDataEa();
+    const uint32_t stageOff = (ctx.r[3] << 2) & 0xFFFFFFFCu;
+    const uint32_t ea = gx + stageOff + kGxSuSsizeOff;
+    uint32_t word = GuestU32(ea);
+    word = (Rotl(ctx.r[4], 18) & 0x40000) | (word & 0xFFFBFFFF);
+    word = (Rotl(ctx.r[5], 19) & 0x80000) | (word & 0xFFF7FFFF);
+    if (!EnqueueBpOrFallback(ctx, base, word, GA::GXSetTexCoordBias)) return;
+    StoreGuestU32(ea, word);
+    ClearDirty(gx);
+    if (GfxNative_ProfEnabled())
+    {
+        std::lock_guard lk(s_statsMu);
+        s_stats.directBpScale++;
+    }
+}
+
+PPC_OVERRIDE(GXSetTexCoordScale)
+{
+    // @ 8036C9C0 — void GXSetTexCoordScale(coord, enable, s, t); enable==0 → dirty only.
+    if (!HotOrOriginal(ctx, base, s_directHot != 0, GA::GXSetTexCoordScale)) return;
+    const uint32_t gx = GxDataEa();
+    const uint32_t coord = ctx.r[3];
+    const uint32_t enable = ctx.r[4];
+    uint32_t dirty = GuestU32(gx + kGxTexScaleDirtyOff);
+    const uint32_t bit = (coord & 0x20) ? 0u : (1u << (coord & 31));
+    const uint32_t enBit = (coord & 0x20) ? 0u : (enable << (coord & 31));
+    dirty = (dirty & ~bit) | enBit;
+    StoreGuestU32(gx + kGxTexScaleDirtyOff, dirty);
+    if (enable == 0)
+    {
+        if (GfxNative_ProfEnabled())
+        {
+            std::lock_guard lk(s_statsMu);
+            s_stats.directBpScale++;
+        }
+        return;
+    }
+    const uint32_t stageOff = (coord << 2) & 0xFFFFFFFCu;
+    const uint32_t eaS = gx + stageOff + kGxSuSsizeOff;
+    const uint32_t eaT = gx + stageOff + kGxSuTsizeOff;
+    const uint32_t sVal = (ctx.r[5] + 0xFFFFFFFFu) & 0xFFFF; // s-1
+    const uint32_t tVal = (ctx.r[6] + 0xFFFFFFFFu) & 0xFFFF; // t-1
+    uint32_t wordS = GuestU32(eaS);
+    uint32_t wordT = GuestU32(eaT);
+    wordS = sVal | (wordS & 0xFFFF0000);
+    wordT = tVal | (wordT & 0xFFFF0000);
+    if (!EnqueueBpWord(wordS) || !EnqueueBpWord(wordT))
+    {
+        if (GfxNative_ProfEnabled())
+        {
+            std::lock_guard lk(s_statsMu);
+            s_stats.directFallback++;
+        }
+        PPC_ORIGINAL(GXSetTexCoordScale);
+        return;
+    }
+    StoreGuestU32(eaS, wordS);
+    StoreGuestU32(eaT, wordT);
+    ClearDirty(gx);
+    if (GfxNative_ProfEnabled())
+    {
+        std::lock_guard lk(s_statsMu);
+        s_stats.directBpScale++;
+    }
+}
+
+PPC_OVERRIDE(GXSetTexCoordCylWrap)
+{
+    // @ 8036CA40 — cyl-wrap bits on SU_SSIZE/TSIZE; BP only if dirty bit clear
+    if (!HotOrOriginal(ctx, base, s_directHot != 0, GA::GXSetTexCoordCylWrap)) return;
+    const uint32_t gx = GxDataEa();
+    const uint32_t coord = ctx.r[3];
+    const uint32_t stageOff = (coord << 2) & 0xFFFFFFFCu;
+    const uint32_t eaS = gx + stageOff + kGxSuSsizeOff;
+    const uint32_t eaT = gx + stageOff + kGxSuTsizeOff;
+    uint32_t wordS = GuestU32(eaS);
+    uint32_t wordT = GuestU32(eaT);
+    wordS = (Rotl(ctx.r[4], 17) & 0x20000) | (wordS & 0xFFFDFFFF);
+    wordT = (Rotl(ctx.r[5], 17) & 0x20000) | (wordT & 0xFFFDFFFF);
+    StoreGuestU32(eaS, wordS);
+    StoreGuestU32(eaT, wordT);
+    const uint32_t bit = (coord & 0x20) ? 0u : (1u << (coord & 31));
+    // Original: if ((dirty & bit) == 0) return without FIFO; else emit both BP words.
+    if ((GuestU32(gx + kGxTexScaleDirtyOff) & bit) == 0)
+    {
+        if (GfxNative_ProfEnabled())
+        {
+            std::lock_guard lk(s_statsMu);
+            s_stats.directBpScale++;
+        }
+        return;
+    }
+    if (!EnqueueBpWord(wordS) || !EnqueueBpWord(wordT))
+    {
+        if (GfxNative_ProfEnabled())
+        {
+            std::lock_guard lk(s_statsMu);
+            s_stats.directFallback++;
+        }
+        PPC_ORIGINAL(GXSetTexCoordCylWrap);
+        return;
+    }
+    ClearDirty(gx);
+    if (GfxNative_ProfEnabled())
+    {
+        std::lock_guard lk(s_statsMu);
+        s_stats.directBpScale++;
+    }
+}
+
+PPC_OVERRIDE(GXSetTevSwapMode)
+{
+    // @ 8036D2B0 — packs ras/tex swap sels into KSEL0 (BP 0xF6) at gx+0x170; dirty |= 3
+    if (!HotOrOriginal(ctx, base, s_directKsel != 0, GA::GXSetTevSwapMode)) return;
+    const uint32_t gx = GxDataEa();
+    uint32_t ras = ctx.r[4];
+    uint32_t tex = ctx.r[5];
+    if (tex == 255) tex = 0;
+    if (ras == 255) ras = 0;
+    const uint32_t stage = ctx.r[3];
+    const uint32_t ea = gx + kGxTevKsel0Off;
+    uint32_t word = GuestU32(ea);
+    switch (stage)
+    {
+    case 0:
+        word = (tex & 0x7) | (word & 0xFFFFFFF8);
+        word = (Rotl(ras, 3) & 0x38) | (word & 0xFFFFFFC7);
+        break;
+    case 1:
+        word = (Rotl(tex, 6) & 0x1C0) | (word & 0xFFFFFE3F);
+        word = (Rotl(ras, 9) & 0xE00) | (word & 0xFFFFF1FF);
+        break;
+    case 2:
+        word = (Rotl(tex, 12) & 0x7000) | (word & 0xFFFF8FFF);
+        word = (Rotl(ras, 15) & 0x38000) | (word & 0xFFFC7FFF);
+        break;
+    case 3:
+        word = (Rotl(tex, 18) & 0x1C0000) | (word & 0xFFE3FFFF);
+        word = (Rotl(ras, 21) & 0xE00000) | (word & 0xFF1FFFFF);
+        break;
+    default:
+        break;
+    }
+    if (!EnqueueBpOrFallback(ctx, base, word, GA::GXSetTevSwapMode)) return;
+    StoreGuestU32(ea, word);
+    StoreGuestU32(gx + kGxDirtyStateOff, GuestU32(gx + kGxDirtyStateOff) | 0x3u);
+    ClearDirty(gx);
+    if (GfxNative_ProfEnabled())
+    {
+        std::lock_guard lk(s_statsMu);
+        s_stats.directBpKsel++;
+    }
 }

@@ -8,10 +8,16 @@
 constexpr uint32_t kSncp8pGxDataEa = 0x807FA960u;
 constexpr uint32_t kSncp8pGxDataPtrEa = 0x808FC248u;
 constexpr uint32_t kGxDirtyFlagsOff = 0x2u;
+constexpr uint32_t kGxSuSsizeOff = 0x108u;      // BP 0x30+2*coord (per-coord ×4)
+constexpr uint32_t kGxSuTsizeOff = 0x128u;      // BP 0x31+2*coord
+constexpr uint32_t kGxTevKsel0Off = 0x170u;     // BP 0xF6 (swap + ksel packed)
+constexpr uint32_t kGxIndImaskOff = 0x174u;     // BP 0x0F
 constexpr uint32_t kGxTevColorEnvOff = 0x180u;
 constexpr uint32_t kGxTevAlphaEnvOff = 0x1C0u;
 constexpr uint32_t kGxCmode0Off = 0x220u; // BP 0x41
 constexpr uint32_t kGxZmodeOff = 0x228u;  // BP 0x40
+constexpr uint32_t kGxTexScaleDirtyOff = 0x5E4u;
+constexpr uint32_t kGxDirtyStateOff = 0x5FCu;
 
 enum class GxBpClass : uint8_t
 {

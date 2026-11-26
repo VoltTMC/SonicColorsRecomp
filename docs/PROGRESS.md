@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-26 — A5d: hot BP path (IND/SU/TX_INVAL) + KSEL swap
+
+**Goal:** Map remaining hot BP regs to SNCP8P writers; migrate IND_IMASK flush, SU scale, TX_INVAL, and KSEL swap; classify `0x66` as trigger.
+
+**Shipped:** register coverage docs; `SCR_A5D_DIRECT_HOT` / `SCR_A5D_DIRECT_KSEL`; adapters `GXFlushTextureState`/`GXSetIndirectMask`/`GXInvalidateTexAll`/`GXSetTexCoordScale|CylWrap|Bias`/`GXSetTevSwapMode`; `Render_InvalidateTextureCache`; flush-skip when `0x0F` valid; `scr_a5d_bp_hot_test`; `tools/a5d_tr1_bench.sh`. TX `0x80–0x94` stay legacy+`bpNop` (mostly DL/LoadTexObj). Indexed XF / DL cache still deferred.
+
+**Evidence (RTX 3080):** HOT `flushSkip≈9k` `inval≈4.6k` `avoided≈90KiB` `fallback=0`; combined `directBp≈29k` `flushSkip≈12k` `avoided≈287KiB`; title unique_xfb ~52–59; load flakes limit outdoor mid claims. Unit + Linux/MinGW OK. AMD/RADV **deferred**. Win Vulkan **UNVERIFIED**. D3D11 default.
+
 ## 2026-11-25 — A5c: BP shadow + direct TEV/blend/Z adapters
 
 **Goal:** Cut measured BP decode cost via a coherent `__gx`/host BP shadow and opt-in direct SDK adapters; audit indexed XF and DL caching without unsafe rewrites.

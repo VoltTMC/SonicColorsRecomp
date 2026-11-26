@@ -36,8 +36,10 @@ From `out/a5c_bp_profile/` / legacy samples (ordered by writes; class Ordinary u
 |---|---|---|
 | `0x0F` | IND_IMASK / related | almost all nops |
 | `0x66` | copy-related | **always changes** (no nop) |
-| `0x8C`/`0x84` | TEV/KSEL family | near-100% nops |
-| `0x90`/`0x88`/`0x80`/`0x94` | TEV/KSEL family | mixed |
+| `0x8C`/`0x84` | TX_SETMODE/IMAGE family (not KSEL) | near-100% nops |
+| `0x90`/`0x88`/`0x80`/`0x94` | TX_SETMODE/IMAGE family | mixed |
+
+True KSEL is BP `0xF6–0xFD` — see A5d.
 | `0x30`/`0x31` | SU_SSIZE/TSIZE | high change rate |
 | `0x43` | PE control / ZCompLoc | mostly nops |
 | `0x4A`/`0x4B` | PE/blend-adjacent | mixed |

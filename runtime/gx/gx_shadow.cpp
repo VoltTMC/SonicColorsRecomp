@@ -87,6 +87,7 @@ GxBpClass GxShadow_Classify(uint32_t reg)
         return GxBpClass::Trigger;
     case 0x52: // EFB copy trigger
     case 0x65: // TLUT load
+    case 0x66: // TX_INVALTAGS — texture-cache invalidate (SNCP8P GXInvalidateTexAll)
         return GxBpClass::Trigger;
     default:
         if (reg >= 0xE0 && reg <= 0xE7)
@@ -244,6 +245,9 @@ void GX_ApplyBpWord(uint32_t word)
         break;
     case 0x48:
         GX_PE_Token((uint16_t)nv, true);
+        break;
+    case 0x66:
+        Render_InvalidateTextureCache();
         break;
     default:
         break;

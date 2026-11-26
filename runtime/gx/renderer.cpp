@@ -400,6 +400,14 @@ static void InvalidateHostBindCache()
 
 void Render_InvalidateHostBindCache() { InvalidateHostBindCache(); }
 
+void Render_InvalidateTextureCache()
+{
+    // BP 0x66 TX_INVALTAGS: drop sampler/fingerprint bind cache so the next draw
+    // re-resolves textures. Host RAM-keyed entries remain content-valid.
+    s_texFpValid = false;
+    InvalidateHostBindCache();
+}
+
 static void MarkXfDirtyRange(uint32_t addr, uint32_t count)
 {
     s_xfDirty = true;

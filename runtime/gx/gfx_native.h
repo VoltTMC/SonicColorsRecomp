@@ -14,7 +14,12 @@ bool GfxNative_DirectEnabled();
 // through typed BP commands. Default off. Independent of SCR_A5A_DIRECT.
 bool GfxNative_DirectBpEnabled();
 
-// Profiling: SCR_A5A_PROF=1 (or SCR_A5A_DIRECT / SCR_A5C_DIRECT_BP) accumulates host counters.
+// A5d opt-in: SCR_A5D_DIRECT_HOT=1 — IND_IMASK flush/mask, SU 0x30/0x31 scale, TX_INVAL 0x66.
+// SCR_A5D_DIRECT_KSEL=1 — GXSetTevSwapMode (KSEL 0xF6 swap fields). Default off.
+bool GfxNative_DirectHotEnabled();
+bool GfxNative_DirectKselEnabled();
+
+// Profiling: SCR_A5A_PROF=1 (or SCR_A5A_DIRECT / SCR_A5C_DIRECT_BP / A5d) accumulates host counters.
 // SCR_A5B_PROF=1 enables fine-grained RunCommands category self-times.
 // SCR_A5C_BP_PROFILE=1 enables per-BP-register write/nop/special counters.
 bool GfxNative_ProfEnabled();
@@ -53,6 +58,11 @@ struct GfxNativeStats
     uint64_t directBpZ = 0;
     uint64_t directBpTev = 0;
     uint64_t directBpPeBit = 0;       // color/alpha update
+    uint64_t directBpFlush = 0;       // A5d: FlushTextureState / SetIndirectMask
+    uint64_t directBpFlushSkip = 0;   // A5d: flush skipped (shadow valid, identical)
+    uint64_t directBpScale = 0;       // A5d: SU_SSIZE/TSIZE (0x30/0x31)
+    uint64_t directBpInval = 0;       // A5d: TX_INVALTAGS 0x66
+    uint64_t directBpKsel = 0;        // A5d: KSEL / swap mode
     uint64_t directFallback = 0;
     uint64_t directDlRecord = 0;      // fell back because RecordingToRAM
     uint64_t fifoBytesAvoided = 0;

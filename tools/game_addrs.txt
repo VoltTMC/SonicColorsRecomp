@@ -117,3 +117,11 @@ GXSetBlendMode               func 8036DFD0
 GXSetColorUpdate             func 8036E020
 GXSetAlphaUpdate             func 8036E050
 GXSetZMode                   func 8036E080
+# A5d hot BP / KSEL (SNCP8P DOL; verified vs recomp)
+GXSetTexCoordBias            func 8036A8B0
+GXInvalidateTexAll           func 8036C930
+GXSetTexCoordScale           func 8036C9C0
+GXSetTexCoordCylWrap         func 8036CA40
+GXSetTevSwapMode             func 8036D2B0
+GXSetIndirectMask            func 8036D400
+GXFlushTextureState          func 8036D430
