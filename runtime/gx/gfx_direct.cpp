@@ -50,6 +50,7 @@ int s_directTexObj = -1;
 int s_directIdxXf = -1;
 int s_directIdxXfExt = -1;
 int s_idxXfPlayback = -1;
+int s_idxXfApply = -1;
 int s_prof = -1;
 int s_decodeProf = -1;
 
@@ -119,6 +120,13 @@ void EnsureFlags()
         if (s_idxXfPlayback)
             LOG_INFO("A5h: INDEXED_XF_PLAYBACK=1 — skip empty Flush; consecutive idx decode");
     }
+    if (s_idxXfApply < 0)
+    {
+        const char* e = std::getenv("SCR_A5I_INDEXED_XF_APPLY");
+        s_idxXfApply = (e && e[0] == '1') ? 1 : 0;
+        if (s_idxXfApply)
+            LOG_INFO("A5i: INDEXED_XF_APPLY=1 — bulk BE convert + identical dirty skip");
+    }
     if (s_prof < 0)
     {
         const char* e = std::getenv("SCR_A5A_PROF");
@@ -126,7 +134,8 @@ void EnsureFlags()
         const char* e3 = std::getenv("SCR_A5C_BP_PROFILE");
         s_prof = (e && e[0] && e[0] != '0') || (e2 && e2[0] && e2[0] != '0') ||
                          (e3 && e3[0] == '1') || s_direct || s_directBp || s_directHot || s_directKsel ||
-                         s_directTexObj || s_directIdxXf || s_directIdxXfExt || s_idxXfPlayback
+                         s_directTexObj || s_directIdxXf || s_directIdxXfExt || s_idxXfPlayback ||
+                         s_idxXfApply
                      ? 1
                      : 0;
         s_decodeProf = (e2 && e2[0] == '1') || s_prof ? 1 : 0;
@@ -405,6 +414,12 @@ bool GfxNative_IndexedXfPlaybackOptEnabled()
     return s_idxXfPlayback != 0;
 }
 
+bool GfxNative_IndexedXfApplyOptEnabled()
+{
+    EnsureFlags();
+    return s_idxXfApply != 0;
+}
+
 bool GfxNative_ProfEnabled()
 {
     EnsureFlags();
@@ -449,6 +464,10 @@ void GfxNative_LogStats(const char* tag)
     LOG_INFO("A5h-{}: fifoIdx op20={} op28={} op30={} op38={} top={} dl={} flushCall={} flushSkip={}",
              tag ? tag : "stats", s.fifoIdxOp20, s.fifoIdxOp28, s.fifoIdxOp30, s.fifoIdxOp38, s.fifoIdxTop,
              s.fifoIdxDl, s.idxXfFlushCall, s.idxXfFlushSkip);
+    LOG_INFO("A5i-{}: idxApply={} guestBytes={} identical={} changed={} applyMs={:.1f} guestMs={:.1f} "
+             "onXfMs={:.1f}",
+             tag ? tag : "stats", s.idxXfApply, s.idxXfGuestBytes, s.idxXfIdentical, s.idxXfChanged,
+             s.idxXfApplyNs / 1e6, s.idxXfGuestNs / 1e6, s.idxXfOnXfNs / 1e6);
     GxShadow_LogProfile(tag);
     GxDefer_LogStats(tag);
 }
@@ -554,6 +573,21 @@ void GfxNative_NoteIndexedXfFlush(bool skipped)
     std::lock_guard lk(s_statsMu);
     if (skipped) s_stats.idxXfFlushSkip++;
     else s_stats.idxXfFlushCall++;
+}
+
+void GfxNative_NoteIndexedXfApply(uint32_t guestBytes, bool identical, bool calledOnXf, uint64_t guestNs,
+                                  uint64_t onXfNs, uint64_t applyNs)
+{
+    if (!GfxNative_ProfEnabled()) return;
+    std::lock_guard lk(s_statsMu);
+    s_stats.idxXfApply++;
+    s_stats.idxXfGuestBytes += guestBytes;
+    if (identical) s_stats.idxXfIdentical++;
+    else s_stats.idxXfChanged++;
+    (void)calledOnXf;
+    s_stats.idxXfGuestNs += guestNs;
+    s_stats.idxXfOnXfNs += onXfNs;
+    s_stats.idxXfApplyNs += applyNs;
 }
 
 // ---- PPC overrides (XF A5a/A5b) ----

@@ -36,6 +36,11 @@ bool GfxNative_DirectIndexedXfExtEnabled();
 // and use a specialised consecutive indexed-XF decode path (FIFO/DL). Default off.
 bool GfxNative_IndexedXfPlaybackOptEnabled();
 
+// A5i: SCR_A5I_INDEXED_XF_APPLY=1 — bulk BE→host endian convert + skip Render_OnXF /
+// MarkXfDirty when the indexed payload is byte-identical to current xfmem. Default off.
+// Does not change A5g/A5h switch behaviour. A3u/A3h hooks still run.
+bool GfxNative_IndexedXfApplyOptEnabled();
+
 // Profiling: SCR_A5A_PROF=1 (or SCR_A5A_DIRECT / SCR_A5C_DIRECT_BP / A5d) accumulates host counters.
 // SCR_A5B_PROF=1 enables fine-grained RunCommands category self-times.
 // SCR_A5C_BP_PROFILE=1 enables per-BP-register write/nop/special counters.
@@ -94,6 +99,13 @@ struct GfxNativeStats
     uint64_t fifoIdxDl = 0;           // A5h: indexed XF during DL playback
     uint64_t idxXfFlushSkip = 0;      // A5h: empty Flush skipped in ApplyIndexedXf
     uint64_t idxXfFlushCall = 0;      // A5h: Flush actually called from ApplyIndexedXf
+    uint64_t idxXfApply = 0;          // A5i: ApplyIndexedXf invocations (all paths)
+    uint64_t idxXfGuestBytes = 0;     // A5i: guest payload bytes read
+    uint64_t idxXfIdentical = 0;      // A5i: payload matched xfmem (dirty skipped when APPLY=1)
+    uint64_t idxXfChanged = 0;        // A5i: payload differed → dirty marked
+    uint64_t idxXfApplyNs = 0;        // A5i: self-time inside ApplyIndexedXf (excl. Flush)
+    uint64_t idxXfGuestNs = 0;        // A5i: guest read + endian convert + xfmem write
+    uint64_t idxXfOnXfNs = 0;         // A5i: Render_OnXF wall from Apply
     uint64_t directFallback = 0;
     uint64_t directDlRecord = 0;      // fell back because RecordingToRAM
     uint64_t fifoBytesAvoided = 0;
@@ -128,3 +140,6 @@ void GfxNative_NoteBpNop();
 // A5h: FIFO/DL indexed-XF opcode accounting (op in {0x20,0x28,0x30,0x38}).
 void GfxNative_NoteIndexedXfFifo(uint8_t op, bool inDisplayList);
 void GfxNative_NoteIndexedXfFlush(bool skipped);
+// A5i: guest-read / apply accounting (bytes = size*4; identical ⇒ dirty skip when APPLY=1).
+void GfxNative_NoteIndexedXfApply(uint32_t guestBytes, bool identical, bool calledOnXf, uint64_t guestNs,
+                                  uint64_t onXfNs, uint64_t applyNs);

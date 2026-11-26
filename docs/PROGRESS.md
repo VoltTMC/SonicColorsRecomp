@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-26 — A5i: indexed XF guest apply + upload profile
+
+**Goal:** Separate guest indexed-read vs renderer XF-upload cost; optimise only the measured bottleneck without weakening A4n or changing A5g/A5h defaults.
+
+**Shipped:** A5i apply/guest/onXf counters; `SCR_A5I_INDEXED_XF_APPLY` (default off) — aligned BE bswap + identical-payload dirty skip; A4n `0x680`/dedup unchanged; `scr_a5i_indexed_xf_data_path_test`; `tools/a5i_tr1_bench.sh`; docs `A5I_*`. Konst/`0x45–66` untouched. No `0x30`/`0x38` SDK adapters.
+
+**Evidence (RTX 3080, 90s TR1, A5g+A5h playback, A5f off):** baseline `fifoIn≈122M` `idxApply≈1.17M` identical≈18.6% `applyMs≈155` `guestMs≈45` `onXfMs≈32` `xfIdx≈3546` `xfMemcpyMs≈9.2` `xfBytes≈238MiB`; APPLY matched `fifoIn≈120M` `onXfMs≈24` (−24%) `applyMs≈138` (−11%) `xfIdx≈3331` (−6%). Title unique_xfb ≈59–60; guest VI≈60. Mid unique_xfb unmatched (stage progress). Unit A5c–A5i OK; Linux/MinGW OK; D3D11 smoke OK. Validation not claimed. AMD/RADV **deferred**. Win Vulkan **UNVERIFIED**. D3D11 default; `SCR_A5I_INDEXED_XF_APPLY` opt-in default off.
+
 ## 2026-11-26 — A5h: indexed XF coverage + DL playback opt
 
 **Goal:** Measure remaining indexed XF by opcode/origin; audit `0x30`/`0x38`; add adapters only if justified; optimise DL/FIFO idx playback without DL caching.

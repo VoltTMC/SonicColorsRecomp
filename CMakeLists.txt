@@ -526,6 +526,15 @@ if(WIN32 OR LINUX)
                                                               RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
                                                               RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
 
+    # A5i: indexed XF guest-read / identical dirty / endian convert equivalence.
+    add_executable(scr_a5i_indexed_xf_data_path_test EXCLUDE_FROM_ALL tools/a5i_indexed_xf_data_path_test/main.cpp)
+    if(LINUX)
+        target_link_options(scr_a5i_indexed_xf_data_path_test PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
+    set_target_properties(scr_a5i_indexed_xf_data_path_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${SCR_OUT_DIR}
+                                                              RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${SCR_OUT_DIR}
+                                                              RUNTIME_OUTPUT_DIRECTORY_RELEASE ${SCR_OUT_DIR})
+
     add_executable(scr_shader_cache_test EXCLUDE_FROM_ALL
                    tools/shader_cache_test/main.cpp runtime/gx/shader_cache.cpp)
     target_include_directories(scr_shader_cache_test PRIVATE runtime)

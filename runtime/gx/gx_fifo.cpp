@@ -255,10 +255,23 @@ void GX_ApplyIndexedXf(int array, uint32_t index, uint32_t size, uint32_t addr)
     }
     if (A2b_FifoCaptureEnabled() && !Render_ReplayIsolationActive())
         A2b_OnIndexedXf(guestEa, size * 4);
+
+    const bool prof = GfxNative_ProfEnabled();
+    const bool applyOpt = GfxNative_IndexedXfApplyOptEnabled();
+    const uint64_t tApply0 = prof ? Platform_PerfCounter() : 0;
+    const uint64_t freq = prof ? Platform_PerfFrequency() : 0;
+    auto nsSince = [&](uint64_t t) -> uint64_t {
+        if (!freq || !t) return 0;
+        return (Platform_PerfCounter() - t) * 1000000000ull / freq;
+    };
+
     // A3n: substitute interpolated ViewPos for the live player palette only.
     float interp[12];
     const bool useInterp = PoseInterp_Enabled() && size >= 12 &&
                            PoseInterp_OverrideIndexed(guestEa, index, stride, interp);
+
+    bool payloadChanged = true;
+    const uint64_t tGuest0 = prof ? Platform_PerfCounter() : 0;
     if (useInterp)
     {
         for (uint32_t i = 0; i < 12; i++)
@@ -274,16 +287,81 @@ void GX_ApplyIndexedXf(int array, uint32_t index, uint32_t size, uint32_t addr)
         for (uint32_t i = 12; i < size; i++)
             g_gx.xfmem[(addr + i) & 0xFFF] = BE32(src + 4 * i);
         A3u_NotePlayerXfRow(addr, size);
+        payloadChanged = true;
+    }
+    else if (!applyOpt)
+    {
+        // Pre-A5i write path. When profiling, detect identical payloads without skipping OnXF.
+        if (prof)
+        {
+            payloadChanged = false;
+            for (uint32_t i = 0; i < size; i++)
+            {
+                const uint32_t v = BE32(src + 4 * i);
+                uint32_t& dst = g_gx.xfmem[(addr + i) & 0xFFF];
+                if (dst != v) payloadChanged = true;
+                dst = v;
+            }
+        }
+        else
+        {
+            for (uint32_t i = 0; i < size; i++)
+                g_gx.xfmem[(addr + i) & 0xFFF] = BE32(src + 4 * i);
+            payloadChanged = true;
+        }
+        A3u_OnIndexedXf(guestEa, addr, size);
     }
     else
     {
-        for (uint32_t i = 0; i < size; i++)
-            g_gx.xfmem[(addr + i) & 0xFFF] = BE32(src + 4 * i);
-        // Live + mid: track ViewPos→XF ownership (clears bit on non-ViewPos overwrite).
+        // A5i APPLY: aligned bswap + compare-before-write; identical ⇒ skip OnXF/dirty.
+        payloadChanged = false;
+        const bool aligned = ((uintptr_t)src & 3u) == 0;
+        if (aligned)
+        {
+            const uint32_t* s32 = reinterpret_cast<const uint32_t*>(src);
+            for (uint32_t i = 0; i < size; i++)
+            {
+                const uint32_t v = __builtin_bswap32(s32[i]);
+                uint32_t& dst = g_gx.xfmem[(addr + i) & 0xFFF];
+                if (dst != v)
+                {
+                    dst = v;
+                    payloadChanged = true;
+                }
+            }
+        }
+        else
+        {
+            for (uint32_t i = 0; i < size; i++)
+            {
+                const uint32_t v = BE32(src + 4 * i);
+                uint32_t& dst = g_gx.xfmem[(addr + i) & 0xFFF];
+                if (dst != v)
+                {
+                    dst = v;
+                    payloadChanged = true;
+                }
+            }
+        }
         A3u_OnIndexedXf(guestEa, addr, size);
     }
-    Render_OnXF(addr, size, true);
+    const uint64_t guestNs = nsSince(tGuest0);
+
+    // Skip MarkXfDirty / OnXF only when APPLY opt is on and payload is unchanged.
+    const bool skipOnXf = applyOpt && !payloadChanged && !useInterp;
+    bool calledOnXf = false;
+    uint64_t onXfNs = 0;
+    if (!skipOnXf)
+    {
+        const uint64_t tOn = prof ? Platform_PerfCounter() : 0;
+        Render_OnXF(addr, size, true);
+        onXfNs = nsSince(tOn);
+        calledOnXf = true;
+    }
     A3h_OnIndexedXf(guestEa, base, index, stride, addr, size);
+
+    GfxNative_NoteIndexedXfApply(size * 4u, !payloadChanged && !useInterp, calledOnXf, guestNs, onXfNs,
+                                 nsSince(tApply0));
 }
 
 static void LoadIndexedXF(int array, uint32_t word)
