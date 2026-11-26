@@ -72,7 +72,7 @@ Outdoor mid-band not obtained in these windows. Do not claim FPS from unequal FI
 
 ## 10. Deferred / status
 
-- Full `GXLoadTexObj` direct path
+- ~~Full `GXLoadTexObj` direct path~~ → **A5e** (`SCR_A5E_DIRECT_TEXOBJ`)
 - Dirty-state KColorSel flush
 - Indexed XF, DL cache
 - AMD/RADV **deferred / unverified**

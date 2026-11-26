@@ -125,3 +125,8 @@ GXSetTexCoordCylWrap         func 8036CA40
 GXSetTevSwapMode             func 8036D2B0
 GXSetIndirectMask            func 8036D400
 GXFlushTextureState          func 8036D430
+# A5e texture-object load (SNCP8P GXTexture; verified vs recomp fn_8036C5C0/C730/C7C0)
+# InitTexObj@8036BFB0 is struct-only (no FIFO) — not overridden.
+GXLoadTexObjPreLoaded        func 8036C5C0
+GXLoadTexObj                 func 8036C730
+GXLoadTlut                   func 8036C7C0

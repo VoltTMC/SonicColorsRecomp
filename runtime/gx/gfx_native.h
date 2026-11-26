@@ -19,6 +19,10 @@ bool GfxNative_DirectBpEnabled();
 bool GfxNative_DirectHotEnabled();
 bool GfxNative_DirectKselEnabled();
 
+// A5e opt-in: SCR_A5E_DIRECT_TEXOBJ=1 — GXLoadTexObj / PreLoaded / GXLoadTlut → typed BP.
+// Does not decode/upload textures; only replaces FIFO TX unit BP writes. Default off.
+bool GfxNative_DirectTexObjEnabled();
+
 // Profiling: SCR_A5A_PROF=1 (or SCR_A5A_DIRECT / SCR_A5C_DIRECT_BP / A5d) accumulates host counters.
 // SCR_A5B_PROF=1 enables fine-grained RunCommands category self-times.
 // SCR_A5C_BP_PROFILE=1 enables per-BP-register write/nop/special counters.
@@ -63,6 +67,9 @@ struct GfxNativeStats
     uint64_t directBpScale = 0;       // A5d: SU_SSIZE/TSIZE (0x30/0x31)
     uint64_t directBpInval = 0;       // A5d: TX_INVALTAGS 0x66
     uint64_t directBpKsel = 0;        // A5d: KSEL / swap mode
+    uint64_t directTexObj = 0;        // A5e: LoadTexObj / PreLoaded calls
+    uint64_t directTexObjBp = 0;      // A5e: BP words from texobj path
+    uint64_t directTlut = 0;          // A5e: GXLoadTlut calls
     uint64_t directFallback = 0;
     uint64_t directDlRecord = 0;      // fell back because RecordingToRAM
     uint64_t fifoBytesAvoided = 0;

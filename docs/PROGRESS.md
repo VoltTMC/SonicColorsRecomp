@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-26 — A5e: native GXLoadTexObj / TX unit state
+
+**Goal:** Migrate immediate `GXLoadTexObj` / `PreLoaded` / `GXLoadTlut` TX BP (`0x80–0x94` family) into typed native adapters without a second texture state machine.
+
+**Shipped:** verified SNCP8P TexObj `0x20` layout + BP id tables `@808F29E0`; `SCR_A5E_DIRECT_TEXOBJ`; adapters `GXLoadTexObj@8036C730`, `PreLoaded@8036C5C0`, `GXLoadTlut@8036C7C0`; guest `__gx` `+0x518/+0x51C/+0x564/+0x584` updates; `scr_a5e_texobj_state_test`; `tools/a5e_tr1_bench.sh`; docs `A5E_*`. DL TX remains FIFO+`bpNop`. Indexed XF / DL cache deferred.
+
+**Evidence (RTX 3080):** TEXOBJ `texObj≈216k` `texObjBp≈1.29M` `avoided≈6.2MiB` `fallback=0`; combined `texObj≈228k` `directBp≈1.84M` `avoided≈20MiB`; title unique_xfb ~55–60; `tlut=0` in sample. Unit + Linux/MinGW OK. AMD/RADV **deferred**. Win Vulkan **UNVERIFIED**. D3D11 default.
+
 ## 2026-11-26 — A5d: hot BP path (IND/SU/TX_INVAL) + KSEL swap
 
 **Goal:** Map remaining hot BP regs to SNCP8P writers; migrate IND_IMASK flush, SU scale, TX_INVAL, and KSEL swap; classify `0x66` as trigger.

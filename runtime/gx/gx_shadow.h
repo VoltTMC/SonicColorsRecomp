@@ -16,8 +16,16 @@ constexpr uint32_t kGxTevColorEnvOff = 0x180u;
 constexpr uint32_t kGxTevAlphaEnvOff = 0x1C0u;
 constexpr uint32_t kGxCmode0Off = 0x220u; // BP 0x41
 constexpr uint32_t kGxZmodeOff = 0x228u;  // BP 0x40
+constexpr uint32_t kGxTexRegionCbOff = 0x518u;  // GXTexRegionCallback
+constexpr uint32_t kGxTlutRegionCbOff = 0x51Cu; // GXTlutRegionCallback
+constexpr uint32_t kGxTexImg0CacheOff = 0x564u; // per-map ×4 (TX_SETIMAGE0 shadow)
+constexpr uint32_t kGxTexMode0CacheOff = 0x584u; // per-map ×4 (TX_SETMODE0 shadow)
 constexpr uint32_t kGxTexScaleDirtyOff = 0x5E4u;
 constexpr uint32_t kGxDirtyStateOff = 0x5FCu;
+
+// SNCP8P .sdata GXTex*Ids[8] @ 808F29E0 (mode0..tlut); verified from main.dol.
+constexpr uint32_t kSncp8pGxTexBpIdTableEa = 0x808F29E0u;
+constexpr uint32_t kGxTexObjSize = 0x20u;
 
 enum class GxBpClass : uint8_t
 {

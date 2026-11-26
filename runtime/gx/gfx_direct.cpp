@@ -2,6 +2,7 @@
 #include "gfx_native.h"
 #include "gx_shadow.h"
 #include "gx_state.h"
+#include "../cpu/ppc_context.h"
 #include "../game_addrs.h"
 #include "../kernel/memory.h"
 #include "../log.h"
@@ -44,6 +45,7 @@ int s_direct = -1;
 int s_directBp = -1;
 int s_directHot = -1;
 int s_directKsel = -1;
+int s_directTexObj = -1;
 int s_prof = -1;
 int s_decodeProf = -1;
 
@@ -85,13 +87,21 @@ void EnsureFlags()
         if (s_directKsel)
             LOG_INFO("A5d: DIRECT_KSEL=1 — GXSetTevSwapMode → KSEL 0xF6 (SNCP8P D2B0)");
     }
+    if (s_directTexObj < 0)
+    {
+        const char* e = std::getenv("SCR_A5E_DIRECT_TEXOBJ");
+        s_directTexObj = (e && e[0] == '1') ? 1 : 0;
+        if (s_directTexObj)
+            LOG_INFO("A5e: DIRECT_TEXOBJ=1 — GXLoadTexObj/PreLoaded/LoadTlut (SNCP8P C5C0/C730/C7C0)");
+    }
     if (s_prof < 0)
     {
         const char* e = std::getenv("SCR_A5A_PROF");
         const char* e2 = std::getenv("SCR_A5B_PROF");
         const char* e3 = std::getenv("SCR_A5C_BP_PROFILE");
         s_prof = (e && e[0] && e[0] != '0') || (e2 && e2[0] && e2[0] != '0') ||
-                         (e3 && e3[0] == '1') || s_direct || s_directBp || s_directHot || s_directKsel
+                         (e3 && e3[0] == '1') || s_direct || s_directBp || s_directHot || s_directKsel ||
+                         s_directTexObj
                      ? 1
                      : 0;
         s_decodeProf = (e2 && e2[0] == '1') || s_prof ? 1 : 0;
@@ -305,6 +315,12 @@ bool GfxNative_DirectKselEnabled()
     return s_directKsel != 0;
 }
 
+bool GfxNative_DirectTexObjEnabled()
+{
+    EnsureFlags();
+    return s_directTexObj != 0;
+}
+
 bool GfxNative_ProfEnabled()
 {
     EnsureFlags();
@@ -329,21 +345,21 @@ void GfxNative_StatsReset()
 void GfxNative_LogStats(const char* tag)
 {
     const GfxNativeStats& s = s_stats;
-    LOG_INFO("A5d-{}: fifoIn={} topDecoded={} dlDecoded={} cmds={} draws={} dl={} xf={} bp={} bpNop={} cp={} "
+    LOG_INFO("A5e-{}: fifoIn={} topDecoded={} dlDecoded={} cmds={} draws={} dl={} xf={} bp={} bpNop={} cp={} "
              "directXf={} pos={} nrm={} tex={} directBp={} blend={} z={} tev={} peBit={} "
-             "flush={} flushSkip={} scale={} inval={} ksel={} "
+             "flush={} flushSkip={} scale={} inval={} ksel={} texObj={} texObjBp={} tlut={} "
              "fallback={} dlRec={} avoided={} "
              "gatherMs={:.1f} topDecodeMs={:.1f} nestDecodeMs={:.1f} typedMs={:.1f} "
              "catMs cp={:.1f} xfImm={:.1f} xfIdx={:.1f} bp={:.1f} dl={:.1f} draw={:.1f}",
              tag ? tag : "stats", s.fifoBytesIn, s.fifoBytesDecoded, s.dlBytesDecoded, s.cmdsDecoded, s.drawOps,
              s.dlCalls, s.xfLoads, s.bpLoads, s.bpNop, s.cpLoads, s.directXf, s.directPos, s.directNrm, s.directTex,
              s.directBp, s.directBpBlend, s.directBpZ, s.directBpTev, s.directBpPeBit, s.directBpFlush,
-             s.directBpFlushSkip, s.directBpScale, s.directBpInval, s.directBpKsel, s.directFallback,
-             s.directDlRecord, s.fifoBytesAvoided, s.gatherNs / 1e6, s.decodeNs / 1e6, s.decodeNestedNs / 1e6,
-             s.typedApplyNs / 1e6, s.catNs[(size_t)GfxDecodeCat::Cp] / 1e6,
-             s.catNs[(size_t)GfxDecodeCat::XfImm] / 1e6, s.catNs[(size_t)GfxDecodeCat::XfIdx] / 1e6,
-             s.catNs[(size_t)GfxDecodeCat::Bp] / 1e6, s.catNs[(size_t)GfxDecodeCat::DlCall] / 1e6,
-             s.catNs[(size_t)GfxDecodeCat::Draw] / 1e6);
+             s.directBpFlushSkip, s.directBpScale, s.directBpInval, s.directBpKsel, s.directTexObj,
+             s.directTexObjBp, s.directTlut, s.directFallback, s.directDlRecord, s.fifoBytesAvoided,
+             s.gatherNs / 1e6, s.decodeNs / 1e6, s.decodeNestedNs / 1e6, s.typedApplyNs / 1e6,
+             s.catNs[(size_t)GfxDecodeCat::Cp] / 1e6, s.catNs[(size_t)GfxDecodeCat::XfImm] / 1e6,
+             s.catNs[(size_t)GfxDecodeCat::XfIdx] / 1e6, s.catNs[(size_t)GfxDecodeCat::Bp] / 1e6,
+             s.catNs[(size_t)GfxDecodeCat::DlCall] / 1e6, s.catNs[(size_t)GfxDecodeCat::Draw] / 1e6);
     GxShadow_LogProfile(tag);
 }
 
@@ -1020,5 +1036,276 @@ PPC_OVERRIDE(GXSetTevSwapMode)
     {
         std::lock_guard lk(s_statsMu);
         s_stats.directBpKsel++;
+    }
+}
+
+// ---- A5e texture-object / TLUT ----
+
+inline uint8_t GuestU8(uint32_t ea) { return *PhysPtr(ea); }
+
+// Guest callback with r3/r4; restores ctx, returns callee r3.
+static uint32_t CallGuestR3(PPCContext& ctx, uint8_t* base, uint32_t func, uint32_t r3, uint32_t r4)
+{
+    PPCContext saved = ctx;
+    ctx.r[1] -= 0x100;
+    ctx.r[3] = r3;
+    ctx.r[4] = r4;
+    ctx.lr = 0;
+    ppc_call_indirect(ctx, base, func);
+    const uint32_t ret = ctx.r[3];
+    ctx = saved;
+    return ret;
+}
+
+static uint8_t TexBpRegId(uint32_t which, uint32_t map)
+{
+    // which: 0=mode0 1=mode1 2=img0 3=img1 4=img2 5=img3 6=tlut
+    return GuestU8(kSncp8pGxTexBpIdTableEa + which * 8u + map);
+}
+
+static uint32_t PackTexBp(uint8_t regId, uint32_t low24)
+{
+    return (Rotl((uint32_t)regId, 24) & 0xFF000000u) | (low24 & 0xFFFFFFu);
+}
+
+// Returns BP words emitted, or 0 on failure (caller must not ORIGINAL after partial enqueue).
+static uint32_t ApplyLoadTexObjPreLoaded(PPCContext& ctx, uint8_t* base, uint32_t obj, uint32_t region,
+                                         uint32_t map)
+{
+    if (!obj || !region || map > 7u) return 0;
+
+    const uint32_t mode0 = PackTexBp(TexBpRegId(0, map), GuestU32(obj));
+    const uint32_t mode1 = PackTexBp(TexBpRegId(1, map), GuestU32(obj + 4));
+    const uint32_t img0 = PackTexBp(TexBpRegId(2, map), GuestU32(obj + 8));
+    const uint32_t img1 = PackTexBp(TexBpRegId(3, map), GuestU32(region));
+    const uint32_t img2 = PackTexBp(TexBpRegId(4, map), GuestU32(region + 4));
+    uint32_t img3 = PackTexBp(TexBpRegId(5, map), GuestU32(obj + 0xC));
+
+    if (!EnqueueBpWord(mode0) || !EnqueueBpWord(mode1) || !EnqueueBpWord(img0) || !EnqueueBpWord(img1) ||
+        !EnqueueBpWord(img2))
+        return 0;
+
+    StoreGuestU32(obj, mode0);
+    StoreGuestU32(obj + 4, mode1);
+    StoreGuestU32(obj + 8, img0);
+    StoreGuestU32(region, img1);
+    StoreGuestU32(region + 4, img2);
+    StoreGuestU32(obj + 0xC, img3);
+
+    if (!EnqueueBpWord(img3)) return 0;
+    uint32_t emitted = 6;
+
+    // flags+0x1F bit1 clear ⇒ colour-index: load TLUT BP via region callback @ gx+0x51C
+    if ((GuestU8(obj + 0x1F) & 0x2) == 0)
+    {
+        const uint32_t gx = GxDataEa();
+        const uint32_t cb = GuestU32(gx + kGxTlutRegionCbOff);
+        if (!cb) return 0;
+        const uint32_t tlutName = GuestU32(obj + 0x18);
+        const uint32_t tlutRegion = CallGuestR3(ctx, base, cb, tlutName, 0);
+        if (!tlutRegion) return 0;
+        const uint32_t tlutWord = PackTexBp(TexBpRegId(6, map), GuestU32(tlutRegion + 4));
+        StoreGuestU32(tlutRegion + 4, tlutWord);
+        if (!EnqueueBpWord(tlutWord)) return 0;
+        emitted++;
+    }
+
+    const uint32_t gx = GxDataEa();
+    const uint32_t mapOff = (map << 2) & 0xFFFFFFFCu;
+    StoreGuestU32(gx + kGxTexImg0CacheOff + mapOff, GuestU32(obj + 8));
+    StoreGuestU32(gx + kGxTexMode0CacheOff + mapOff, GuestU32(obj));
+    StoreGuestU32(gx + kGxDirtyStateOff, GuestU32(gx + kGxDirtyStateOff) | 0x1u);
+    ClearDirty(gx);
+    return emitted;
+}
+
+PPC_OVERRIDE(GXLoadTexObjPreLoaded)
+{
+    // void GXLoadTexObjPreLoaded(GXTexObj* obj, GXTexRegion* region, GXTexMapID id); @ 8036C5C0
+    if (!HotOrOriginal(ctx, base, s_directTexObj != 0, GA::GXLoadTexObjPreLoaded)) return;
+    const uint32_t obj = ctx.r[3];
+    const uint32_t region = ctx.r[4];
+    const uint32_t map = ctx.r[5];
+    const uint32_t n = ApplyLoadTexObjPreLoaded(ctx, base, obj, region, map);
+    if (!n)
+    {
+        if (GfxNative_ProfEnabled())
+        {
+            std::lock_guard lk(s_statsMu);
+            s_stats.directFallback++;
+        }
+        // Partial BP may already be queued — do not ORIGINAL (would double-apply).
+        return;
+    }
+    if (GfxNative_ProfEnabled())
+    {
+        std::lock_guard lk(s_statsMu);
+        s_stats.directTexObj++;
+        s_stats.directTexObjBp += n;
+    }
+}
+
+PPC_OVERRIDE(GXLoadTexObj)
+{
+    // void GXLoadTexObj(GXTexObj* obj, GXTexMapID id); @ 8036C730 — region via gx+0x518 then PreLoaded.
+    if (!HotOrOriginal(ctx, base, s_directTexObj != 0, GA::GXLoadTexObj)) return;
+    const uint32_t obj = ctx.r[3];
+    const uint32_t map = ctx.r[4];
+    if (!obj || map > 7u)
+    {
+        if (GfxNative_ProfEnabled())
+        {
+            std::lock_guard lk(s_statsMu);
+            s_stats.directFallback++;
+        }
+        PPC_ORIGINAL(GXLoadTexObj);
+        return;
+    }
+    const uint32_t gx = GxDataEa();
+    const uint32_t cb = GuestU32(gx + kGxTexRegionCbOff);
+    if (!cb)
+    {
+        if (GfxNative_ProfEnabled())
+        {
+            std::lock_guard lk(s_statsMu);
+            s_stats.directFallback++;
+        }
+        PPC_ORIGINAL(GXLoadTexObj);
+        return;
+    }
+    const uint32_t region = CallGuestR3(ctx, base, cb, obj, map);
+    if (!region)
+    {
+        if (GfxNative_ProfEnabled())
+        {
+            std::lock_guard lk(s_statsMu);
+            s_stats.directFallback++;
+        }
+        PPC_ORIGINAL(GXLoadTexObj);
+        return;
+    }
+    const uint32_t n = ApplyLoadTexObjPreLoaded(ctx, base, obj, region, map);
+    if (!n)
+    {
+        if (GfxNative_ProfEnabled())
+        {
+            std::lock_guard lk(s_statsMu);
+            s_stats.directFallback++;
+        }
+        return;
+    }
+    if (GfxNative_ProfEnabled())
+    {
+        std::lock_guard lk(s_statsMu);
+        s_stats.directTexObj++;
+        s_stats.directTexObjBp += n;
+    }
+}
+
+static bool EmitIndImaskFlush()
+{
+    const uint32_t imask = GuestU32(GxDataEa() + kGxIndImaskOff);
+    if (GxShadow_IsValid(0x0F))
+    {
+        GX_FifoSkipPipeBytes(5);
+        if (GfxNative_ProfEnabled())
+        {
+            std::lock_guard lk(s_statsMu);
+            s_stats.directBpFlushSkip++;
+            s_stats.fifoBytesAvoided += 5;
+        }
+        return true;
+    }
+    if (!EnqueueBpWord(imask)) return false;
+    if (GfxNative_ProfEnabled())
+    {
+        std::lock_guard lk(s_statsMu);
+        s_stats.directBpFlush++;
+    }
+    return true;
+}
+
+PPC_OVERRIDE(GXLoadTlut)
+{
+    // void GXLoadTlut(GXTlutObj* obj, u32 tlut); @ 8036C7C0
+    // Flush; BP obj+4; BP region+0; Flush; merge TMEM into obj; copy to region.
+    if (!HotOrOriginal(ctx, base, s_directTexObj != 0, GA::GXLoadTlut)) return;
+    const uint32_t obj = ctx.r[3];
+    const uint32_t tlut = ctx.r[4];
+    if (!obj)
+    {
+        if (GfxNative_ProfEnabled())
+        {
+            std::lock_guard lk(s_statsMu);
+            s_stats.directFallback++;
+        }
+        PPC_ORIGINAL(GXLoadTlut);
+        return;
+    }
+    const uint32_t gx = GxDataEa();
+    const uint32_t cb = GuestU32(gx + kGxTlutRegionCbOff);
+    if (!cb)
+    {
+        if (GfxNative_ProfEnabled())
+        {
+            std::lock_guard lk(s_statsMu);
+            s_stats.directFallback++;
+        }
+        PPC_ORIGINAL(GXLoadTlut);
+        return;
+    }
+    const uint32_t region = CallGuestR3(ctx, base, cb, tlut, 0);
+    if (!region)
+    {
+        if (GfxNative_ProfEnabled())
+        {
+            std::lock_guard lk(s_statsMu);
+            s_stats.directFallback++;
+        }
+        PPC_ORIGINAL(GXLoadTlut);
+        return;
+    }
+    if (!EmitIndImaskFlush())
+    {
+        if (GfxNative_ProfEnabled())
+        {
+            std::lock_guard lk(s_statsMu);
+            s_stats.directFallback++;
+        }
+        return;
+    }
+    const uint32_t wObj = GuestU32(obj + 4);
+    const uint32_t wReg = GuestU32(region);
+    if (!EnqueueBpWord(wObj) || !EnqueueBpWord(wReg))
+    {
+        if (GfxNative_ProfEnabled())
+        {
+            std::lock_guard lk(s_statsMu);
+            s_stats.directFallback++;
+        }
+        return;
+    }
+    if (!EmitIndImaskFlush())
+    {
+        if (GfxNative_ProfEnabled())
+        {
+            std::lock_guard lk(s_statsMu);
+            s_stats.directFallback++;
+        }
+        return;
+    }
+    // Merge TMEM address bits from region into obj, then mirror into region (+0,+4,+8,+C).
+    uint32_t merged = GuestU32(obj);
+    merged = (GuestU32(region) & 0x3FFu) | (merged & 0xFFFFFC00u);
+    StoreGuestU32(region + 4, merged);
+    StoreGuestU32(region + 8, GuestU32(obj + 4));
+    StoreGuestU32(region + 0xC, GuestU32(obj + 8));
+    StoreGuestU32(obj, merged);
+    ClearDirty(gx);
+    if (GfxNative_ProfEnabled())
+    {
+        std::lock_guard lk(s_statsMu);
+        s_stats.directTlut++;
+        s_stats.directTexObjBp += 2; // the two TLUT BP words (flushes counted separately)
     }
 }
