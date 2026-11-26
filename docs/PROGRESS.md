@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-26 — A5h: indexed XF coverage + DL playback opt
+
+**Goal:** Measure remaining indexed XF by opcode/origin; audit `0x30`/`0x38`; add adapters only if justified; optimise DL/FIFO idx playback without DL caching.
+
+**Shipped:** per-opcode/origin counters (`fifoIdxOp*` / `fifoIdxTop`/`Dl`); empty `Render_Flush` skip + consecutive idx decode under `SCR_A5H_INDEXED_XF_PLAYBACK` (default off); `SCR_A5H_DIRECT_INDEXED_XF_EXT` reserved with **no new adapters** (`0x30`/`0x38` unused in SNCP8P SDK); `scr_a5h_indexed_xf_playback_test`; `tools/a5h_tr1_bench.sh`; docs `A5H_*`. A5g switch/behaviour unchanged. Konst `0xE0–E7` and specials `0x45`/`47`/`48`/`52`/`65`/`66` unchanged.
+
+**Evidence (RTX 3080, 90s TR1, A5g on, A5f off):** at matched `fifoIn≈24.9M`, `xfIdx≈179ms` vs `≈178ms` (playback); flush skip ≈97% (`flushSkip≈35k` / `flushCall≈1.1k`). End playback `fifoIn≈365M` `fifoIdxDl≈2.23M` (`op20/28/30` ≈741k each, `op38=0`) `flushSkip≈3.38M` (~98%); title unique_xfb mean≈58–60; guest VI≈60. A5g arm stayed early (`fifoIn≈25M`) — mid unique_xfb not a matched-FPS claim. Unit A5c–A5h OK; Linux clang + MinGW OK; D3D11 smoke init OK. Validation not claimed. AMD/RADV **deferred**. Win Vulkan **UNVERIFIED**. D3D11 default; A5h switches opt-in default off.
+
 ## 2026-11-26 — A5g: native indexed XF (Pos/Nrm Indx)
 
 **Goal:** Migrate hot indexed-XF SDK entry points off FIFO encode/decode while sharing `GX_ApplyIndexedXf` with the FIFO path.

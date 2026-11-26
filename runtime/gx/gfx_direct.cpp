@@ -48,6 +48,8 @@ int s_directHot = -1;
 int s_directKsel = -1;
 int s_directTexObj = -1;
 int s_directIdxXf = -1;
+int s_directIdxXfExt = -1;
+int s_idxXfPlayback = -1;
 int s_prof = -1;
 int s_decodeProf = -1;
 
@@ -103,6 +105,20 @@ void EnsureFlags()
         if (s_directIdxXf)
             LOG_INFO("A5g: DIRECT_INDEXED_XF=1 — Pos/NrmMtxIndx → typed XF idx (SNCP8P EE60/EEF0)");
     }
+    if (s_directIdxXfExt < 0)
+    {
+        const char* e = std::getenv("SCR_A5H_DIRECT_INDEXED_XF_EXT");
+        s_directIdxXfExt = (e && e[0] == '1') ? 1 : 0;
+        if (s_directIdxXfExt)
+            LOG_INFO("A5h: DIRECT_INDEXED_XF_EXT=1 — no additional SDK adapters (0x30/0x38 unused)");
+    }
+    if (s_idxXfPlayback < 0)
+    {
+        const char* e = std::getenv("SCR_A5H_INDEXED_XF_PLAYBACK");
+        s_idxXfPlayback = (e && e[0] == '1') ? 1 : 0;
+        if (s_idxXfPlayback)
+            LOG_INFO("A5h: INDEXED_XF_PLAYBACK=1 — skip empty Flush; consecutive idx decode");
+    }
     if (s_prof < 0)
     {
         const char* e = std::getenv("SCR_A5A_PROF");
@@ -110,7 +126,7 @@ void EnsureFlags()
         const char* e3 = std::getenv("SCR_A5C_BP_PROFILE");
         s_prof = (e && e[0] && e[0] != '0') || (e2 && e2[0] && e2[0] != '0') ||
                          (e3 && e3[0] == '1') || s_direct || s_directBp || s_directHot || s_directKsel ||
-                         s_directTexObj || s_directIdxXf
+                         s_directTexObj || s_directIdxXf || s_directIdxXfExt || s_idxXfPlayback
                      ? 1
                      : 0;
         s_decodeProf = (e2 && e2[0] == '1') || s_prof ? 1 : 0;
@@ -377,6 +393,18 @@ bool GfxNative_DirectIndexedXfEnabled()
     return s_directIdxXf != 0;
 }
 
+bool GfxNative_DirectIndexedXfExtEnabled()
+{
+    EnsureFlags();
+    return s_directIdxXfExt != 0;
+}
+
+bool GfxNative_IndexedXfPlaybackOptEnabled()
+{
+    EnsureFlags();
+    return s_idxXfPlayback != 0;
+}
+
 bool GfxNative_ProfEnabled()
 {
     EnsureFlags();
@@ -418,6 +446,9 @@ void GfxNative_LogStats(const char* tag)
              s.catNs[(size_t)GfxDecodeCat::XfImm] / 1e6, s.catNs[(size_t)GfxDecodeCat::XfIdx] / 1e6,
              s.catNs[(size_t)GfxDecodeCat::Bp] / 1e6, s.catNs[(size_t)GfxDecodeCat::DlCall] / 1e6,
              s.catNs[(size_t)GfxDecodeCat::Draw] / 1e6);
+    LOG_INFO("A5h-{}: fifoIdx op20={} op28={} op30={} op38={} top={} dl={} flushCall={} flushSkip={}",
+             tag ? tag : "stats", s.fifoIdxOp20, s.fifoIdxOp28, s.fifoIdxOp30, s.fifoIdxOp38, s.fifoIdxTop,
+             s.fifoIdxDl, s.idxXfFlushCall, s.idxXfFlushSkip);
     GxShadow_LogProfile(tag);
     GxDefer_LogStats(tag);
 }
@@ -503,6 +534,26 @@ void GfxNative_NoteBpNop()
     if (!GfxNative_ProfEnabled()) return;
     std::lock_guard lk(s_statsMu);
     s_stats.bpNop++;
+}
+
+void GfxNative_NoteIndexedXfFifo(uint8_t op, bool inDisplayList)
+{
+    if (!GfxNative_ProfEnabled()) return;
+    std::lock_guard lk(s_statsMu);
+    if (op == 0x20) s_stats.fifoIdxOp20++;
+    else if (op == 0x28) s_stats.fifoIdxOp28++;
+    else if (op == 0x30) s_stats.fifoIdxOp30++;
+    else if (op == 0x38) s_stats.fifoIdxOp38++;
+    if (inDisplayList) s_stats.fifoIdxDl++;
+    else s_stats.fifoIdxTop++;
+}
+
+void GfxNative_NoteIndexedXfFlush(bool skipped)
+{
+    if (!GfxNative_ProfEnabled()) return;
+    std::lock_guard lk(s_statsMu);
+    if (skipped) s_stats.idxXfFlushSkip++;
+    else s_stats.idxXfFlushCall++;
 }
 
 // ---- PPC overrides (XF A5a/A5b) ----

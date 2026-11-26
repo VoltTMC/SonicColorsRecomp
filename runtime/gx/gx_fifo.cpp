@@ -244,7 +244,15 @@ void GX_ApplyIndexedXf(int array, uint32_t index, uint32_t size, uint32_t addr)
     uint32_t stride = g_gx.cp[CP_ARRAY_STRIDE + array];
     const uint32_t guestEa = base + index * stride;
     const uint8_t* src = PhysPtr(guestEa);
-    Render_Flush();
+    // A5h: empty Flush skip when INDEXED_XF_PLAYBACK=1 (same rule as A5f BP defer —
+    // no pending geometry → Flush is a no-op). Default off preserves A5g path.
+    if (GfxNative_IndexedXfPlaybackOptEnabled() && !Render_HasPendingDraw())
+        GfxNative_NoteIndexedXfFlush(true);
+    else
+    {
+        Render_Flush();
+        GfxNative_NoteIndexedXfFlush(false);
+    }
     if (A2b_FifoCaptureEnabled() && !Render_ReplayIsolationActive())
         A2b_OnIndexedXf(guestEa, size * 4);
     // A3n: substitute interpolated ViewPos for the live player palette only.
@@ -399,14 +407,29 @@ static size_t RunCommands(const uint8_t* p, size_t n, bool inDisplayList)
         }
         case 0x20: case 0x28: case 0x30: case 0x38:
         {
-            need = 5;
-            if (left < need) return finish(pos);
+            // A5h: specialised consecutive indexed-XF decode — still one Apply per
+            // command (ordering preserved); coalesces dispatch when PLAYBACK=1.
+            const bool bulk = GfxNative_IndexedXfPlaybackOptEnabled();
             const uint64_t tc = catProf ? Platform_PerfCounter() : 0;
-            LoadIndexedXF(12 + ((op >> 3) & 3), BE32(c + 1));
+            size_t run = 0;
+            do
+            {
+                if (left - run < 5) break;
+                const uint8_t rop = c[run];
+                if (rop != 0x20 && rop != 0x28 && rop != 0x30 && rop != 0x38) break;
+                LoadIndexedXF(12 + ((rop >> 3) & 3), BE32(c + run + 1));
+                GfxNative_NoteIndexedXfFifo(rop, inDisplayList);
+                GfxNative_NoteOpcode(rop);
+                cmds++;
+                run += 5;
+            } while (bulk && run < left);
+            if (run == 0)
+            {
+                // Incomplete first command — wait for more bytes.
+                return finish(pos);
+            }
             if (catProf) GfxNative_NoteDecodeCat(GfxDecodeCat::XfIdx, nsSince(tc));
-            GfxNative_NoteOpcode(op);
-            cmds++;
-            pos += need;
+            pos += run;
             continue;
         }
         case 0x40:

@@ -27,6 +27,15 @@ bool GfxNative_DirectTexObjEnabled();
 // indexed XF (same GX_ApplyIndexedXf as FIFO 0x20/0x28). Default off. DL recording → FIFO.
 bool GfxNative_DirectIndexedXfEnabled();
 
+// A5h: SCR_A5H_DIRECT_INDEXED_XF_EXT=1 — reserved for additional SDK idx adapters (0x30/0x38).
+// Currently no justified adapters (opcodes unused by SNCP8P SDK); switch still enables
+// A5h profiling labels. Default off. Does not change A5g behaviour.
+bool GfxNative_DirectIndexedXfExtEnabled();
+
+// A5h: SCR_A5H_INDEXED_XF_PLAYBACK=1 — skip empty Render_Flush inside GX_ApplyIndexedXf
+// and use a specialised consecutive indexed-XF decode path (FIFO/DL). Default off.
+bool GfxNative_IndexedXfPlaybackOptEnabled();
+
 // Profiling: SCR_A5A_PROF=1 (or SCR_A5A_DIRECT / SCR_A5C_DIRECT_BP / A5d) accumulates host counters.
 // SCR_A5B_PROF=1 enables fine-grained RunCommands category self-times.
 // SCR_A5C_BP_PROFILE=1 enables per-BP-register write/nop/special counters.
@@ -77,6 +86,14 @@ struct GfxNativeStats
     uint64_t directIdxXf = 0;         // A5g: typed indexed XF ops
     uint64_t directIdxPos = 0;        // A5g: PosMtxIndx
     uint64_t directIdxNrm = 0;        // A5g: NrmMtxIndx3x3
+    uint64_t fifoIdxOp20 = 0;         // A5h: FIFO/DL decode counts by opcode
+    uint64_t fifoIdxOp28 = 0;
+    uint64_t fifoIdxOp30 = 0;
+    uint64_t fifoIdxOp38 = 0;
+    uint64_t fifoIdxTop = 0;          // A5h: indexed XF outside display lists
+    uint64_t fifoIdxDl = 0;           // A5h: indexed XF during DL playback
+    uint64_t idxXfFlushSkip = 0;      // A5h: empty Flush skipped in ApplyIndexedXf
+    uint64_t idxXfFlushCall = 0;      // A5h: Flush actually called from ApplyIndexedXf
     uint64_t directFallback = 0;
     uint64_t directDlRecord = 0;      // fell back because RecordingToRAM
     uint64_t fifoBytesAvoided = 0;
@@ -108,3 +125,6 @@ void GfxNative_NoteDecode(uint64_t bytes, uint64_t cmds, uint64_t ns, bool topLe
 void GfxNative_NoteOpcode(uint8_t op);
 void GfxNative_NoteDecodeCat(GfxDecodeCat cat, uint64_t ns);
 void GfxNative_NoteBpNop();
+// A5h: FIFO/DL indexed-XF opcode accounting (op in {0x20,0x28,0x30,0x38}).
+void GfxNative_NoteIndexedXfFifo(uint8_t op, bool inDisplayList);
+void GfxNative_NoteIndexedXfFlush(bool skipped);
