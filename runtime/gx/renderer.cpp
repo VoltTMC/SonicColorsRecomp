@@ -302,6 +302,7 @@ static uint32_t s_batchComponents = 0;
 static bool s_xfDirty = true;
 static uint32_t s_xfDirtyBegin = 0;  // inclusive float index into xfmem
 static uint32_t s_xfDirtyEnd = 0;    // exclusive; 0/0 ⇒ full 0x680 upload
+static uint64_t s_xfGeneration = 1;  // A5n: bumped on every MarkXfDirtyRange / full invalidate
 // A5k: set by GX_ApplyIndexedXf around Render_Flush for origin counters / opt.
 static bool s_flushFromIndexedXf = false;
 // A3s mid-stage CPU timers (ns); reset via Render_MidProfReset.
@@ -415,6 +416,7 @@ void Render_InvalidateTextureCache()
 static void MarkXfDirtyRange(uint32_t addr, uint32_t count)
 {
     s_xfDirty = true;
+    s_xfGeneration++;
     if (addr >= 0x680u) return;
     uint32_t end = addr + count;
     if (end > 0x680u) end = 0x680u;
@@ -1969,6 +1971,7 @@ void Render_ForceXfDirty()
     s_xfDirty = true;
     s_xfDirtyBegin = 0;
     s_xfDirtyEnd = 0x680u;
+    s_xfGeneration++;
 }
 
 void Render_MidProfReset()
@@ -2074,6 +2077,7 @@ void Render_ResetHostDrawState()
     s_xfDirty = true;
     s_xfDirtyBegin = 0;
     s_xfDirtyEnd = 0x680u;
+    s_xfGeneration++;
     s_batchComponents = 0;
     GxDefer_InvalidateAll("ResetHostDrawState");
     InvalidateHostBindCache();
@@ -2823,6 +2827,7 @@ static bool FlushVulkan()
     batch.xfDirty = s_xfDirty;
     batch.xfDirtyBegin = s_xfDirtyBegin;
     batch.xfDirtyEnd = s_xfDirtyEnd;
+    batch.xfGeneration = s_xfGeneration;
     FillVSConstants(batch.vs, &flipX, &flipY);
     s_xfDirty = false;
     s_xfDirtyBegin = 0;

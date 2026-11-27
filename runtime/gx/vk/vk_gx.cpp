@@ -275,6 +275,11 @@ bool s_efbReadySemPending = false; // signaled by draw flush, must be waited by 
 uint64_t s_xfLastHash = 0;
 VkDeviceSize s_xfLastOff = 0;
 uint32_t s_xfLastBytes = 0;
+uint64_t s_xfLastGen = 0; // A5n: generation recorded for last uploaded/reused slot
+VkDeviceSize s_xfPrevBindOff = ~0ull; // A5n: prior draw bind offset (redundant-bind skip)
+// A5n: CPU shadow of last uploaded payload — exact compares must not read the
+// host-visible XF ring while the GPU may be sampling it (avoids read/read contention).
+alignas(16) uint8_t s_xfLastCpu[kXfSlotBytes]{};
 // A4n: descriptor reuse for (XF offset + 8× image/sampler); VS/PS via dynamic UBO offsets.
 struct DescCacheKey
 {
@@ -317,6 +322,7 @@ struct StickyDesc
 StickyDesc s_stickyDesc{};
 int s_drawOpt = -1; // SCR_A5L_VULKAN_DRAW_OPT
 int s_geomStreamOpt = -1; // SCR_A5M_VULKAN_GEOMETRY_STREAM_OPT
+int s_xfUploadOpt = -1; // SCR_A5N_VULKAN_XF_UPLOAD_OPT
 // A5l: skip redundant bind cmds within the same CB.
 VkPipeline s_boundPipe = VK_NULL_HANDLE;
 bool s_haveBoundVp = false;
@@ -609,6 +615,7 @@ static void InvalidateStickyDesc()
     s_boundPipe = VK_NULL_HANDLE;
     s_haveBoundVp = false;
     s_haveBoundSc = false;
+    s_xfPrevBindOff = ~0ull; // A5n: bind-reuse counter is per recording CB
 }
 
 static bool DrawOptEnabled()
@@ -634,6 +641,18 @@ static bool GeomStreamOptEnabled()
                      (unsigned)(kArenaBytesA5m / (1024u * 1024u)));
     }
     return s_geomStreamOpt != 0;
+}
+
+static bool XfUploadOptEnabled()
+{
+    if (s_xfUploadOpt < 0)
+    {
+        const char* e = std::getenv("SCR_A5N_VULKAN_XF_UPLOAD_OPT");
+        s_xfUploadOpt = (e && e[0] == '1') ? 1 : 0;
+        if (s_xfUploadOpt)
+            LOG_INFO("A5n: XF_UPLOAD_OPT=1 — dirty-range fast-reject + full exact memcmp; no hot-path hash");
+    }
+    return s_xfUploadOpt != 0;
 }
 
 static void RetireEfbCopyEntries()
@@ -976,6 +995,8 @@ static bool DrainFrameSlot(FrameSlot& fr, std::string& error, bool accountEfbCop
     s_xfLastHash = 0;
     s_xfLastOff = 0;
     s_xfLastBytes = 0;
+    s_xfLastGen = 0;
+    s_xfPrevBindOff = ~0ull;
     s_stats.xfRingWraps++;
     fr.vbPos = 0;
     fr.ibPos = 0;
@@ -2203,6 +2224,8 @@ void VkGx_Shutdown()
     s_xfLastHash = 0;
     s_xfLastOff = 0;
     s_xfLastBytes = 0;
+    s_xfLastGen = 0;
+    s_xfPrevBindOff = ~0ull;
     s_deviceLost = false;
     s_active = false;
 }
@@ -2212,6 +2235,7 @@ bool VkGx_IsActive() { return s_active; }
 bool VkGx_DrawOptEnabled() { return DrawOptEnabled(); }
 
 bool VkGx_GeomStreamOptEnabled() { return GeomStreamOptEnabled(); }
+bool VkGx_XfUploadOptEnabled() { return XfUploadOptEnabled(); }
 
 enum class FlushReason : uint8_t { Geom = 0, Xf = 1, Desc = 2 };
 
@@ -2257,31 +2281,118 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
         s_xfDedup = (!e || (e[0] && e[0] != '0')) ? 1 : 0; // default on
     }
     auto uploadXfSlot = [&](const GfxDrawBatch& b, std::string& err) -> bool {
+        s_stats.xfSlotLookups++;
         const uint32_t floatN =
             std::min(b.xfFloatCount ? b.xfFloatCount : kXfFloatCount, (uint32_t)(kXfSlotBytes / sizeof(float)));
         const size_t n = (size_t)floatN * sizeof(float);
-        // A4m/A4n: reuse last ring slot when XF payload is byte-identical (hash + memcmp).
+        const bool a5n = XfUploadOptEnabled();
+        uint64_t sourceHash = 0;
+        bool haveSourceHash = false;
+        // A4m/A4n: reuse last ring slot when XF payload is byte-identical.
+        // A5n: when dirty-range metadata is valid, exact-compare only that range (all production
+        // float writers go through MarkXfDirtyRange). Hash alone never decides equality.
         if (s_xfDedup && s_xfUploaded && b.xfmem && n == s_xfLastBytes && n > 0)
         {
-            const uint64_t th0 = MonoNs();
-            const uint64_t h = Hash64Bytes(b.xfmem, n);
-            s_stats.xfHashNs += MonoNs() - th0;
-            if (h == s_xfLastHash &&
-                std::memcmp(b.xfmem, (const uint8_t*)s_xfBuf.mapped + s_xfLastOff, n) == 0)
+            const bool rangeOk = b.xfDirtyEnd > b.xfDirtyBegin && b.xfDirtyEnd <= floatN;
+            if (a5n && rangeOk)
             {
-                s_xfBindOffset = s_xfLastOff;
-                s_stats.xfDedupHits++;
-                s_stats.xfBytesAvoided += n;
-                return true;
+                // Fast reject: only the dirty union can have changed *if* every writer marked.
+                // On range equality, still require a full exact compare before reuse — never
+                // treat dirty-range match alone as proof (incomplete marks must not corrupt XF).
+                const size_t offB = (size_t)b.xfDirtyBegin * sizeof(float);
+                const size_t nb = (size_t)(b.xfDirtyEnd - b.xfDirtyBegin) * sizeof(float);
+                const uint64_t tc0 = MonoNs();
+                const int rangeCmp = std::memcmp((const uint8_t*)b.xfmem + offB, s_xfLastCpu + offB, nb);
+                s_stats.xfMemcmpNs += MonoNs() - tc0;
+                s_stats.xfMemcmpCalls++;
+                s_stats.xfMemcmpBytes += nb;
+                if (rangeCmp != 0)
+                {
+                    s_stats.xfDirtyRangeMisses++;
+                    // Known miss — fall through to full-slot memcpy without a pre-copy hash.
+                }
+                else
+                {
+                    const uint64_t tc1 = MonoNs();
+                    const int fullCmp = std::memcmp(b.xfmem, s_xfLastCpu, n);
+                    s_stats.xfMemcmpNs += MonoNs() - tc1;
+                    s_stats.xfMemcmpCalls++;
+                    s_stats.xfMemcmpBytes += n;
+                    if (fullCmp == 0)
+                    {
+                        s_xfBindOffset = s_xfLastOff;
+                        s_xfLastGen = b.xfGeneration;
+                        s_stats.xfDedupHits++;
+                        s_stats.xfDirtyRangeHits++;
+                        s_stats.xfSlotReuse++;
+                        s_stats.xfBytesAvoided += n;
+                        s_stats.xfGenRecorded = s_xfLastGen;
+                        return true;
+                    }
+                    // Range matched but full payload differed — writer missed a mark; upload.
+                    s_stats.xfDirtyRangeMisses++;
+                    s_stats.xfFullCompareFallbacks++;
+                }
+            }
+            else if (a5n)
+            {
+                // Ambiguous/invalid dirty range: exact full compare only (no hash).
+                s_stats.xfFullCompareFallbacks++;
+                const uint64_t tc0 = MonoNs();
+                const int cmp = std::memcmp(b.xfmem, s_xfLastCpu, n);
+                s_stats.xfMemcmpNs += MonoNs() - tc0;
+                s_stats.xfMemcmpCalls++;
+                s_stats.xfMemcmpBytes += n;
+                if (cmp == 0)
+                {
+                    s_xfBindOffset = s_xfLastOff;
+                    s_xfLastGen = b.xfGeneration;
+                    s_stats.xfDedupHits++;
+                    s_stats.xfSlotReuse++;
+                    s_stats.xfBytesAvoided += n;
+                    s_stats.xfGenRecorded = s_xfLastGen;
+                    return true;
+                }
+            }
+            else
+            {
+                // A4n: hash + exact memcmp; hash alone never decides equality.
+                const uint64_t th0 = MonoNs();
+                sourceHash = Hash64Bytes(b.xfmem, n);
+                s_stats.xfHashNs += MonoNs() - th0;
+                s_stats.xfHashCalls++;
+                s_stats.xfHashBytes += n;
+                haveSourceHash = true;
+                if (sourceHash == s_xfLastHash)
+                {
+                    const uint64_t tc0 = MonoNs();
+                    const int cmp = std::memcmp(b.xfmem, s_xfLastCpu, n);
+                    s_stats.xfMemcmpNs += MonoNs() - tc0;
+                    s_stats.xfMemcmpCalls++;
+                    s_stats.xfMemcmpBytes += n;
+                    if (cmp == 0)
+                    {
+                        s_xfBindOffset = s_xfLastOff;
+                        s_xfLastGen = b.xfGeneration;
+                        s_stats.xfDedupHits++;
+                        s_stats.xfSlotReuse++;
+                        s_stats.xfBytesAvoided += n;
+                        s_stats.xfGenRecorded = s_xfLastGen;
+                        return true;
+                    }
+                }
             }
         }
+        const uint64_t tSel0 = MonoNs();
         const VkDeviceSize off = align(s_xfRingPos, kXfSlotBytes);
         if (off + kXfSlotBytes > s_xfBuf.size)
         {
+            s_stats.xfPrepNs += MonoNs() - tSel0;
             err = "xf ring exhausted (flush required)";
             return false;
         }
         uint8_t* dst = (uint8_t*)s_xfBuf.mapped + off;
+        s_stats.xfPrepNs += MonoNs() - tSel0;
         const uint64_t tm0 = MonoNs();
         // New ring version must be a complete GPU-visible snapshot (cannot patch in-place while
         // prior draws reference the previous slot). Dirty-range only informs dedup/stats; host
@@ -2290,7 +2401,12 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
         if (b.xfmem)
         {
             memcpy(dst, b.xfmem, n);
-            if (n < kXfSlotBytes) memset(dst + n, 0, (size_t)(kXfSlotBytes - n));
+            memcpy(s_xfLastCpu, b.xfmem, n);
+            if (n < kXfSlotBytes)
+            {
+                memset(dst + n, 0, (size_t)(kXfSlotBytes - n));
+                memset(s_xfLastCpu + n, 0, (size_t)(kXfSlotBytes - n));
+            }
             s_stats.xfBytesUploaded += n;
             s_stats.uploadBytes += n;
             if (b.xfDirtyEnd > b.xfDirtyBegin && b.xfDirtyEnd <= floatN)
@@ -2302,11 +2418,34 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
         s_xfUploaded = true;
         s_xfLastOff = off;
         s_xfLastBytes = (uint32_t)n;
-        const uint64_t th1 = MonoNs();
-        s_xfLastHash = (b.xfmem && n) ? Hash64Bytes(dst, n) : 0;
-        s_stats.xfHashNs += MonoNs() - th1;
+        s_xfLastGen = b.xfGeneration;
+        s_stats.xfGenRecorded = s_xfLastGen;
+        if (b.xfmem && n)
+        {
+            if (a5n)
+            {
+                // A5n dedup uses exact memcmp only (dirty-range reject + full confirm).
+                // Skip post-copy hashing — fingerprinting is not consulted on the hot path.
+                if (haveSourceHash)
+                    s_xfLastHash = sourceHash; // retained for opt-off transitions / diagnostics
+                else
+                    s_xfLastHash = 0;
+            }
+            else
+            {
+                const uint64_t th1 = MonoNs();
+                s_xfLastHash = Hash64Bytes(dst, n);
+                s_stats.xfHashNs += MonoNs() - th1;
+                s_stats.xfHashCalls++;
+                s_stats.xfHashBytes += n;
+            }
+        }
+        else
+            s_xfLastHash = 0;
         s_stats.xfUploads++;
         if (s_xfRingPos > s_stats.xfRingHighWater) s_stats.xfRingHighWater = s_xfRingPos;
+        const uint64_t slots = (uint64_t)(s_xfRingPos / kXfSlotBytes);
+        if (slots > s_stats.xfPeakSlots) s_stats.xfPeakSlots = slots;
         return true;
     };
     // Mid-frame drain: GPU owns prior VB/IB/XF/desc ranges until the fence signals.
@@ -2347,6 +2486,8 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
             s_xfLastHash = 0;
             s_xfLastOff = 0;
             s_xfLastBytes = 0;
+            s_xfLastGen = 0;
+            s_xfPrevBindOff = ~0ull;
             fr.vbPos = 0;
             fr.ibPos = 0;
             ResetInlineCopyBudget();
@@ -2398,6 +2539,7 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
     }
 
     const uint64_t tXf0 = MonoNs();
+    s_stats.xfStateLookups++;
     if (batch.xfDirty || !s_xfUploaded)
     {
         std::string xfErr;
@@ -2410,6 +2552,12 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
             if (!uploadXfSlot(batch, error)) return false;
         }
     }
+    else
+        s_stats.xfCleanSkips++;
+    s_stats.xfBindCount++;
+    if (s_xfPrevBindOff == s_xfBindOffset)
+        s_stats.xfBindReuse++;
+    s_xfPrevBindOff = s_xfBindOffset;
     s_stats.drawXfNs += MonoNs() - tXf0;
     const uint64_t tDesc0 = MonoNs();
     VkDescriptorSet drawSet = VK_NULL_HANDLE;
@@ -2825,6 +2973,18 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
                  s_stats.flushGeom, s_stats.flushXf, s_stats.flushDesc, s_stats.flushGeomSoft,
                  s_stats.flushGeomFull, s_stats.drawFlushWaitNs / 1e6, s_stats.midFrameFlushes,
                  GeomStreamOptEnabled() ? 1 : 0);
+        LOG_INFO("A5n-present: lookups={} cleanSkip={} slotLook={} hashN={} hashMiB={:.1f} hashMs={:.1f} "
+                 "memcmpN={} memcmpMiB={:.1f} memcmpMs={:.1f} prepMs={:.1f} memcpyMs={:.1f} "
+                 "up={} upMiB={:.1f} dedup={} drHit={} drMiss={} fullFb={} "
+                 "bind={} bindReuse={} peakSlots={} xfMs={:.1f} drawMs={:.1f} xfOpt={}",
+                 s_stats.xfStateLookups, s_stats.xfCleanSkips, s_stats.xfSlotLookups,
+                 s_stats.xfHashCalls, s_stats.xfHashBytes / (1024.0 * 1024.0), s_stats.xfHashNs / 1e6,
+                 s_stats.xfMemcmpCalls, s_stats.xfMemcmpBytes / (1024.0 * 1024.0),
+                 s_stats.xfMemcmpNs / 1e6, s_stats.xfPrepNs / 1e6, s_stats.xfMemcpyNs / 1e6,
+                 s_stats.xfUploads, s_stats.xfBytesUploaded / (1024.0 * 1024.0), s_stats.xfDedupHits,
+                 s_stats.xfDirtyRangeHits, s_stats.xfDirtyRangeMisses, s_stats.xfFullCompareFallbacks,
+                 s_stats.xfBindCount, s_stats.xfBindReuse, s_stats.xfPeakSlots,
+                 s_stats.drawXfNs / 1e6, s_stats.drawEntryNs / 1e6, XfUploadOptEnabled() ? 1 : 0);
     }
     // A5b: emit decode/direct counters without requiring A4n present profiling.
     if (GfxNative_ProfEnabled() && (s_stats.presentCount % 64ull) == 1ull)
@@ -2837,6 +2997,8 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
     s_xfLastHash = 0;
     s_xfLastOff = 0;
     s_xfLastBytes = 0;
+    s_xfLastGen = 0;
+    s_xfPrevBindOff = ~0ull;
     s_stagingPos = 0;
     ResetInlineCopyBudget();
     // Draw fence: with chain, present wait already implies draw completion; wait is near-free.

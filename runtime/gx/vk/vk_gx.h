@@ -139,6 +139,24 @@ struct VkGxStats
     uint64_t flushDesc = 0;              // mid-frame flush: dynUbo / descriptor pool
     uint64_t flushGeomSoft = 0;          // A5m: geom flush preserved XF/desc arenas
     uint64_t flushGeomFull = 0;          // geom flush that still full-reset (fallback)
+    // A5n: XF upload path exclusive staging (CPU only; not GPU execution).
+    uint64_t xfStateLookups = 0;         // draws that evaluate XF upload need
+    uint64_t xfCleanSkips = 0;           // !dirty && already uploaded
+    uint64_t xfSlotLookups = 0;          // entered uploadXfSlot
+    uint64_t xfHashCalls = 0;
+    uint64_t xfHashBytes = 0;
+    uint64_t xfMemcmpCalls = 0;
+    uint64_t xfMemcmpBytes = 0;
+    uint64_t xfMemcmpNs = 0;
+    uint64_t xfPrepNs = 0;               // payload prep excluding hash/memcmp/memcpy body
+    uint64_t xfDirtyRangeHits = 0;       // A5n: identical dirty-range ⇒ reuse slot
+    uint64_t xfDirtyRangeMisses = 0;     // A5n: dirty-range differed ⇒ upload
+    uint64_t xfFullCompareFallbacks = 0; // A5n: 0/0 or invalid range ⇒ hash+memcmp
+    uint64_t xfBindCount = 0;            // times s_xfBindOffset committed for a draw
+    uint64_t xfBindReuse = 0;            // bind offset unchanged vs prior draw in CB
+    uint64_t xfSlotReuse = 0;            // dedup hits (alias of content reuse)
+    uint64_t xfPeakSlots = 0;            // peak (ringPos / slotBytes) in recording window
+    uint64_t xfGenRecorded = 0;          // last generation stored on uploaded slot (stat snapshot)
 };
 VkGxStats VkGx_Stats();
 void VkGx_ResetStats();
@@ -149,6 +167,10 @@ bool VkGx_DrawOptEnabled();
 // A5m: SCR_A5M_VULKAN_GEOMETRY_STREAM_OPT=1 — geom-only mid-frame reclaim + larger rings.
 // Default off. Must be set before VkGx_Init for arena size to take effect.
 bool VkGx_GeomStreamOptEnabled();
+
+// A5n: SCR_A5N_VULKAN_XF_UPLOAD_OPT=1 — dirty-range fast-reject + full exact confirm +
+// single post-copy hash. Default off. Preserves A4n 0x680 full-slot bind; never hash-only equality.
+bool VkGx_XfUploadOptEnabled();
 
 // Rate-limited diagnostic for ops not yet on Vulkan.
 void VkGx_NoteUnsupported(const char* op);

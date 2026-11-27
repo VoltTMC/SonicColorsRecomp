@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-27 — A5n: Vulkan XF upload / state-hash optimisation
+
+**Goal:** Measure exclusive XF hash/compare/prep/copy/upload/bind cost inside `VkGx_Draw`; cut the dominant CPU path without weakening A4n `0x680` full-slot bind or inventing unsafe hash-only reuse.
+
+**Shipped:** XF writer/invalidation audit + generation bump on `MarkXfDirtyRange`; exclusive A5n counters; `SCR_A5N_VULKAN_XF_UPLOAD_OPT` (default off) — dirty-range fast-reject + full exact confirm vs CPU shadow (`s_xfLastCpu`); no hot-path hashing; `scr_a5n_vulkan_xf_upload_test`; `tools/a5n_tr1_bench.sh`; docs `A5N_*`. A4n full-slot bind + A5g–A5m unchanged.
+
+**Evidence (RTX 3080, matched ≈1.27M draws, A5l+A5m on):** A5n=0 `xfMs≈7499` `hashMs≈7415`; A5n=1 `xfMs≈94` (−99%) `hashMs=0`; `drawMs` 11240→7772 (−31%). Title unique_xfb ≈59; guest VI≈60. Rejected unsafe dirty-range-only reuse and ring `memcmp` (contention). Unit A5c–A5n OK; Linux/MinGW OK; D3D11 smoke OK. Validation not claimed. AMD/RADV **deferred**. Win Vulkan **UNVERIFIED**. `SCR_A5N_VULKAN_XF_UPLOAD_OPT` opt-in default off.
+
 ## 2026-11-27 — A5m: Vulkan geometry streaming + mid-frame flush reclaim
 
 **Goal:** Classify mid-frame `flushFrame` reasons; cut avoidable XF/desc resets after geometry capacity waits; optionally enlarge VB/IB rings.

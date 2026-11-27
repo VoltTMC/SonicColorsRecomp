@@ -88,6 +88,10 @@ struct GfxDrawBatch
     // Inclusive/exclusive float indices into xfmem for partial uploads (0/0 ⇒ full xfFloatCount).
     uint32_t xfDirtyBegin = 0;
     uint32_t xfDirtyEnd = 0;
+    // A5n: monotonic XF mutation generation (bumped in MarkXfDirtyRange). Slot records the
+    // generation it actually uploaded; equality alone is not used as a byte-equality proof
+    // when dirty-range metadata is absent (0/0 ⇒ full hash/memcmp fallback).
+    uint64_t xfGeneration = 0;
 
     VSConstants vs{};
     PSConstants ps{};
