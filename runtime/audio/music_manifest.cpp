@@ -370,8 +370,8 @@ fs::path MusicManifest_DefaultDir()
     if (!catalogDir.empty())
     {
         if (DirWritable(catalogDir) && !Platform_LauncherDataDir()) return catalogDir;
-        // AppImage / read-only install / RecompLauncher (which replaces the shipped folder
-        // on update): keep catalog, write manifest/tracks under user data.
+        // AppImage / read-only install / RecompLauncher (which backs up its data folder, not the
+        // shipped one): keep catalog, write manifest/tracks under user data.
         const fs::path userMusic = Platform_UserDir() / "mods" / "music";
         EnsureCatalogFile(userMusic, catalogDir / "catalog.json");
         std::error_code canonEc;

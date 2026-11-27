@@ -51,8 +51,9 @@ bool Platform_IsInstalledLayout();
 // (or SCR_USER_DIR). Linux under RecompLauncher: its data folder (below).
 std::filesystem::path Platform_UserDir();
 // Linux: RecompLauncher's data folder (RECOMPLAUNCHER_DATA), or null when not started by
-// it. The launcher replaces everything beside the executable on every update, so when this
-// is set it is the user directory, over --portable and SCR_PORTABLE. Null on Windows.
+// it. The launcher's backups, cloud saves and Uninstall look after this folder, not the files
+// beside the executable, so when this is set it is the user directory, over --portable and
+// SCR_PORTABLE. Null on Windows.
 inline const char* Platform_LauncherDataDir()
 {
 #ifdef _WIN32

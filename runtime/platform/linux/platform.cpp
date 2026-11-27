@@ -195,15 +195,21 @@ bool Platform_IsPortable()
 }
 
 // First start with RecompLauncher's data folder: copies what older versions kept beside the
-// executable (where the launcher's updates replace it) into it. The old files stay.
+// executable into it (the launcher's backups, cloud saves and Uninstall only look after its
+// data folder). The old files stay.
 static void CopyLegacyUserData(const fs::path& data)
 {
-    // userdata (the save NAND) is made on every start: the game has run here before. Each
-    // item is copied only where there is none yet (the launcher may write config.ini first).
+    // Written last, once every item is copied or wasn't there: userdata (the save NAND) is made
+    // on every start, so it can't tell whether an earlier copy finished.
+    const fs::path marker = data / ".copied-from-program-folder";
     std::error_code ec;
-    if (fs::exists(data / "userdata", ec)) return;
+    if (fs::exists(marker, ec)) return;
     const fs::path exe = Platform_ExeDir();
+    bool ok = true;
+    // Each item is copied only where there is none yet (the launcher may write config.ini first,
+    // or an earlier start copied it before being stopped).
     auto copy = [&](const fs::path& from, const fs::path& to) {
+        std::error_code ec;
         if (!fs::exists(from, ec) || fs::exists(to, ec)) return;
         fs::path part = to;
         part += ".part";
@@ -213,6 +219,7 @@ static void CopyLegacyUserData(const fs::path& data)
         if (!ec) return;
         std::fprintf(stderr, "could not copy %s to %s: %s\n", from.c_str(), to.c_str(), ec.message().c_str());
         fs::remove_all(part, ec);
+        ok = false;
     };
     // saves (ios/nand_paths.h): ../userdata, else the older nand/
     const fs::path ud = (exe / ".." / "userdata").lexically_normal();
@@ -220,6 +227,9 @@ static void CopyLegacyUserData(const fs::path& data)
     for (const char* name : { "config.ini", "config_backups", "input_profiles", "mod_profiles", "video_profiles",
                               "mods", "screenshots", "diagnostics" })
         copy(exe / name, data / name);
+    if (!ok) return; // tried again on the next start
+    FILE* f = std::fopen(marker.c_str(), "w");
+    if (f) std::fclose(f);
 }
 
 fs::path Platform_UserDir()
