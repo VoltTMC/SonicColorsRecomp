@@ -186,6 +186,7 @@ bool Platform_IsInstalledLayout()
 
 bool Platform_IsPortable()
 {
+    if (Platform_LauncherDataDir()) return false;
     if (s_portableRequested) return true;
     if (getenv("SCR_PORTABLE")) return true;
     if (Platform_IsInstalledLayout()) return false;
@@ -193,9 +194,45 @@ bool Platform_IsPortable()
     return !getenv("APPIMAGE") && access(exe.c_str(), W_OK) == 0;
 }
 
+// First start with RecompLauncher's data folder: copies what older versions kept beside the
+// executable (where the launcher's updates replace it) into it. The old files stay.
+static void CopyLegacyUserData(const fs::path& data)
+{
+    // userdata (the save NAND) is made on every start: the game has run here before. Each
+    // item is copied only where there is none yet (the launcher may write config.ini first).
+    std::error_code ec;
+    if (fs::exists(data / "userdata", ec)) return;
+    const fs::path exe = Platform_ExeDir();
+    auto copy = [&](const fs::path& from, const fs::path& to) {
+        if (!fs::exists(from, ec) || fs::exists(to, ec)) return;
+        fs::path part = to;
+        part += ".part";
+        fs::remove_all(part, ec);
+        fs::copy(from, part, fs::copy_options::recursive | fs::copy_options::copy_symlinks, ec);
+        if (!ec) fs::rename(part, to, ec);
+        if (!ec) return;
+        std::fprintf(stderr, "could not copy %s to %s: %s\n", from.c_str(), to.c_str(), ec.message().c_str());
+        fs::remove_all(part, ec);
+    };
+    // saves (ios/nand_paths.h): ../userdata, else the older nand/
+    const fs::path ud = (exe / ".." / "userdata").lexically_normal();
+    copy(fs::exists(ud, ec) ? ud : exe / "nand", data / "userdata");
+    for (const char* name : { "config.ini", "config_backups", "input_profiles", "mod_profiles", "video_profiles",
+                              "mods", "screenshots", "diagnostics" })
+        copy(exe / name, data / name);
+}
+
 fs::path Platform_UserDir()
 {
     static fs::path dir = [] {
+        if (const char* data = Platform_LauncherDataDir())
+        {
+            fs::path d = data;
+            std::error_code ec;
+            fs::create_directories(d, ec);
+            CopyLegacyUserData(d);
+            return d;
+        }
         fs::path exe = Platform_ExeDir();
         const bool portable = s_portableRequested || getenv("SCR_PORTABLE");
         if (portable || (!getenv("APPIMAGE") && access(exe.c_str(), W_OK) == 0)) return exe;

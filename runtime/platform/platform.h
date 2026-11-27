@@ -3,6 +3,7 @@
 // platform/win32 (Win32 API) and platform/linux (POSIX and SDL3).
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -47,8 +48,20 @@ bool Platform_IsInstalledLayout();
 // by default, the installed game data. Linux: exe dir when writable / portable, else
 // $XDG_DATA_HOME/SonicColorsRecomp. Windows: installed.txt → %APPDATA%\SonicColorsRecomp;
 // portable.txt / legacy exe data / --portable → exe dir; else %APPDATA%\SonicColorsRecomp
-// (or SCR_USER_DIR).
+// (or SCR_USER_DIR). Linux under RecompLauncher: its data folder (below).
 std::filesystem::path Platform_UserDir();
+// Linux: RecompLauncher's data folder (RECOMPLAUNCHER_DATA), or null when not started by
+// it. The launcher replaces everything beside the executable on every update, so when this
+// is set it is the user directory, over --portable and SCR_PORTABLE. Null on Windows.
+inline const char* Platform_LauncherDataDir()
+{
+#ifdef _WIN32
+    return nullptr;
+#else
+    const char* d = std::getenv("RECOMPLAUNCHER_DATA");
+    return d && *d ? d : nullptr;
+#endif
+}
 // Writable drop-in tools for Music Library (UserDir/tools/bin). Created on demand.
 std::filesystem::path Platform_MusicToolsBinDir();
 // Dolphin's custom texture folder (Load/Textures) for this user.
