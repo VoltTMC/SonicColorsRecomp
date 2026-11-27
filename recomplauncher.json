@@ -48,6 +48,9 @@
       "id": "main",
       "format": "ini",
       "file": [
+        { "path": "{data}/config.ini", "if": "{data}/config.ini" },
+        { "path": "{install}/usr/bin/config.ini", "if": "{install}/usr/bin/config.ini" },
+        { "path": "{data}/config.ini", "if": "{install}/AppRun" },
         { "path": "{install}/config.ini", "if": "{install}/portable.txt" },
         { "path": "{install}/config.ini", "if": "{install}/config.ini" },
         { "path": "{local}/SonicColorsRecomp/config.ini" },
@@ -208,17 +211,24 @@
   ],
   "folders": {
     "saves": [
+      { "path": "{data}/userdata", "if": "{install}/AppRun" },
       { "path": "{install}/../userdata", "if": "{install}/../userdata" },
       { "path": "{install}/nand", "if": "{install}/nand" },
+      { "path": "{install}/usr/userdata", "if": "{install}/usr/userdata" },
+      { "path": "{install}/usr/bin/nand", "if": "{install}/usr/bin/nand" },
       { "path": "{local}/SonicColorsRecomp" }
     ],
     "logs": [
+      { "path": "{data}", "if": "{install}/AppRun" },
       { "path": "{install}", "if": "{install}/SonicColorsRecomp.log" },
+      { "path": "{install}/usr/bin", "if": "{install}/usr/bin/SonicColorsRecomp.log" },
       { "path": "{local}/SonicColorsRecomp" },
       { "path": "{config}/SonicColorsRecomp" }
     ],
     "diagnostics": [
+      { "path": "{data}/diagnostics", "if": "{install}/AppRun" },
       { "path": "{install}/diagnostics", "if": "{install}/portable.txt" },
+      { "path": "{install}/usr/bin/diagnostics", "if": "{install}/usr/bin/diagnostics" },
       { "path": "{local}/SonicColorsRecomp/diagnostics" },
       { "path": "{config}/SonicColorsRecomp/diagnostics" }
     ],
@@ -228,7 +238,8 @@
   },
   "saves": [
     "{install}/../userdata",
-    "{install}/nand"
+    "{install}/nand",
+    "{data}/userdata"
   ],
   "actions": [
     {
