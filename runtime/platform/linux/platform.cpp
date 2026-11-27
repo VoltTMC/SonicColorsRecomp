@@ -196,24 +196,25 @@ bool Platform_IsPortable()
 
 // First start with RecompLauncher's data folder: copies what older versions kept beside the
 // executable into it (the launcher's backups, cloud saves and Uninstall only look after its
-// data folder). The old files stay.
-static void CopyLegacyUserData(const fs::path& data)
+// data folder). The old files stay. True once the copy has finished.
+static bool CopyLegacyUserData(const fs::path& data)
 {
-    // Written last, once every item is copied or wasn't there: userdata (the save NAND) is made
-    // on every start, so it can't tell whether an earlier copy finished.
+    // Written last, once every item is copied or wasn't there. Until then the game keeps the old
+    // folder, so nothing new is made in data that would hide an item still to be copied.
     const fs::path marker = data / ".copied-from-program-folder";
     std::error_code ec;
-    if (fs::exists(marker, ec)) return;
+    if (fs::exists(marker, ec)) return true;
     const fs::path exe = Platform_ExeDir();
     bool ok = true;
-    // Each item is copied only where there is none yet (the launcher may write config.ini first,
-    // or an earlier start copied it before being stopped).
-    auto copy = [&](const fs::path& from, const fs::path& to) {
+    // Each item is copied only where there is none yet (an earlier start copied it before being
+    // stopped), except config.ini: the launcher writes one in data before this start, and the
+    // old one holds the player's settings.
+    auto copy = [&](const fs::path& from, const fs::path& to, bool replace) {
         std::error_code ec;
-        if (!fs::exists(from, ec) || fs::exists(to, ec)) return;
         fs::path part = to;
         part += ".part";
-        fs::remove_all(part, ec);
+        fs::remove_all(part, ec); // left by a stopped start
+        if (!fs::exists(from, ec) || (!replace && fs::exists(to, ec))) return;
         fs::copy(from, part, fs::copy_options::recursive | fs::copy_options::copy_symlinks, ec);
         if (!ec) fs::rename(part, to, ec);
         if (!ec) return;
@@ -223,25 +224,27 @@ static void CopyLegacyUserData(const fs::path& data)
     };
     // saves (ios/nand_paths.h): ../userdata, else the older nand/
     const fs::path ud = (exe / ".." / "userdata").lexically_normal();
-    copy(fs::exists(ud, ec) ? ud : exe / "nand", data / "userdata");
-    for (const char* name : { "config.ini", "config_backups", "input_profiles", "mod_profiles", "video_profiles",
-                              "mods", "screenshots", "diagnostics" })
-        copy(exe / name, data / name);
-    if (!ok) return; // tried again on the next start
+    copy(fs::exists(ud, ec) ? ud : exe / "nand", data / "userdata", false);
+    copy(exe / "config.ini", data / "config.ini", true);
+    for (const char* name : { "config_backups", "input_profiles", "mod_profiles", "video_profiles", "mods",
+                              "screenshots", "diagnostics" })
+        copy(exe / name, data / name, false);
+    if (!ok) return false; // tried again on the next start
     FILE* f = std::fopen(marker.c_str(), "w");
-    if (f) std::fclose(f);
+    return f && std::fclose(f) == 0;
 }
 
 fs::path Platform_UserDir()
 {
     static fs::path dir = [] {
-        if (const char* data = Platform_LauncherDataDir())
+        const char* data = getenv("RECOMPLAUNCHER_DATA");
+        if (data && *data)
         {
             fs::path d = data;
             std::error_code ec;
             fs::create_directories(d, ec);
-            CopyLegacyUserData(d);
-            return d;
+            if (CopyLegacyUserData(d)) return d;
+            // not copied yet: this start keeps the old folder below
         }
         fs::path exe = Platform_ExeDir();
         const bool portable = s_portableRequested || getenv("SCR_PORTABLE");

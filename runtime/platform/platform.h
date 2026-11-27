@@ -53,14 +53,15 @@ std::filesystem::path Platform_UserDir();
 // Linux: RecompLauncher's data folder (RECOMPLAUNCHER_DATA), or null when not started by
 // it. The launcher's backups, cloud saves and Uninstall look after this folder, not the files
 // beside the executable, so when this is set it is the user directory, over --portable and
-// SCR_PORTABLE. Null on Windows.
+// SCR_PORTABLE, once the old files have been copied into it (until then null, and the old
+// folder is kept for that start). Null on Windows.
 inline const char* Platform_LauncherDataDir()
 {
 #ifdef _WIN32
     return nullptr;
 #else
     const char* d = std::getenv("RECOMPLAUNCHER_DATA");
-    return d && *d ? d : nullptr;
+    return d && *d && Platform_UserDir() == std::filesystem::path(d) ? d : nullptr;
 #endif
 }
 // Writable drop-in tools for Music Library (UserDir/tools/bin). Created on demand.
