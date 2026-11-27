@@ -26,7 +26,10 @@ namespace
 constexpr int kEfbW = 640;
 constexpr int kEfbH = 528;
 constexpr int kFrames = 3;
-constexpr VkDeviceSize kArenaBytes = 16u * 1024u * 1024u;
+constexpr VkDeviceSize kArenaBytesDefault = 16u * 1024u * 1024u;
+constexpr VkDeviceSize kArenaBytesA5m = 32u * 1024u * 1024u; // A5m opt: larger VB/IB rings
+// Effective per-slot VB/IB size (chosen at VkGx_Init from SCR_A5M_VULKAN_GEOMETRY_STREAM_OPT).
+VkDeviceSize s_arenaBytes = kArenaBytesDefault;
 
 #define L(name) PFN_##name pfn_##name = nullptr
 L(vkCreateBuffer); L(vkDestroyBuffer); L(vkGetBufferMemoryRequirements);
@@ -313,6 +316,7 @@ struct StickyDesc
 };
 StickyDesc s_stickyDesc{};
 int s_drawOpt = -1; // SCR_A5L_VULKAN_DRAW_OPT
+int s_geomStreamOpt = -1; // SCR_A5M_VULKAN_GEOMETRY_STREAM_OPT
 // A5l: skip redundant bind cmds within the same CB.
 VkPipeline s_boundPipe = VK_NULL_HANDLE;
 bool s_haveBoundVp = false;
@@ -617,6 +621,19 @@ static bool DrawOptEnabled()
             LOG_INFO("A5l: VULKAN_DRAW_OPT=1 — sticky in-CB desc reuse + bind skip");
     }
     return s_drawOpt != 0;
+}
+
+static bool GeomStreamOptEnabled()
+{
+    if (s_geomStreamOpt < 0)
+    {
+        const char* e = std::getenv("SCR_A5M_VULKAN_GEOMETRY_STREAM_OPT");
+        s_geomStreamOpt = (e && e[0] == '1') ? 1 : 0;
+        if (s_geomStreamOpt)
+            LOG_INFO("A5m: GEOMETRY_STREAM_OPT=1 — geom-only mid-frame reclaim + {} MiB rings",
+                     (unsigned)(kArenaBytesA5m / (1024u * 1024u)));
+    }
+    return s_geomStreamOpt != 0;
 }
 
 static void RetireEfbCopyEntries()
@@ -1734,6 +1751,9 @@ bool VkGx_Init(const VkGxInitOptions& opt, std::string& error)
         error = "VkGx already initialised";
         return false;
     }
+    // Arena size is fixed at init (host-visible VB/IB). Read A5m before CreateBuf.
+    s_arenaBytes = GeomStreamOptEnabled() ? kArenaBytesA5m : kArenaBytesDefault;
+    s_stats.geomArenaBytes = s_arenaBytes;
     if (!Vk_IsReady())
     {
         error = "Vk_Init must succeed before VkGx_Init";
@@ -1854,10 +1874,10 @@ bool VkGx_Init(const VkGxInitOptions& opt, std::string& error)
                 error = "gx fence failed";
                 return false;
             }
-            if (!CreateBuf(s_frames[i].vb, kArenaBytes,
+            if (!CreateBuf(s_frames[i].vb, s_arenaBytes,
                            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                                                                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) ||
-                !CreateBuf(s_frames[i].ib, kArenaBytes,
+                !CreateBuf(s_frames[i].ib, s_arenaBytes,
                            VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                                                                  VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
             {
@@ -2191,6 +2211,10 @@ bool VkGx_IsActive() { return s_active; }
 
 bool VkGx_DrawOptEnabled() { return DrawOptEnabled(); }
 
+bool VkGx_GeomStreamOptEnabled() { return GeomStreamOptEnabled(); }
+
+enum class FlushReason : uint8_t { Geom = 0, Xf = 1, Desc = 2 };
+
 bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
 {
     std::lock_guard lk(s_mu);
@@ -2209,7 +2233,7 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
 
     const VkDeviceSize vbytes = (VkDeviceSize)batch.vertCount * sizeof(HostVertex);
     const VkDeviceSize ibytes = (VkDeviceSize)batch.indexCount * sizeof(uint32_t);
-    if (vbytes > kArenaBytes || ibytes > kArenaBytes)
+    if (vbytes > s_arenaBytes || ibytes > s_arenaBytes)
     {
         error = "draw exceeds per-frame ring capacity";
         return false;
@@ -2285,11 +2309,15 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
         if (s_xfRingPos > s_stats.xfRingHighWater) s_stats.xfRingHighWater = s_xfRingPos;
         return true;
     };
-    auto flushFrame = [&](FrameSlot& fr) {
-        // A4d: do not mid-frame submit while sharing host-visible UBO/SSBO/descriptors.
-        // Drain, then reuse the same frame arena from offset 0.
+    // Mid-frame drain: GPU owns prior VB/IB/XF/desc ranges until the fence signals.
+    // A5m geom-only path reclaims VB/IB after the wait but keeps XF/desc bump state
+    // (same CB retired → those ranges are also idle; continuing the bump avoids re-upload).
+    auto flushFrame = [&](FrameSlot& fr, FlushReason reason) {
         if (!fr.recording) return;
         s_stats.midFrameFlushes++;
+        if (reason == FlushReason::Geom) s_stats.flushGeom++;
+        else if (reason == FlushReason::Xf) s_stats.flushXf++;
+        else s_stats.flushDesc++;
         EndEfbPass(fr);
         pfn_vkEndCommandBuffer(fr.cmd);
         fr.recording = false;
@@ -2297,29 +2325,43 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
         si.commandBufferCount = 1;
         si.pCommandBuffers = &fr.cmd;
         LoadDev<PFN_vkQueueSubmit>("vkQueueSubmit")(Vk_GetGraphicsQueue(), 1, &si, fr.fence);
-        // Fence wait retires this CB; full device idle is unnecessary here.
         const uint64_t tw0 = MonoNs();
         pfn_vkWaitForFences(Vk_GetDevice(), 1, &fr.fence, VK_TRUE, UINT64_MAX);
         s_stats.drawFlushWaitNs += MonoNs() - tw0;
-        ResetFrameDescriptors(); // also InvalidateStickyDesc
-        s_dynUboPos = 0;
-        s_xfRingPos = 0;
-        s_xfUploaded = false;
-        s_xfLastHash = 0;
-        s_xfLastOff = 0;
-        s_xfLastBytes = 0;
-        fr.vbPos = 0;
-        fr.ibPos = 0;
-        ResetInlineCopyBudget();
+        const bool geomSoft = GeomStreamOptEnabled() && reason == FlushReason::Geom;
+        if (geomSoft)
+        {
+            // Geometry arenas wrap to 0; XF/desc still valid for new CB recording.
+            InvalidateStickyDesc(); // new CB — drop bind sticky; sets remain until full reset
+            fr.vbPos = 0;
+            fr.ibPos = 0;
+            ResetInlineCopyBudget();
+            s_stats.flushGeomSoft++;
+        }
+        else
+        {
+            ResetFrameDescriptors(); // also InvalidateStickyDesc
+            s_dynUboPos = 0;
+            s_xfRingPos = 0;
+            s_xfUploaded = false;
+            s_xfLastHash = 0;
+            s_xfLastOff = 0;
+            s_xfLastBytes = 0;
+            fr.vbPos = 0;
+            fr.ibPos = 0;
+            ResetInlineCopyBudget();
+            if (reason == FlushReason::Geom) s_stats.flushGeomFull++;
+        }
     };
 
     FrameSlot* f = &s_frames[s_frameIdx];
     if (!EnsureFrameRecording(*f, error)) return false;
 
     VkDeviceSize vbOff = align(f->vbPos, sizeof(HostVertex));
+    if (vbOff > f->vbPos) s_stats.geomVbPad += (vbOff - f->vbPos);
     if (vbOff + vbytes > f->vb.size || f->ibPos + ibytes > f->ib.size)
     {
-        flushFrame(*f);
+        flushFrame(*f, FlushReason::Geom);
         f = &s_frames[s_frameIdx];
         if (!EnsureFrameRecording(*f, error)) return false;
         vbOff = 0;
@@ -2346,9 +2388,10 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
     f = &s_frames[s_frameIdx];
     if (!EnsureFrameRecording(*f, error)) return false;
     vbOff = align(f->vbPos, sizeof(HostVertex));
+    if (vbOff > f->vbPos) s_stats.geomVbPad += (vbOff - f->vbPos);
     if (vbOff + vbytes > f->vb.size || f->ibPos + ibytes > f->ib.size)
     {
-        flushFrame(*f);
+        flushFrame(*f, FlushReason::Geom);
         f = &s_frames[s_frameIdx];
         if (!EnsureFrameRecording(*f, error)) return false;
         vbOff = 0;
@@ -2360,7 +2403,7 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
         std::string xfErr;
         if (!uploadXfSlot(batch, xfErr))
         {
-            flushFrame(*f);
+            flushFrame(*f, FlushReason::Xf);
             f = &s_frames[s_frameIdx];
             if (!EnsureFrameRecording(*f, error)) return false;
             vbOff = 0;
@@ -2373,7 +2416,7 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
     if (!AllocDrawDescriptors(batch, texViews, texSamps, drawSet, error))
     {
         if (!s_allocNeedFlush) return false;
-        flushFrame(*f);
+        flushFrame(*f, FlushReason::Desc);
         s_dynUboPos = 0;
         f = &s_frames[s_frameIdx];
         if (!EnsureFrameRecording(*f, error)) return false;
@@ -2396,6 +2439,12 @@ bool VkGx_Draw(const GfxDrawBatch& batch, std::string& error)
     f->vbPos = vbOff + vbytes;
     f->ibPos = ibOff + ibytes;
     s_stats.uploadBytes += vbytes + ibytes;
+    s_stats.geomVbBytes += vbytes;
+    s_stats.geomIbBytes += ibytes;
+    s_stats.geomVbCopies++;
+    s_stats.geomIbCopies++;
+    if (f->vbPos > s_stats.geomVbPeak) s_stats.geomVbPeak = f->vbPos;
+    if (f->ibPos > s_stats.geomIbPeak) s_stats.geomIbPeak = f->ibPos;
     s_stats.drawCopyNs += MonoNs() - tCopy0;
 
     if (!BeginEfbPass(*f, false, nullptr, 1.0f)) return false;
@@ -2767,6 +2816,15 @@ bool VkGx_PresentXfb(int sx, int sy, int sw, int sh, std::string& error)
                  s_stats.descStickyPartial, s_stats.descStickyMiss, s_stats.descUpdates,
                  s_stats.bindPipeSkip, s_stats.bindVpSkip, s_stats.bindScissorSkip,
                  s_stats.pipelineHits, s_stats.pipelineMisses, DrawOptEnabled() ? 1 : 0);
+        LOG_INFO("A5m-present: vbMiB={:.1f} ibMiB={:.1f} copyMs={:.1f} vbPad={} peakVbMiB={:.1f} "
+                 "peakIbMiB={:.1f} arenaMiB={} flushGeom={} flushXf={} flushDesc={} "
+                 "geomSoft={} geomFull={} flushWaitMs={:.1f} midFlush={} geomOpt={}",
+                 s_stats.geomVbBytes / (1024.0 * 1024.0), s_stats.geomIbBytes / (1024.0 * 1024.0),
+                 s_stats.drawCopyNs / 1e6, s_stats.geomVbPad, s_stats.geomVbPeak / (1024.0 * 1024.0),
+                 s_stats.geomIbPeak / (1024.0 * 1024.0), (unsigned)(s_arenaBytes / (1024u * 1024u)),
+                 s_stats.flushGeom, s_stats.flushXf, s_stats.flushDesc, s_stats.flushGeomSoft,
+                 s_stats.flushGeomFull, s_stats.drawFlushWaitNs / 1e6, s_stats.midFrameFlushes,
+                 GeomStreamOptEnabled() ? 1 : 0);
     }
     // A5b: emit decode/direct counters without requiring A4n present profiling.
     if (GfxNative_ProfEnabled() && (s_stats.presentCount % 64ull) == 1ull)

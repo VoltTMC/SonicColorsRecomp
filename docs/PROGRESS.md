@@ -1,5 +1,13 @@
 # Progress log
 
+## 2026-11-27 — A5m: Vulkan geometry streaming + mid-frame flush reclaim
+
+**Goal:** Classify mid-frame `flushFrame` reasons; cut avoidable XF/desc resets after geometry capacity waits; optionally enlarge VB/IB rings.
+
+**Shipped:** geom byte/peak/pad counters; flushGeom/Xf/Desc classification; `SCR_A5M_VULKAN_GEOMETRY_STREAM_OPT` (default off) — 32 MiB rings at init + geom-only soft reclaim (preserve XF/desc after fence wait); legacy full reset fallback; `scr_a5m_vulkan_geometry_stream_test`; `tools/a5m_tr1_bench.sh`; docs `A5M_*`. A4n/A5g–A5l unchanged.
+
+**Evidence (RTX 3080, 90s TR1, A5l on):** end-window A5m=0 `flushGeom=625` `flushWaitMs≈621` `peakVb=16`; A5m=1 `flushGeom=0` `flushWaitMs=0` `peakVb≈23.4` `arena=32` — copies matched (~24 GiB VB). Soft reclaim unused (no overflow). Title unique_xfb ≈59; guest VI≈60. Unit A5c–A5m OK; Linux/MinGW OK; D3D11 smoke OK. Validation not claimed. AMD/RADV **deferred**. Win Vulkan **UNVERIFIED**. `SCR_A5M_VULKAN_GEOMETRY_STREAM_OPT` opt-in default off.
+
 ## 2026-11-26 — A5l: Vulkan draw prep/submit profile + sticky desc reuse
 
 **Goal:** Profile exclusive `VkGx_Draw` stages after A5k; cut the largest safe CPU cost without re-enabling hung A4n desc-map / async present experiments.

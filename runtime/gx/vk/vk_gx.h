@@ -125,12 +125,30 @@ struct VkGxStats
     uint64_t bindVpSkip = 0;
     uint64_t bindScissorSkip = 0;
     uint64_t midFrameFlushes = 0;
+    // A5m: geometry streaming / mid-frame flush classification
+    uint64_t geomVbBytes = 0;            // vertex bytes memcpy'd
+    uint64_t geomIbBytes = 0;            // index bytes memcpy'd
+    uint64_t geomVbCopies = 0;
+    uint64_t geomIbCopies = 0;
+    uint64_t geomVbPad = 0;              // alignment padding bytes
+    uint64_t geomVbPeak = 0;             // peak vbPos within a recording window
+    uint64_t geomIbPeak = 0;
+    uint64_t geomArenaBytes = 0;         // per-slot VB (and IB) capacity
+    uint64_t flushGeom = 0;              // mid-frame flush: VB/IB capacity
+    uint64_t flushXf = 0;                // mid-frame flush: XF ring
+    uint64_t flushDesc = 0;              // mid-frame flush: dynUbo / descriptor pool
+    uint64_t flushGeomSoft = 0;          // A5m: geom flush preserved XF/desc arenas
+    uint64_t flushGeomFull = 0;          // geom flush that still full-reset (fallback)
 };
 VkGxStats VkGx_Stats();
 void VkGx_ResetStats();
 
 // A5l: SCR_A5L_VULKAN_DRAW_OPT=1 — sticky in-CB descriptor reuse + bind skip. Default off.
 bool VkGx_DrawOptEnabled();
+
+// A5m: SCR_A5M_VULKAN_GEOMETRY_STREAM_OPT=1 — geom-only mid-frame reclaim + larger rings.
+// Default off. Must be set before VkGx_Init for arena size to take effect.
+bool VkGx_GeomStreamOptEnabled();
 
 // Rate-limited diagnostic for ops not yet on Vulkan.
 void VkGx_NoteUnsupported(const char* op);
