@@ -26,8 +26,10 @@
     ],
     "args": ["--prepare", "--game={game}", "--data={install}/game/extracted/DATA"],
     "label": "Extracting Sonic Colors game data from your disc",
+    "timeout": 600,
     "done": ["{install}/game/extracted/DATA/sys/main.dol"],
-    "keeps_copy": true
+    "keeps_copy": true,
+    "version": "1"
   },
   "start": {
     "program": [
