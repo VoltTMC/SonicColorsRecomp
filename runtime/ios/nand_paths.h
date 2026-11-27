@@ -14,6 +14,8 @@ namespace fs = std::filesystem;
 
 inline fs::path DefaultRoot()
 {
+    // RecompLauncher (Linux): with the rest of the user data, not beside the executable
+    if (Platform_LauncherDataDir()) return Platform_UserDir() / "userdata";
     fs::path root = Platform_ExeDir();
     fs::path ud = (root / ".." / "userdata").lexically_normal();
     fs::path legacy = root / "nand";
